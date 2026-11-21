@@ -1,0 +1,127 @@
+{ pkgs, cppRuntime }:
+{
+  src,
+  contract,
+  name ? "tsugumi-csharp-card",
+  dotnet ? pkgs.dotnet-sdk_10,
+  lock ? null,
+  hash ? null,
+}:
+let
+  inherit (pkgs) lib;
+  inherit (pkgs.stdenv.hostPlatform) isDarwin;
+  inherit (dotnet) runtime;
+  framework = "net${lib.versions.majorMinor runtime.version}";
+  os = if isDarwin then "osx" else "linux";
+  arch = if pkgs.stdenv.hostPlatform.isAarch64 then "arm64" else "x64";
+  rid = "${os}-${arch}";
+  sdkRoot = "${dotnet}/share/dotnet";
+  dotnetRoot = "${runtime}/share/dotnet";
+  hostHeaders = "${sdkRoot}/packs/Microsoft.NETCore.App.Host.${rid}/${runtime.version}/runtimes/${rid}/native";
+  hostfxr = "${dotnetRoot}/host/fxr/${runtime.version}/libhostfxr${pkgs.stdenv.hostPlatform.extensions.sharedLibrary}";
+  nuget = import ./nuget.nix {
+    inherit
+      pkgs
+      name
+      framework
+      lock
+      hash
+      ;
+  };
+  managed =
+    pkgs.runCommand "${name}-managed"
+      {
+        nativeBuildInputs = [
+          dotnet
+          pkgs.flatbuffers
+          pkgs.python3
+        ];
+        DOTNET_CLI_TELEMETRY_OPTOUT = "1";
+        DOTNET_NOLOGO = "1";
+        DOTNET_GENERATE_ASPNET_CERTIFICATE = "false";
+        # Offline restore checks each locked package's content hash.
+        DOTNET_NUGET_SIGNATURE_VERIFICATION = "false";
+      }
+      ''
+        export HOME="$TMPDIR/home" DOTNET_CLI_HOME="$TMPDIR/home"
+        export NUGET_PACKAGES="$TMPDIR/packages" NUGET_HTTP_CACHE_PATH="$TMPDIR/http-cache"
+        unset NUGET_FALLBACK_PACKAGES
+
+        mkdir -p project/src project/Sdk/Generated project/Sdk/FlatBuffers
+        cd project
+        cp -r --no-preserve=mode ${lib.escapeShellArg "${src}"}/. src/
+        cp ${./Entry.cs} Sdk/Entry.cs
+        cp ${./Effects.cs} Sdk/Effects.cs
+        cp ${pkgs.flatbuffers.src}/net/FlatBuffers/*.cs Sdk/FlatBuffers/
+        # The pinned managed verifier uses null for no file identifier.
+        # Its nested-buffer caller passes an empty string instead.
+        sed -i 's/CheckBufferFromStart("", 0, verifyAction)/CheckBufferFromStart(null, 0, verifyAction)/' \
+          Sdk/FlatBuffers/FlatBufferVerify.cs
+        contract=${lib.escapeShellArg "${contract}"}
+        for schema in _inputs _outputs _params; do
+          flatc --csharp --gen-object-api -o Sdk/Generated "$contract/$schema.fbs"
+        done
+        abi=${../../abi/9}
+        flatc --csharp --gen-object-api -o Sdk/Generated \
+          "$abi/tsugumi_enums.fbs" "$abi/card.fbs"
+        python3 ${./card_csharp.py} "$contract/_contract.json" Sdk/Generated/Contract.cs
+        ${lib.optionalString (lock != null) "cp ${lib.escapeShellArg "${lock}"} packages.lock.json"}
+
+        cat > Card.csproj <<'PROJECT'
+        <Project Sdk="Microsoft.NET.Sdk">
+          <PropertyGroup>
+            <TargetFramework>${framework}</TargetFramework>
+            <AssemblyName>Card</AssemblyName>
+            <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+            <GenerateRuntimeConfigurationFiles>true</GenerateRuntimeConfigurationFiles>
+            <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+            <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+            <NuGetAudit>false</NuGetAudit>
+            <DebugType>none</DebugType>
+          </PropertyGroup>
+          <ItemGroup>
+            <Compile Include="src/**/*.cs" Exclude="src/**/obj/**/*;src/**/bin/**/*" />
+            <Compile Include="Sdk/**/*.cs" />
+            ${nuget.references}
+          </ItemGroup>
+        </Project>
+        PROJECT
+
+        dotnet restore Card.csproj --configfile ${nuget.config} ${
+          lib.optionalString (lock != null) "--locked-mode"
+        }
+        dotnet publish Card.csproj --no-restore --configuration Release --output "$out" \
+          -p:Deterministic=true -p:PathMap="$PWD=/card" \
+          -p:PublishReferencesDocumentationFiles=false
+      '';
+in
+pkgs.runCommandCC name
+  {
+    buildInputs = [ pkgs.flatbuffers ];
+    passthru = {
+      inherit managed;
+    }
+    // lib.optionalAttrs (lock != null) { nugetPackages = nuget.packages; };
+  }
+  ''
+    mkdir -p "$out/lib"
+    ${
+      if isDarwin then
+        ''
+          link=(-Wl,-exported_symbol,_tsugumi_main -Wl,-undefined,error)
+        ''
+      else
+        ''
+          printf '{ global: tsugumi_main; local: *; };\n' > "$TMPDIR/exports"
+          link=(-Wl,--version-script,"$TMPDIR/exports" -Wl,-z,defs -ldl)
+        ''
+    }
+    $CXX -std=c++2c -O2 -DNDEBUG -fPIC -fvisibility=hidden -fvisibility-inlines-hidden \
+      -Wall -Wextra -Werror -Wformat=2 -Wimplicit-fallthrough -shared \
+      -I"${cppRuntime}/include" -I"${../cpp/src}" -isystem "${hostHeaders}" \
+      -DTSUGUMI_HOSTFXR='"'${hostfxr}'"' -DTSUGUMI_DOTNET_ROOT='"'${dotnetRoot}'"' \
+      -DTSUGUMI_CSHARP_ASSEMBLY='"'${managed}/Card.dll'"' \
+      -DTSUGUMI_CSHARP_RUNTIMECONFIG='"'${managed}/Card.runtimeconfig.json'"' \
+      ${./host.cc} "${cppRuntime}/lib/libtsugumi_abi9.a" -pthread "''${link[@]}" \
+      -o "$out/lib/main.so"
+  ''

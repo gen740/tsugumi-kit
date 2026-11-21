@@ -18,6 +18,7 @@
       imports = [
         ./nix/outputs.nix
         ./nix/checks.nix
+        ./nix/csharp.nix
       ];
     };
 }
