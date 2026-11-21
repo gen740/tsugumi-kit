@@ -23,6 +23,7 @@
         ./nix/go.nix
         ./nix/python.nix
         ./nix/ruby.nix
+        ./nix/rust.nix
       ];
     };
 }

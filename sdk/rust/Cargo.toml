@@ -1,0 +1,8 @@
+[package]
+name = "tsugumi"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+flatbuffers = { path = "flatbuffers" }
+serde_json = "1"

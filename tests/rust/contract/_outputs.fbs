@@ -1,0 +1,21 @@
+attribute "tsugumi";
+
+namespace rust_outputs.number;
+table Number { value:long; }
+
+namespace rust_outputs.summary;
+table Label { text:string (required); }
+union Choice { Label }
+table Summary { data:Choice; values:[long]; }
+
+namespace rust_outputs.file;
+table File { value:string (required); }
+
+namespace rust_outputs;
+table Outputs {
+  number:rust_outputs.number.Number (required);
+  summary:rust_outputs.summary.Summary (required);
+  copy:rust_outputs.file.File (tsugumi: "file");
+  forwarded:rust_outputs.file.File (tsugumi: "file");
+}
+root_type Outputs;
