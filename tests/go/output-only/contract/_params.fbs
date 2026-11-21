@@ -1,0 +1,2 @@
+namespace parameters;
+table Params { value:long; }

@@ -1,9 +1,13 @@
 {
   lib,
   stdenv,
+  runCommand,
   runCommandCC,
   flatbuffers,
+  go,
+  zlib,
   goCard,
+  goCardSdk,
   runtime,
 }:
 let
@@ -11,16 +15,36 @@ let
   card = goCard {
     src = ./src;
     inherit contract;
+    buildInputs = [ zlib ];
+  };
+  outputContract = ./output-only/contract;
+  developmentSdk = goCardSdk {
+    contract = outputContract;
+    goMod = ./output-only/src/go.mod;
+  };
+  developmentSrc = runCommand "tsugumi-go-development-source" { } ''
+    mkdir "$out"
+    cp -r ${./output-only/src}/. "$out/"
+    ln -s ${developmentSdk} "$out/tsugumi"
+  '';
+  outputOnly = goCard {
+    name = "tsugumi-go-output-only-card";
+    src = developmentSrc;
+    contract = outputContract;
   };
   inherit (stdenv.hostPlatform) isDarwin;
 in
 runCommandCC "tsugumi-go-abi9-check"
   {
-    nativeBuildInputs = [ flatbuffers ];
+    nativeBuildInputs = [
+      flatbuffers
+      go
+    ];
     buildInputs = [ flatbuffers ];
   }
   ''
     card=${card}/lib/main.so
+    payload=${card}/lib/go-card.so
     shared=${../.}
     include=${runtime}/include
 
@@ -36,16 +60,45 @@ runCommandCC "tsugumi-go-abi9-check"
     ./fake_host "$card" "$PWD/legacy.so"
     ./cancel "$card"
 
+    mkdir output-only
+    flatc --cpp --scoped-enums -o output-only ${outputContract}/{_outputs,_params}.fbs
+    $CXX -std=c++2c -Wall -Wextra -Werror -Ioutput-only -I"$shared" -I"$include" \
+      ${./output-only/startup.cc} ${lib.optionalString (!isDarwin) "-ldl"} -o startup
+    ./startup ${outputOnly}/lib/{main,go-card}.so
+
+    cp -r --no-preserve=mode ${developmentSrc} dev
+    (cd dev
+      export CGO_ENABLED=1 GOTOOLCHAIN=local GOWORK=off GOPROXY=off
+      export GOCACHE="$TMPDIR/go-cache" GOMODCACHE="$TMPDIR/go-modules"
+      go test -mod=readonly ./...
+    )
+
     ${
       if isDarwin then
-        ''test "$(nm -gUj "$card")" = _tsugumi_main''
+        ''
+          test "$(nm -gUj "$card")" = _tsugumi_main
+          test "$(nm -gUj "$payload")" = _tsugumi_go_entry
+          otool -L "$card" > loader.deps
+          otool -L "$payload" | tail -n +2 > payload.deps
+        ''
       else
-        ''test "$(nm -D --defined-only -j "$card")" = tsugumi_main''
+        ''
+          test "$(nm -D --defined-only -j "$card")" = tsugumi_main
+          test "$(nm -D --defined-only -j "$payload")" = tsugumi_go_entry
+          readelf -d "$card" > loader.deps
+          readelf -d "$payload" > payload.deps
+        ''
     }
-    strings -a "$card" > card.strings
-    nm "$card" | c++filt > card.symbols
+    grep -E 'libz\.' payload.deps
+    if grep -E 'go-card\.so|libz\.' loader.deps || \
+       grep -Ei 'flatbuffers|nlohmann|libtsugumi' loader.deps payload.deps; then
+      echo "Unexpected dynamic dependency in the Go Card" >&2
+      exit 1
+    fi
+    strings -a "$card" "$payload" > card.strings
+    nm "$card" "$payload" | c++filt > card.symbols
     if grep -Ei 'BFBS|reflection_generated|flatbuffers.*reflection|reflection::' card.strings card.symbols; then
-      echo "Unexpected FlatBuffers reflection data in main.so" >&2
+      echo "Unexpected FlatBuffers reflection data in the Go Card" >&2
       exit 1
     fi
     touch "$out"

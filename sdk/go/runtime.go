@@ -84,13 +84,23 @@ func writeFailure(raw unsafe.Pointer, failure *Failure) int {
 		stringPointer(failure.Cell), C.size_t(len(failure.Cell))))
 }
 
+func catchPanic(err *error) {
+	if recovered := recover(); recovered != nil {
+		*err = fmt.Errorf("Go panic: %v", recovered)
+	}
+}
+
+// Guard runs work in the calling goroutine and converts a panic to an error.
+// Use it inside the goroutine and handle the returned error there or send it
+// to another goroutine. A panic in a goroutine started by work needs its own guard.
+func Guard(work func() error) (err error) {
+	defer catchPanic(&err)
+	return work()
+}
+
 func invoke(data []byte, result unsafe.Pointer, run func(Inputs) (Output, error)) (stage string, err error) {
 	stage = "invalid_request"
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			err = fmt.Errorf("Go panic: %v", recovered)
-		}
-	}()
+	defer catchPanic(&err)
 
 	input, err := readInput(wire.GetRootAsCardInput(data, 0))
 	if err != nil {

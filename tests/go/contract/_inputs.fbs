@@ -1,5 +1,6 @@
 namespace inputs.number;
-table Number { value:long; }
+struct Position (force_align: 32) { x:long; y:long; }
+table Number { position:Position (required); }
 
 namespace inputs.data;
 table Row { value:long; }
@@ -13,3 +14,6 @@ table Data {
 
 namespace inputs.file;
 table File { value:string (required); }
+
+namespace inputs.directory;
+table Directory { value:string (required); }

@@ -43,7 +43,7 @@ def generate_go(inputs, outputs):
         'wire "tsugumi/Tsugumi/Card"',
         '"tsugumi/parameters"',
     ]
-    if all_ports:
+    if inputs:
         lines.append('"tsugumi/Tsugumi/Data"')
     if outputs:
         lines.append('"tsugumi/flatbuffers"')

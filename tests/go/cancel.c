@@ -25,13 +25,20 @@ int main(int argc, char** argv) {
   int queries = 0;
   const tsugumi_effects effects = {.cancelled = cancelled,
                                    .remaining_ms = remaining_ms};
-  const tsugumi_call call = {.abi_version = TSUGUMI_ABI_VERSION,
-                             .input = make_input(VALID, 8, -1),
-                             .host = &queries,
-                             .effects = &effects};
+  tsugumi_call call = {.abi_version = TSUGUMI_ABI_VERSION,
+                       .input = make_input(VALID, 8, -1),
+                       .host = &queries,
+                       .effects = &effects};
   tsugumi_bytes result;
   CHECK(entry(&call, &result) == 0);
   CHECK(queries == 1);
   check_card_failure(result, 8);
+
+  call.input = make_input(VALID, 9, -1);
+  CHECK(entry(&call, &result) == 0);
+  check_card_failure(result, 9);
+  call.input = make_input(VALID, 0, -1);
+  CHECK(entry(&call, &result) == 0);
+  check_success(result, 0);
   return 0;
 }

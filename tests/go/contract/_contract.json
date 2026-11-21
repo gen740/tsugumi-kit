@@ -2,13 +2,15 @@
   "inputs": [
     {"name": "number", "type": "inputs.number.Number", "kind": "flatbuffer", "required": true},
     {"name": "data", "type": "inputs.data.Data", "kind": "flatbuffer", "required": true},
-    {"name": "file", "type": "inputs.file.File", "kind": "file", "required": false}
+    {"name": "file", "type": "inputs.file.File", "kind": "file", "required": false},
+    {"name": "directory", "type": "inputs.directory.Directory", "kind": "directory", "required": false}
   ],
   "outputs": [
     {"name": "number", "type": "outputs.number.Number", "kind": "flatbuffer", "required": true},
     {"name": "data", "type": "outputs.data.Data", "kind": "flatbuffer", "required": true},
     {"name": "file", "type": "outputs.file.File", "kind": "file", "required": false},
-    {"name": "forwarded", "type": "outputs.forwarded.File", "kind": "file", "required": false}
+    {"name": "forwarded", "type": "outputs.forwarded.File", "kind": "file", "required": false},
+    {"name": "directory", "type": "outputs.directory.Directory", "kind": "directory", "required": false}
   ],
   "params": [{"name": "mode"}, {"name": "fd"}]
 }

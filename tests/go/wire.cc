@@ -4,6 +4,7 @@
 #include <array>
 #include <filesystem>
 #include <fstream>
+#include <initializer_list>
 #include <iterator>
 #include <vector>
 
@@ -20,6 +21,7 @@ using Tsugumi::Data::PortKind;
 
 flatbuffers::DetachedBuffer input_buffer;
 std::string input_path;
+std::string directory_path;
 
 template <class Table>
 auto Decode(tsugumi_bytes bytes) -> const Table& {
@@ -35,7 +37,10 @@ auto DecodePort(const CardPort& port, std::string_view name, PortKind kind) ->
   CHECK(port.name()->string_view() == name && port.kind() == kind);
   CHECK(port.bytes() && port.bytes()->size());
   const size_t size = port.bytes()->size();
-  std::vector<uint64_t> aligned((size + 7) / 8);
+  struct alignas(FLATBUFFERS_MAX_ALIGNMENT) Block {
+    uint8_t bytes[FLATBUFFERS_MAX_ALIGNMENT];
+  };
+  std::vector<Block> aligned((size + sizeof(Block) - 1) / sizeof(Block));
   std::ranges::copy(*port.bytes(), reinterpret_cast<uint8_t*>(aligned.data()));
   return *std::unique_ptr<typename Table::NativeTableType>(
       Decode<Table>({reinterpret_cast<const uint8_t*>(aligned.data()), size})
@@ -69,6 +74,13 @@ auto CheckFailure(tsugumi_bytes result, FailureKind kind)
   return *decoded.failure();
 }
 
+auto CheckBlob(const CardDisplay& display, size_t index, std::string_view name,
+               std::initializer_list<uint8_t> expected) -> void {
+  const auto& blob = *display.blobs()->Get(index);
+  CHECK(blob.name()->string_view() == name);
+  CHECK(blob.bytes() && std::ranges::equal(*blob.bytes(), expected));
+}
+
 }  // namespace
 
 extern "C" auto make_input(input_case test_case, int mode, int fd)
@@ -94,7 +106,7 @@ extern "C" auto make_input(input_case test_case, int mode, int fd)
 
   if (test_case != MISSING_INPUT) {
     inputs::number::NumberT number;
-    number.value = 40;
+    number.position = std::make_unique<inputs::number::Position>(40, -15);
     const auto kind = test_case == UNKNOWN_KIND ? static_cast<PortKind>(255)
                       : test_case == WRONG_KIND ? PortKind::File
                                                 : PortKind::FlatBuffer;
@@ -115,6 +127,16 @@ extern "C" auto make_input(input_case test_case, int mode, int fd)
     inputs::file::FileT port;
     port.value = input_path;
     AddPort(input, "file", PortKind::File, Encode<inputs::file::File>(port));
+
+    directory_path = std::filesystem::absolute("input-directory").string();
+    CHECK(std::filesystem::create_directory(directory_path));
+    std::ofstream member(std::filesystem::path(directory_path) / "member.txt");
+    member << "forwarded Directory member";
+    CHECK(member.good());
+    inputs::directory::DirectoryT directory;
+    directory.value = directory_path;
+    AddPort(input, "directory", PortKind::Directory,
+            Encode<inputs::directory::Directory>(directory));
   }
 
   flatbuffers::FlatBufferBuilder builder;
@@ -128,10 +150,11 @@ extern "C" auto check_success(tsugumi_bytes result, int optional_ports)
   const auto& decoded = Decode<CardResult>(result);
   CHECK(!decoded.failure() && decoded.outputs());
   const auto& ports = *decoded.outputs();
-  CHECK(ports.size() == (optional_ports ? 4u : 2u));
+  CHECK(ports.size() == (optional_ports ? 5u : 2u));
   const auto number = DecodePort<outputs::number::Number>(
       *ports.Get(0), "number", PortKind::FlatBuffer);
-  CHECK(number.value == 42);
+  CHECK(number.position && number.position->x() == 42 &&
+        number.position->y() == -15);
   const auto data = DecodePort<outputs::data::Data>(*ports.Get(1), "data",
                                                     PortKind::FlatBuffer);
   CHECK(data.rows.size() == 1 && data.rows.front()->value == 2);
@@ -148,6 +171,11 @@ extern "C" auto check_success(tsugumi_bytes result, int optional_ports)
     const auto forwarded = DecodePort<outputs::forwarded::File>(
         *ports.Get(3), "forwarded", PortKind::File);
     CHECK(forwarded.value == input_path);
+    const auto directory = DecodePort<outputs::directory::Directory>(
+        *ports.Get(4), "directory", PortKind::Directory);
+    CHECK(directory.value == directory_path);
+    CHECK(std::filesystem::is_regular_file(
+        std::filesystem::path(directory.value) / "member.txt"));
   }
 }
 
@@ -184,6 +212,11 @@ extern "C" auto check_card_failure(tsugumi_bytes result, int mode) -> void {
                 .message()
                 ->string_view() == "host cancelled");
       break;
+    case 9:
+      CHECK(CheckFailure(result, FailureKind::worker_failed)
+                .message()
+                ->string_view() == "Go panic: background panic");
+      break;
     default:
       CheckFailure(result, FailureKind::output_invalid);
   }
@@ -203,10 +236,11 @@ extern "C" auto check_display(tsugumi_bytes bytes, int record, unsigned index)
       Sample{"tsugumi:table", R"({"columns":["n"],"rows":[["1"]]})", 0},
       Sample{"tsugumi:image", R"({"alt":"sample","media_type":"image/png"})",
              1},
-      Sample{"tsugumi:points", R"({"count":1})", 4},
-      Sample{"tsugumi:line-chart",
-             R"({"series":[{"count":1,"id":"id","label":"line","offset":0}]})",
-             2},
+      Sample{"tsugumi:points", R"({"count":2})", 4},
+      Sample{
+          "tsugumi:line-chart",
+          R"({"series":[{"count":2,"id":"a","label":"first","offset":0},{"count":1,"id":"b","label":"second","offset":2}]})",
+          2},
       Sample{"tsugumi:plotly", R"({"data":[]})", 0},
       Sample{"tsugumi:vega-lite", R"({"mark":"point"})", 0},
       Sample{"custom", R"({"key":1})", 1, 1},
@@ -219,9 +253,18 @@ extern "C" auto check_display(tsugumi_bytes bytes, int record, unsigned index)
   CHECK(display.config()->string_view() == sample.config);
   CHECK(display.blobs() && display.blobs()->size() == sample.blobs);
   CHECK(record == sample.record);
-  if (index == 4 || index == 9) {
-    const auto& blob = *display.blobs()->Get(0);
-    CHECK(blob.name()->string_view() == (index == 4 ? "image" : "sample"));
-    CHECK(blob.bytes()->size() == 3 && blob.bytes()->Get(2) == 255);
+  if (index == 4) CheckBlob(display, 0, "image", {0, 13, 255});
+  if (index == 5) {
+    CheckBlob(display, 0, "x", {0, 0, 128, 63, 0, 0, 0, 192});
+    CheckBlob(display, 1, "y", {0, 0, 64, 64, 0, 0, 128, 64});
+    CheckBlob(display, 2, "z", {0, 0, 160, 64, 0, 0, 192, 64});
+    CheckBlob(display, 3, "colors", {86, 52, 18, 0, 221, 204, 187, 170});
   }
+  if (index == 6) {
+    CheckBlob(display, 0, "x", {0, 0, 0,  0,   0, 0, 0, 64, 0, 0, 0,  0,
+                                0, 0, 16, 192, 0, 0, 0, 0,  0, 0, 24, 64});
+    CheckBlob(display, 1, "y", {0, 0, 0,  0,  0, 0, 8, 64, 0, 0, 0,  0,
+                                0, 0, 20, 64, 0, 0, 0, 0,  0, 0, 28, 192});
+  }
+  if (index == 9) CheckBlob(display, 0, "sample", {0, 13, 255});
 }

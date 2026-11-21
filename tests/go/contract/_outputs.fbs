@@ -1,5 +1,6 @@
 namespace outputs.number;
-table Number { value:long; }
+struct Position (force_align: 32) { x:long; y:long; }
+table Number { position:Position (required); }
 
 namespace outputs.data;
 table Row { value:long; }
@@ -16,3 +17,6 @@ table File { value:string (required); }
 
 namespace outputs.forwarded;
 table File { value:string (required); }
+
+namespace outputs.directory;
+table Directory { value:string (required); }
