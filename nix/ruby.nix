@@ -71,6 +71,14 @@ let
           ln -s ${gemSources} "$out/vendor/cache"
           export BUNDLE_GEMFILE="$out/Gemfile" BUNDLE_PATH="$out/installed"
           bundle install --local
+          # Resolve the bundle during the build so the embedded VM never needs
+          # to run Bundler's process-wide setup.
+          bundle exec ruby -e '
+            puts "Gem.use_paths(#{Gem.dir.dump})"
+            Bundler.load.requested_specs.each do |spec|
+              puts "Gem::Specification.load(#{spec.loaded_from.dump}).activate"
+            end
+          ' > "$out/activate.rb"
           rm -rf "$out/vendor" "$out"/installed/ruby/*/{cache,doc}
         '';
         dontInstall = true;
@@ -115,8 +123,7 @@ let
           ${define "RUBY_CARD" "${src}"} \
           ${define "RUBY_SDK" "${sdk}/tsugumi.rb"} \
           ${define "RUBY_GEMS" "${ruby}/${ruby.gemPath}"} \
-          ${define "RUBY_GEMFILE" (lib.optionalString (lock != null) "${gems}/Gemfile")} \
-          ${define "RUBY_BUNDLE" (lib.optionalString (lock != null) "${gems}/installed")} \
+          ${define "RUBY_ACTIVATE" (lib.optionalString (lock != null) "${gems}/activate.rb")} \
           ${define "RUBY_SOURCE_PREFIX" (lib.optionalString (sourcePrefix != "") "${sourcePrefix}/")} \
           -c ${sdk}/embed.c -o embed.o
 

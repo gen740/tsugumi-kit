@@ -90,8 +90,11 @@ def emit_object(obj, schema):
                 member = "*" + member
                 elem = field_type(spec["element"], spec["index"], schema)
                 length = spec["fixed_length"]
-                decode.append(f"const auto array_{accessor} = DecodeArray<{elem}, {length}>(value.at({name}));")
-                arguments.append(f"flatbuffers::span<const {elem}, {length}>(array_{accessor}.data(), {length})")
+                # flatc stores fixed bool arrays as bytes in the C++ API.
+                storage = "uint8_t" if spec["element"] == "Bool" else elem
+                method += f"<{elem}>"
+                decode.append(f"const auto array_{accessor} = DecodeArray<{elem}, {length}, {storage}>(value.at({name}));")
+                arguments.append(f"flatbuffers::span<const {storage}, {length}>(array_{accessor}.data(), {length})")
             else:
                 field_kind = field_type(spec["base_type"], spec["index"], schema)
                 arguments.append(f"Codec<{field_kind}>::Decode(value.at({name}))")

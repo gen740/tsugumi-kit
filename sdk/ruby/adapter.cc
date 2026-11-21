@@ -36,10 +36,22 @@ extern "C" auto tsugumi_ruby_display(ruby_bytes module, ruby_bytes config,
   }
 }
 
-extern "C" auto tsugumi_ruby_cancelled() -> int { return card::cancelled(); }
+extern "C" auto tsugumi_ruby_cancelled(int* value) -> int {
+  try {
+    *value = card::cancelled();
+    return 0;
+  } catch (...) {
+    return 1;
+  }
+}
 
-extern "C" auto tsugumi_ruby_remaining_ms() -> int64_t {
-  return card::remaining_ms();
+extern "C" auto tsugumi_ruby_remaining_ms(int64_t* value) -> int {
+  try {
+    *value = card::remaining_ms();
+    return 0;
+  } catch (...) {
+    return 1;
+  }
 }
 
 namespace tsugumi::ruby {
@@ -59,7 +71,11 @@ auto InvokeRuby(const Json& input) -> Json {
       tsugumi_ruby_invoke({encoded.data(), encoded.size()}), &std::free);
   if (!output)
     abi9::Reject(FailureKind::worker_failed, "Ruby could not run the Card");
-  return Json::parse(output.get());
+  try {
+    return Json::parse(output.get());
+  } catch (const Json::exception& error) {
+    abi9::Reject(FailureKind::output_invalid, error.what());
+  }
 }
 
 auto FailureResult(const Json& failure) -> CardResultT {

@@ -1,5 +1,7 @@
 #include "wire.h"
 
+#include <dlfcn.h>
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -7,12 +9,16 @@
 #include <fstream>
 #include <limits>
 #include <nlohmann/json.hpp>
+#include <set>
 
 #include "_inputs_generated.h"
 #include "_outputs_generated.h"
 #include "_params_generated.h"
 #include "adapter.hh"
 #include "tsugumi/protocol/card_generated.h"
+
+extern "C" int shared_fake_host_main(int argc, char** argv);
+extern "C" char** environ;
 
 namespace {
 
@@ -56,7 +62,9 @@ auto AddPort(CardInputT& input, const char* name, PortKind kind,
   input.inputs.push_back(std::move(port));
 }
 
-auto Rows() -> inputs::rows::RowsT {
+constexpr int kDeepTreeLevels = 50;
+
+auto Rows(int tree_levels) -> inputs::rows::RowsT {
   using namespace inputs::rows;
   auto row = std::make_unique<RowT>();
   row->label = "sample";
@@ -65,8 +73,10 @@ auto Rows() -> inputs::rows::RowsT {
   row->tone = Tone::Warm;
   row->optional = 7;
   const std::array point{1.5, 2.5};
+  const std::array<uint8_t, 4> flags{1, 0, 0, 1};
   row->position = std::make_unique<Position>(
-      flatbuffers::span<const double, 2>(point.data(), point.size()));
+      flatbuffers::span<const double, 2>(point.data(), point.size()),
+      flatbuffers::span<const uint8_t, 4>(flags.data(), flags.size()));
   row->choice.Set(WordT{});
   row->choice.AsWord()->text = "nested";
   row->history.emplace_back().Set(CountT{});
@@ -76,6 +86,12 @@ auto Rows() -> inputs::rows::RowsT {
   row->readings = {std::numeric_limits<double>::quiet_NaN(),
                    std::numeric_limits<double>::infinity(),
                    -std::numeric_limits<double>::infinity()};
+  for (int value = 1; value <= tree_levels; ++value) {
+    auto parent = std::make_unique<NodeT>();
+    parent->value = value;
+    if (row->tree) parent->children.push_back(std::move(row->tree));
+    row->tree = std::move(parent);
+  }
   RowsT result;
   result.rows.push_back(std::move(row));
   return result;
@@ -91,6 +107,23 @@ auto Failure(tsugumi_bytes bytes, FailureKind kind) -> const CardFailure& {
 
 auto InputPath() -> std::string {
   return std::filesystem::absolute("ruby-input.data").string();
+}
+
+auto DirectoryPath() -> std::string {
+  return std::filesystem::absolute("ruby-input-dir").string();
+}
+
+auto CheckBlob(const CardDisplay& display, size_t index, std::string_view name,
+               std::initializer_list<uint8_t> expected) -> void {
+  const auto& blob = *display.blobs()->Get(index);
+  CHECK(blob.name()->string_view() == name);
+  CHECK(blob.bytes() && std::ranges::equal(*blob.bytes(), expected));
+}
+
+auto Environment() -> std::set<std::string> {
+  std::set<std::string> environment;
+  for (auto** entry = environ; *entry; ++entry) environment.emplace(*entry);
+  return environment;
 }
 
 }  // namespace
@@ -119,13 +152,21 @@ extern "C" auto make_input(input_case scenario, int mode, int fd)
     if (scenario == DUPLICATE_PORT) AddPort(input, "number", kind, bytes);
     if (scenario == UNKNOWN_PORT) AddPort(input, "unknown", kind, bytes);
   }
+  const int tree_levels = mode == 12 ? kDeepTreeLevels : 0;
   AddPort(input, "rows", PortKind::FlatBuffer,
-          Encode<inputs::rows::Rows>(Rows()));
+          Encode<inputs::rows::Rows>(Rows(tree_levels)));
   if (scenario == OPTIONAL_PORTS) {
     inputs::file::FileT file;
     file.value = InputPath();
     std::ofstream(file.value) << "from ruby";
     AddPort(input, "file", PortKind::File, Encode<inputs::file::File>(file));
+
+    inputs::directory::DirectoryT directory;
+    directory.value = DirectoryPath();
+    std::filesystem::create_directories(directory.value);
+    std::ofstream(std::filesystem::path(directory.value) / "source") << "input";
+    AddPort(input, "directory", PortKind::Directory,
+            Encode<inputs::directory::Directory>(directory));
   }
 
   flatbuffers::FlatBufferBuilder builder;
@@ -134,13 +175,16 @@ extern "C" auto make_input(input_case scenario, int mode, int fd)
   return {input_buffer.data(), input_buffer.size()};
 }
 
-extern "C" auto check_success(tsugumi_bytes bytes, int with_file) -> void {
+namespace {
+
+auto CheckSuccess(tsugumi_bytes bytes, bool optional_ports, int tree_levels)
+    -> void {
   const auto& result = Read<CardResult>(bytes);
   if (result.failure())
     std::fprintf(stderr, "Ruby Card failure: %s\n",
                  result.failure()->message()->c_str());
   CHECK(!result.failure() && result.outputs());
-  CHECK(result.outputs()->size() == (with_file ? 4u : 2u));
+  CHECK(result.outputs()->size() == (optional_ports ? 5u : 2u));
   const auto& number = *result.outputs()->Get(0);
   CHECK(number.name()->string_view() == "number" &&
         number.kind() == PortKind::FlatBuffer);
@@ -156,6 +200,7 @@ extern "C" auto check_success(tsugumi_bytes bytes, int with_file) -> void {
   CHECK(row.tone == outputs::rows::Tone::Warm && row.optional == 7);
   CHECK(row.position->point()->Get(0) == 1.5);
   CHECK(row.position->point()->Get(1) == 2.5);
+  CHECK(std::ranges::equal(*row.position->flags(), std::array{0, 0, 1, 1}));
   CHECK((row.bytes == std::vector<uint8_t>{0, 13, 255}));
   CHECK(row.readings.size() == 3 && std::isnan(row.readings[0]));
   CHECK(row.readings[1] == std::numeric_limits<double>::infinity());
@@ -165,7 +210,15 @@ extern "C" auto check_success(tsugumi_bytes bytes, int with_file) -> void {
   CHECK(row.history[0].AsCount() && row.history[0].AsCount()->value == 17);
   CHECK(row.history[1].AsWord() && row.history[1].AsWord()->text == "history");
 
-  if (with_file) {
+  const auto* node = row.tree.get();
+  for (int value = tree_levels; value > 0; --value) {
+    CHECK(node && node->value == value);
+    CHECK(node->children.size() == (value > 1 ? 1u : 0u));
+    node = value > 1 ? node->children.front().get() : nullptr;
+  }
+  CHECK(!node);
+
+  if (optional_ports) {
     const auto& file = *result.outputs()->Get(2);
     CHECK(file.name()->string_view() == "file" &&
           file.kind() == PortKind::File);
@@ -181,7 +234,19 @@ extern "C" auto check_success(tsugumi_bytes bytes, int with_file) -> void {
     CHECK(original.name()->string_view() == "original" &&
           original.kind() == PortKind::File);
     CHECK(ReadPort<outputs::file::File>(original).value == InputPath());
+
+    const auto& directory = *result.outputs()->Get(4);
+    CHECK(directory.name()->string_view() == "directory" &&
+          directory.kind() == PortKind::Directory);
+    CHECK(ReadPort<outputs::directory::Directory>(directory).value ==
+          DirectoryPath());
   }
+}
+
+}  // namespace
+
+extern "C" auto check_success(tsugumi_bytes bytes, int optional_ports) -> void {
+  CheckSuccess(bytes, optional_ports != 0, 0);
 }
 
 extern "C" auto check_input_failure(tsugumi_bytes bytes, input_case scenario)
@@ -247,10 +312,69 @@ extern "C" auto check_display(tsugumi_bytes bytes, int record, unsigned index)
         json::parse(sample.config));
   CHECK(display.blobs() && display.blobs()->size() == sample.blobs);
   CHECK(record == sample.record);
-  if (index == 4 || index == 9) {
-    const auto& blob = *display.blobs()->Get(0);
-    CHECK(blob.name()->string_view() == (index == 4 ? "image" : "sample"));
-    const uint8_t expected[]{0, 13, 255};
-    CHECK(std::ranges::equal(*blob.bytes(), expected));
+  if (index == 4) CheckBlob(display, 0, "image", {0, 13, 255});
+  if (index == 5) {
+    CheckBlob(display, 0, "x", {0, 0, 128, 63});
+    CheckBlob(display, 1, "y", {0, 0, 0, 192});
+    CheckBlob(display, 2, "z", {0, 0, 96, 64});
+    CheckBlob(display, 3, "colors", {86, 52, 18, 0});
   }
+  if (index == 6) {
+    CheckBlob(display, 0, "x", {0, 0, 0, 0, 0, 0, 0, 64});
+    CheckBlob(display, 1, "y", {0, 0, 0, 0, 0, 0, 12, 192});
+  }
+  if (index == 9) CheckBlob(display, 0, "sample", {0, 13, 255});
+}
+
+extern "C" auto throwing_cancelled(void*) -> int {
+  throw std::runtime_error("cancelled from the host");
+}
+
+extern "C" auto throwing_remaining_ms(void*) -> int64_t { throw 42; }
+
+auto main(int argc, char** argv) -> int {
+  CHECK(argc == 3);
+  void* library = dlopen(argv[1], RTLD_NOW | RTLD_LOCAL);
+  CHECK(library);
+  // On macOS dlopen initializes CoreFoundation, which may add its own
+  // encoding variable before the first Card call.
+  const auto environment = Environment();
+  CHECK(shared_fake_host_main(argc, argv) == 0);
+  CHECK(Environment() == environment);
+  const auto entry =
+      reinterpret_cast<tsugumi_main_fn>(dlsym(library, "tsugumi_main"));
+  CHECK(entry);
+  const tsugumi_effects effects{nullptr, throwing_cancelled,
+                                throwing_remaining_ms};
+  tsugumi_call call{TSUGUMI_ABI_VERSION, {}, nullptr, &effects};
+  tsugumi_bytes result;
+
+  call.input = make_input(VALID, 8, -1);
+  CHECK(entry(&call, &result) == 0);
+  Failure(result, FailureKind::output_invalid);
+
+  call.input = make_input(VALID, 9, -1);
+  CHECK(entry(&call, &result) == 0);
+  CHECK(Failure(result, FailureKind::worker_failed).message()->string_view() ==
+        "RuntimeError: cancelled callback failed");
+
+  call.input = make_input(VALID, 10, -1);
+  CHECK(entry(&call, &result) == 0);
+  CHECK(Failure(result, FailureKind::worker_failed).message()->string_view() ==
+        "RuntimeError: remaining_ms callback failed");
+
+  call.input = make_input(VALID, 11, -1);
+  CHECK(entry(&call, &result) == 0);
+  CheckSuccess(result, false, 0);
+  CHECK(Environment() == environment);
+
+  call.input = make_input(VALID, 12, -1);
+  CHECK(entry(&call, &result) == 0);
+  CheckSuccess(result, false, kDeepTreeLevels);
+
+  call.input = make_input(VALID, 13, -1);
+  CHECK(entry(&call, &result) == 0);
+  Failure(result, FailureKind::output_invalid);
+  CHECK(dlclose(library) == 0);
+  return 0;
 }

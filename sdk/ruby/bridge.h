@@ -21,8 +21,8 @@ typedef struct ruby_blob {
 char* tsugumi_ruby_invoke(ruby_bytes input);
 int tsugumi_ruby_display(ruby_bytes module, ruby_bytes config,
                          const ruby_blob* blobs, size_t count, int record);
-int tsugumi_ruby_cancelled(void);
-int64_t tsugumi_ruby_remaining_ms(void);
+int tsugumi_ruby_cancelled(int* value);
+int tsugumi_ruby_remaining_ms(int64_t* value);
 
 #ifdef __cplusplus
 }

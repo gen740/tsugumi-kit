@@ -20,7 +20,7 @@ module Tsugumi
     end
 
     def [](name) = @ports[name.to_s]
-    def fetch(name) = @ports.fetch(name.to_s)
+    def fetch(name, ...) = @ports.fetch(name.to_s, ...)
     def path(name) = self[name]&.fetch('value')
 
     private
@@ -116,17 +116,18 @@ module Tsugumi
     View.new('tsugumi:line-chart', {series: rows}, {'x' => x.pack('E*'), 'y' => y.pack('E*')})
   end
 
-  def self.json_value(value, depth = 0)
-    raise ArgumentError, 'value nesting is too deep' if depth > 100
+  def self.json_value(value, remaining_depth = 100)
+    raise ArgumentError, 'value nesting is too deep' if remaining_depth&.negative?
+    remaining_depth -= 1 if remaining_depth
     case value
     when Hash
       value.each_with_object({}) do |(key, item), out|
         key = key.to_s if key.is_a?(Symbol)
         raise ArgumentError, 'expected a string field name' unless key.is_a?(String)
         raise ArgumentError, "duplicate field #{key}" if out.key?(key)
-        out[key] = json_value(item, depth + 1)
+        out[key] = json_value(item, remaining_depth)
       end
-    when Array then value.map { |item| json_value(item, depth + 1) }
+    when Array then value.map { |item| json_value(item, remaining_depth) }
     when String, Integer, TrueClass, FalseClass, NilClass then value
     when Float
       return 'NaN' if value.nan?
@@ -135,7 +136,7 @@ module Tsugumi
     else
       object = value.to_h if value.respond_to?(:to_h)
       raise ArgumentError, "expected a value or #to_h for #{value.class}" unless object.is_a?(Hash)
-      json_value(object, depth + 1)
+      json_value(object, remaining_depth)
     end
   end
 
@@ -173,16 +174,21 @@ module Tsugumi
     @load_failure = load_card(directory, prefix) unless defined?(@load_failure)
     return JSON.generate({failure: @load_failure}) if @load_failure
 
-    input = JSON.parse(input_json)
+    begin
+      input = JSON.parse(input_json, max_nesting: false)
+    rescue JSON::ParserError => error
+      return JSON.generate({failure: failure(error, directory, prefix, 'invalid_request')})
+    end
     begin
       output = @card.main(Inputs.new(input.fetch('ports'), input.fetch('params')))
     rescue Exception => error # Includes SystemExit raised by Card code.
       return JSON.generate({failure: failure(error, directory, prefix)})
     end
-    output = json_value(output)
+    # JSON nesting counts arrays and union wrappers as well as FlatBuffers tables.
+    output = json_value(output, nil)
     raise ArgumentError, 'main must return a Hash of output ports' unless output.is_a?(Hash)
-    JSON.generate({outputs: output})
-  rescue StandardError => error
+    JSON.generate({outputs: output}, max_nesting: false)
+  rescue StandardError, SystemStackError => error
     JSON.generate({failure: failure(error, directory, prefix, 'output_invalid')})
   end
 

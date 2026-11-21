@@ -56,12 +56,18 @@ static VALUE display(VALUE self, VALUE module, VALUE config, VALUE pairs,
 
 static VALUE cancelled(VALUE self) {
   (void)self;
-  return tsugumi_ruby_cancelled() ? Qtrue : Qfalse;
+  int value;
+  if (tsugumi_ruby_cancelled(&value))
+    rb_raise(rb_eRuntimeError, "cancelled callback failed");
+  return value ? Qtrue : Qfalse;
 }
 
 static VALUE remaining_ms(VALUE self) {
   (void)self;
-  return LL2NUM(tsugumi_ruby_remaining_ms());
+  int64_t value;
+  if (tsugumi_ruby_remaining_ms(&value))
+    rb_raise(rb_eRuntimeError, "remaining_ms callback failed");
+  return LL2NUM(value);
 }
 
 static VALUE initialize(VALUE unused) {
@@ -71,7 +77,10 @@ static VALUE initialize(VALUE unused) {
   rb_define_singleton_method(host, "cancelled", cancelled, 0);
   rb_define_singleton_method(host, "remaining_ms", remaining_ms, 0);
   rb_enc_set_default_external(rb_enc_from_encoding(rb_utf8_encoding()));
-  if (TSUGUMI_RUBY_GEMFILE[0]) rb_require("bundler/setup");
+  VALUE gem = rb_const_get(rb_cObject, rb_intern("Gem"));
+  rb_funcall(gem, rb_intern("use_paths"), 1,
+             rb_str_new_cstr(TSUGUMI_RUBY_GEMS));
+  if (TSUGUMI_RUBY_ACTIVATE[0]) rb_require(TSUGUMI_RUBY_ACTIVATE);
   rb_require(TSUGUMI_RUBY_SDK);
   sdk = rb_const_get(rb_cObject, rb_intern("Tsugumi"));
   rb_gc_register_address(&sdk);
@@ -92,20 +101,6 @@ static VALUE dispatch(VALUE unused) {
 }
 
 static int boot(void) {
-  unsetenv("RUBYOPT");
-  unsetenv("RUBYLIB");
-  setenv("GEM_HOME", TSUGUMI_RUBY_GEMS, 1);
-  setenv("GEM_PATH", TSUGUMI_RUBY_GEMS, 1);
-  if (TSUGUMI_RUBY_GEMFILE[0]) {
-    setenv("BUNDLE_GEMFILE", TSUGUMI_RUBY_GEMFILE, 1);
-    setenv("BUNDLE_PATH", TSUGUMI_RUBY_BUNDLE, 1);
-    setenv("BUNDLE_APP_CONFIG", TSUGUMI_RUBY_BUNDLE "/no-config", 1);
-    setenv("BUNDLE_FROZEN", "true", 1);
-    setenv("BUNDLE_FORCE_RUBY_PLATFORM", "true", 1);
-    setenv("BUNDLE_DISABLE_VERSION_CHECK", "true", 1);
-    setenv("BUNDLE_VERSION", "system", 1);
-  }
-
   int argc = 1;
   static char name[] = "tsugumi-ruby";
   static char* argv_data[] = {name, NULL};
@@ -115,9 +110,10 @@ static int boot(void) {
   if (ruby_setup() != 0) return 0;
 
   /* Run MRI's builtin prelude, keeping the interpreter resident. */
+  char rubyopt[] = "--disable=rubyopt";
   char option[] = "-e", code[] = "";
-  char* options[] = {name, option, code, NULL};
-  void* program = ruby_options(3, options);
+  char* options[] = {name, rubyopt, option, code, NULL};
+  void* program = ruby_options(4, options);
   int status = 0;
   if (!ruby_executable_node(program, &status) || ruby_exec_node(program) != 0)
     return 0;

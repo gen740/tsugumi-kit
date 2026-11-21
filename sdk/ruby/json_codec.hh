@@ -151,24 +151,24 @@ auto ReadMember(const Json& object, const char* name, T& value, bool required)
   value = Codec<T>::Decode(*field);
 }
 
-template <class T, uint16_t N>
-auto EncodeArray(const flatbuffers::Array<T, N>& values) -> Json {
+template <class T, class Storage, uint16_t N>
+auto EncodeArray(const flatbuffers::Array<Storage, N>& values) -> Json {
   Json result = Json::array();
   for (uint16_t index = 0; index < N; ++index) {
     if constexpr (std::is_pointer_v<decltype(values.Get(index))>) {
       result.push_back(Encode(*values.Get(index)));
     } else {
-      result.push_back(Encode(values.Get(index)));
+      result.push_back(Encode(static_cast<T>(values.Get(index))));
     }
   }
   return result;
 }
 
-template <class T, size_t N>
-auto DecodeArray(const Json& values) -> std::array<T, N> {
+template <class T, size_t N, class Storage>
+auto DecodeArray(const Json& values) -> std::array<Storage, N> {
   if (!values.is_array() || values.size() != N)
     throw std::invalid_argument("invalid fixed array length");
-  std::array<T, N> result;
+  std::array<Storage, N> result;
   for (size_t index = 0; index < N; ++index)
     result[index] = Codec<T>::Decode(values[index]);
   return result;
