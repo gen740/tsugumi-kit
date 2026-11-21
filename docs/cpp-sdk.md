@@ -31,9 +31,21 @@ The core prepares `_inputs.fbs`, `_outputs.fbs`, `_params.fbs` and `_contract.js
 
 - A required input is a native FlatBuffers object (for example, a table named `Temperature` has an object type ending in `TemperatureT`). An optional input is a `std::optional` of that type. Test it before dereferencing it.
 - `input.params` is the generated `Card::Params` object, an alias for `parameters::ParamsT`. A parameter named `threshold` is available as `input.params.threshold`.
-- Every member of `Card::Output` is a `std::optional` of its port's object type. Use `emplace()` to produce a port and fill its required fields. Leave an optional port disengaged to omit it. Omitting a required port fails the call with `output_invalid`.
+- Every member of `Card::Output` is a `std::optional` of its port's object type. Use `emplace()` to produce a port and fill its required fields. Leave an optional port disengaged to omit it. Missing required ports or children, null table elements in vectors, and union tags without values fail the call with `output_invalid`.
+- The C++ generator renames reserved schema identifiers as needed. The port names on the wire stay as declared in the contract.
 
-The reference SDK exposes `cppCard { src = ./src; }` after it has been supplied with `pkgs`, `definitionDir` and the generated contract directory. The name by which the core injects this builder into a Card's `default.nix` is **provisional**. SDK selection belongs in that Nix file. Omit `language` from `_card.json`.
+The core injects the builder as `inputs.tsugumi.cppCard` with the contract and Card definition directory already bound. Use it in the Card's `default.nix`.
+
+```nix
+{ inputs, ... }:
+{
+  run = inputs.tsugumi.cppCard { src = ./src; };
+}
+```
+
+The builder also accepts optional `buildInputs` and `cxxflags` lists. SDK selection belongs in `default.nix`. Omit `language` from `_card.json`.
+
+To construct the injected builder, use `tsugumi-kit.lib.${system}.cppCard { inherit contract definitionDir; }`. Here `contract` is the directory with the four generated contract files and `definitionDir` is the directory with `default.nix`. Standalone builds can pass `src`, `contract`, `definitionDir` and the optional lists in one call. If that form omits `definitionDir`, it defaults to `src`.
 
 ## Display a value
 
@@ -85,7 +97,7 @@ auto run(const Card::Inputs& input) -> Card::Output {
 }
 ```
 
-The adapter translates the exception into `CardResult.failure`. The ABI return code is zero when a result carrying a failure was built. Nonzero means the adapter could not supply a result. Outputs of a failed call are discarded. The exact failure enum names are provisional SDK details.
+The adapter translates the exception into `CardResult.failure`. A reserved or unknown failure kind becomes `worker_failed` and its original numeric value is included in the message. The ABI return code is zero when a result carrying a failure was built. Nonzero means the adapter could not supply a result. Outputs of a failed call are discarded. The exact failure enum names are provisional SDK details.
 
 ## Files, directories and worker lifetime
 

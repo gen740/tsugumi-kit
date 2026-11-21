@@ -55,7 +55,16 @@ auto Run(CardBody body, tsugumi_bytes input) -> CardResultT {
   try {
     return body(input);
   } catch (const Failure& error) {
-    auto result = FailureResult(error.kind, error.what());
+    const bool valid_kind = error.kind != FailureKind::unspecified &&
+                            *Tsugumi::Data::EnumNameFailureKind(error.kind);
+    auto result = FailureResult(
+        valid_kind ? error.kind : FailureKind::worker_failed, error.what());
+    if (!valid_kind) {
+      result.failure->message =
+          "Invalid FailureKind " +
+          std::to_string(static_cast<uint16_t>(error.kind)) + ": " +
+          result.failure->message;
+    }
     const std::filesystem::path path(error.location.file_name());
     const auto relative = path.lexically_normal();
     if (!relative.empty() && relative.is_relative() && relative != "." &&

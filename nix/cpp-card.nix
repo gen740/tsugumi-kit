@@ -7,16 +7,23 @@
   python3,
   runtime,
 }:
-{
-  # Pass the Card definition directory as src for definition-relative failure locations.
-  cppCard =
+let
+  buildCard =
     {
       src,
       contract,
-      buildInputs ? [ ],
-      cxxflags ? [ ],
+      definitionDir,
+      buildInputs,
+      cxxflags,
     }:
     let
+      definition = toString definitionDir;
+      source = toString src;
+      sourceFlags = lib.optionals (source == definition || lib.hasPrefix "${definition}/" source) [
+        "-ffile-prefix-map=${src}=${
+          if source == definition then "." else lib.removePrefix "${definition}/" source
+        }"
+      ];
       generated =
         runCommand "tsugumi-cpp-card-headers"
           {
@@ -26,16 +33,13 @@
             ];
           }
           ''
-            contract=${lib.escapeShellArg "${contract}"}
-            mkdir -p "$out/include"
-            for schema in _inputs _outputs _params; do
-              flatc --cpp --gen-object-api --scoped-enums -o "$out/include" "$contract/$schema.fbs"
-            done
-            python3 ${../sdk/cpp/card_cpp.py} "$contract/_contract.json" "$out"
+            python3 ${../sdk/cpp/card_cpp.py} ${lib.escapeShellArg "${contract}/_contract.json"} "$out" \
+              ${flatbuffers.src}/reflection/reflection.fbs
           '';
     in
     runCommandCC "tsugumi-cpp-card"
       {
+        passthru = { inherit generated; };
         buildInputs = [ flatbuffers ] ++ buildInputs;
       }
       ''
@@ -52,19 +56,55 @@
             ''
         }
         cd ${lib.escapeShellArg "${src}"}
-        find . -type f -name '*.cc' ! -name '._*' -print0 | LC_ALL=C sort -z > "$TMPDIR/tsugumi-sources"
+        find "$PWD" -type f -name '*.cc' ! -name '._*' -print0 | LC_ALL=C sort -z > "$TMPDIR/tsugumi-sources"
         mapfile -d "" -t sources < "$TMPDIR/tsugumi-sources"
         if (( ''${#sources[@]} == 0 )); then
           echo "cppCard: no .cc sources in src" >&2
           exit 1
         fi
-        # Pack's assertions are disabled so the adapter can verify malformed outputs
-        # and report them as Card failures.
+        # Keep the post-Pack verifier active even for failures detected only
+        # in the serialized representation.
         $CXX -std=c++2c -O2 -DNDEBUG -fPIC -fvisibility=hidden -fvisibility-inlines-hidden \
           -Wall -Wextra -Werror -Wformat=2 -Wimplicit-fallthrough \
           -shared "''${link[@]}" -I"${generated}/include" -I"${runtime}/include" \
-          -I"${../sdk/cpp/src}" -ffile-prefix-map="$PWD"=. \
+          -I"${../sdk/cpp/src}" ${lib.escapeShellArgs sourceFlags} \
           "''${sources[@]}" "${generated}/src/card_adapter.cc" \
           "${runtime}/lib/libtsugumi_abi9.a" ${lib.escapeShellArgs cxxflags} -pthread -o "$out/lib/main.so"
       '';
+in
+{
+  # Omit src to bind the core's contract and definition directory before
+  # injecting this builder into the Card's default.nix.
+  cppCard =
+    {
+      contract,
+      src ? null,
+      definitionDir ? src,
+      buildInputs ? [ ],
+      cxxflags ? [ ],
+    }:
+    let
+      withContract =
+        {
+          src,
+          buildInputs ? [ ],
+          cxxflags ? [ ],
+        }:
+        buildCard {
+          inherit
+            src
+            contract
+            definitionDir
+            buildInputs
+            cxxflags
+            ;
+        };
+    in
+    if src != null then
+      withContract { inherit src buildInputs cxxflags; }
+    else
+      assert lib.assertMsg (
+        definitionDir != null && buildInputs == [ ] && cxxflags == [ ]
+      ) "cppCard: bind contract and definitionDir first, then pass src, buildInputs and cxxflags";
+      withContract;
 }

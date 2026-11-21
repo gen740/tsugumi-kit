@@ -97,16 +97,20 @@ class Input {
 };
 
 template <class Table>
-auto WritePort(Tsugumi::Card::CardResultT& result, std::string_view name,
-               PortKind kind,
-               const std::optional<typename Table::NativeTableType>& value,
-               bool required) -> void {
+auto WritePort(
+    Tsugumi::Card::CardResultT& result, std::string_view name, PortKind kind,
+    const std::optional<typename Table::NativeTableType>& value, bool required,
+    bool (*is_packable)(const typename Table::NativeTableType&) = nullptr)
+    -> void {
   if (!value) {
     if (required) {
       Reject(FailureKind::output_invalid,
              "Missing output " + std::string(name));
     }
     return;
+  }
+  if (is_packable && !is_packable(*value)) {
+    Reject(FailureKind::output_invalid, "Invalid output " + std::string(name));
   }
   flatbuffers::FlatBufferBuilder builder;
   builder.Finish(Table::Pack(builder, &*value));

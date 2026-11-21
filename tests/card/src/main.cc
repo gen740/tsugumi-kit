@@ -79,18 +79,64 @@ auto run(const Card::Inputs& input) -> Card::Output {
       throw 5;
     case 6:
       return {};
-    case 7: {
-      Card::Output malformed;
-      malformed.number.emplace();
-      return malformed;
+    case 13:
+      throw tsugumi::Failure(FailureKind::unspecified, "reserved failure");
+    case 14:
+      throw tsugumi::Failure(static_cast<FailureKind>(65535),
+                             "unknown failure");
+    case 15:
+      if (!card::cancelled() || card::remaining_ms() != -1)
+        throw std::runtime_error("Cancelled call without a deadline");
+      break;
+    case 16:
+    case 17: {
+      const int fd = input.params.fd;
+      const bool poll_cancelled = input.params.mode == 16;
+      background = std::thread([poll_cancelled] {
+        if (poll_cancelled ? !card::cancelled() : card::remaining_ms() != -1)
+          std::terminate();
+      });
+      char signal;
+      if (read(fd, &signal, 1) != 1 || write(fd, "!", 1) != 1)
+        throw std::runtime_error("Could not synchronize the host query");
+      break;
     }
   }
 
   Card::Output out;
-  out.number.emplace().number = std::make_unique<outputs::number::ValueT>();
-  out.number->number->value =
+  using outputs::number::Choice;
+  using outputs::number::NestedT;
+  using outputs::number::ValueT;
+  auto& number = out.number.emplace();
+  number.number = std::make_unique<ValueT>();
+  number.number->value =
       input.number.position->x() + input.number.position->y();
+  number.choices.emplace_back().Set(std::string("valid"));
+  NestedT nested;
+  nested.return_ = std::make_unique<ValueT>();
+  number.required_choice.Set(std::move(nested));
+  switch (input.params.mode) {
+    case 7:
+      number.number.reset();
+      break;
+    case 8:
+      number.children.emplace_back();
+      break;
+    case 9:
+      number.choice.type = Choice::Nested;
+      break;
+    case 10:
+      number.required_choice.Reset();
+      break;
+    case 11:
+      number.choice.Set(NestedT{});
+      break;
+    case 12:
+      number.choices.emplace_back();
+      break;
+  }
   if (input.file) out.file.emplace().value = input.file->value;
   if (input.directory) out.directory.emplace().value = input.directory->value;
+  if (input.Params) out.switch_.emplace().value = input.Params->value + 1;
   return out;
 }
