@@ -20,6 +20,7 @@
         ./nix/checks.nix
         ./nix/csharp.nix
         ./nix/go.nix
+        ./nix/python.nix
       ];
     };
 }

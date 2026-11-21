@@ -1,0 +1,22 @@
+attribute "tsugumi";
+
+namespace inputs.number;
+table Number { value:long; }
+
+namespace inputs.table;
+table Row { name:string (required); count:long; }
+table Note { text:string (required); }
+table Count { value:long; }
+union Detail { Note, Count }
+table Data { rows:[Row] (required); detail:Detail; }
+
+namespace inputs.file;
+table File { value:string (required); }
+
+namespace inputs;
+table Inputs {
+  number:inputs.number.Number (required);
+  table:inputs.table.Data (required);
+  file:inputs.file.File (tsugumi: "file");
+}
+root_type Inputs;
