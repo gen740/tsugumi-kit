@@ -4,7 +4,7 @@ This guide targets **Card ABI 9 (unreleased)**. The C++ interface below follows 
 
 ## Return a value from `run`
 
-A Card is a function from input to output. Include the generated `card.hh` and define one free function. Here is the complete source for a Card with a required input port `celsius` and a required output port `fahrenheit`, both tables with a `value:double` field.
+A Card has the shape `(input) -> output`. Include the generated `card.hh` and define one free function. Here is the complete source for a Card with a required input port `celsius` and a required output port `fahrenheit`, both tables with a `value:double` field.
 
 ```cpp
 #include "card.hh"
@@ -18,7 +18,7 @@ auto run(const Card::Inputs& input) -> Card::Output {
 }
 ```
 
-For an input of 20, the next Card receives 68 on the output port. The scalar also appears live. Returning the output and displaying a value are independent operations.
+For an input of 20, the next Card receives 68 on the output port. The scalar also appears live. Returning the output and displaying a value are independent operations. The [temperature conversion template](../templates/temperature-conversion/) includes the input Card, both output schemas and the wire between them.
 
 | Card definition file | What to put there |
 | --- | --- |
@@ -54,7 +54,7 @@ A Card-owned thread may keep displaying after `run` returns while the process li
 
 ## Cancellation, deadlines and failures
 
-During a call, any Card thread can poll `card::cancelled()` or read the remaining time in milliseconds with `card::remaining_ms()`. Cancellation state is process-wide. Between calls these functions return `true` and `0`, respectively. A long-running loop should check cancellation between units of work.
+During a call, any Card thread can poll `card::cancelled()` or read the remaining time in milliseconds with `card::remaining_ms()`. The reference SDK uses `-1` for a call with no deadline. Cancellation state is process-wide. Between calls these functions return `true` and `0`, respectively. A long-running loop should check cancellation between units of work.
 
 Throw `tsugumi::Failure(kind, message)` for a structured failure. The default third argument, `std::source_location::current()`, captures the **construction site**. If a helper constructs the exception, give the helper its own default location and pass it through, as below. The reference SDK reports a definition-relative source path and line for Card sources and omits locations in external sources. An optional fourth argument identifies a notebook cell.
 
@@ -101,7 +101,9 @@ For a **new output**, choose a name under the CWD, create the regular file or di
 
 Finish writing and close all output streams **before returning**, including writes on background threads. The worker snapshots newly created files after receiving the result and before clearing scratch or starting another call. Directory collection snapshots files individually. Each call has limits on total output bytes and entry count. To **forward** a File or Directory, return its input path unchanged, as in the example above. Tsugumi records the original stored path without copying it. A symlink to the input does not qualify.
 
-With `reuseWorker`, memory and CWD contents can survive across invocations and runs **of the same Card**. One worker takes one call at a time. It ends with the series of runs and is recreated when the definition, SDK, grants or a secret value changes. A call already executing when the definition changes finishes on the old version. Keep persistent project data in outputs. Use worker-local state only when the Card can recreate it.
+The [CSV filter template](../templates/filter-counts/) does both in one call. Its output schema marks the two File ports with `tsugumi: "file"`. For a Directory port, use a table with the same string `value` field and mark the port with `tsugumi: "directory"`.
+
+With `reuseWorker`, memory and CWD contents can survive across invocations and runs **of the same Card**. One worker takes one call at a time. It ends with the series of runs and is recreated when the definition, SDK, grants or a secret value changes. A call already executing when the definition changes finishes on the old version. A cache in `HOME` should therefore be safe to rebuild when the next call finds it missing.
 
 ## Secrets and grants
 

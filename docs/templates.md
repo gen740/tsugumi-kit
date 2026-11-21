@@ -20,7 +20,7 @@ A template may include a `layout.json` fragment with positions for its Cards. A 
 
 On copy, the core allocates fresh Card IDs and remaps references in the copied graph and layout. Copying the temperature pair twice should produce two independent pairs, each with its own internal wire. Connect ports at the boundary of each copy to the rest of your project.
 
-The decided format specifies the folder, its contents and the remapping behavior. It leaves the on-disk representation of a template's connections unspecified. The two-Card example uses a **provisional** `tsugumi.json` fragment with the existing project `canvas.cards` and `canvas.connections` fields. Its README gives both endpoints of the wire.
+The decided format specifies the folder, its contents and the remapping behavior. It leaves the on-disk representation of a template's connections unspecified. The two-Card example uses a **provisional** `tsugumi.json` fragment with the existing project `canvas.cards` and `canvas.connections` fields. See the [connection](../templates/temperature-conversion/tsugumi.json) and the matching [layout](../templates/temperature-conversion/layout.json).
 
 ## Import from Git
 

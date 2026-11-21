@@ -23,14 +23,18 @@ whole or to Tsugumi's worker, which belongs to the core.
 
 | Path | Contents |
 | --- | --- |
-| `templates/` | Example templates. A template is a folder of Card definition directories (one Card or several, or part of a graph) with an optional `layout.json` fragment. Import it into Tsugumi's host or project template store from Git. |
+| [C++ SDK guide](docs/cpp-sdk.md) | Write a typed Card for ABI 9, display results and work with files in the worker. |
+| [Template guide](docs/templates.md) | Template format, Git import and the host and project stores. |
+| [Example templates](templates/README.md) | A [CSV filter](templates/filter-counts/) and a [two-Card temperature conversion](templates/temperature-conversion/). |
 | `sdk/<language>/` | One SDK per language (moving here from the Tsugumi repository). |
 
 ## Status
 
-Just created. The SDKs are first made self-contained inside the Tsugumi
-repository and then moved here; C++ is the reference SDK and comes first. The
-decided design is in Tsugumi's `docs/CoreAndSDK.md`, `docs/CardABI.md` and
-`docs/SandboxContract.md`.
+The guides and examples target **Card ABI 9 (unreleased)**. The C++ reference
+SDK is being developed in Tsugumi. The default SDKs move here after they are
+self-contained. The upstream decisions cover the
+[core and SDK boundary](https://github.com/gen740/Tsugumi/blob/1610f0f934edbcc627babcfb6df59829e62d7c51/docs/CoreAndSDK.md),
+[Card ABI](https://github.com/gen740/Tsugumi/blob/1610f0f934edbcc627babcfb6df59829e62d7c51/docs/CardABI.md)
+and [sandbox contract](https://github.com/gen740/Tsugumi/blob/1610f0f934edbcc627babcfb6df59829e62d7c51/docs/SandboxContract.md).
 
 Nothing here is stable before Tsugumi v1.0.0.
