@@ -1,0 +1,5 @@
+{
+  "type": "code",
+  "inputs": [{ "name": "counts" }],
+  "params": [{ "name": "minimum", "type": "uint64", "data": 10 }]
+}

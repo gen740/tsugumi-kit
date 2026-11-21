@@ -1,0 +1,4 @@
+{
+  "type": "input",
+  "params": [{ "name": "value", "type": "double", "data": 20.0 }]
+}
