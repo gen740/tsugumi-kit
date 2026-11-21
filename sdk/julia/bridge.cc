@@ -3,9 +3,12 @@
 #include <dlfcn.h>
 #include <julia.h>
 
+#include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
 #include <exception>
+#include <future>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -13,8 +16,21 @@
 namespace tsugumi::julia {
 namespace {
 
-extern "C" auto IsCancelled() -> int { return card::cancelled(); }
-extern "C" auto RemainingMs() -> int64_t { return card::remaining_ms(); }
+extern "C" auto IsCancelled() noexcept -> int {
+  try {
+    return card::cancelled();
+  } catch (...) {
+    return 1;
+  }
+}
+
+extern "C" auto RemainingMs() noexcept -> int64_t {
+  try {
+    return card::remaining_ms();
+  } catch (...) {
+    return 0;
+  }
+}
 
 template <class T>
 auto Field(const Json& value, const char* name) -> T {
@@ -133,24 +149,51 @@ class JuliaScope {
 
 class Interpreter {
  public:
-  Interpreter() : thread_(std::this_thread::get_id()) {
+  Interpreter() {
+    // Julia and Card tasks can still use this library after the caller releases
+    // its handle. Keep the library and interpreter alive until process exit.
+    Dl_info info{};
+    if (!dladdr(reinterpret_cast<void*>(Display), &info) ||
+        !dlopen(info.dli_fname, RTLD_NOW | RTLD_LOCAL)) {
+      throw std::runtime_error("Could not retain the Julia Card library");
+    }
+    std::thread([this] { Serve(); }).detach();
+  }
+
+  auto Run(const std::string& input) -> Json {
+    std::packaged_task<Json()> task([this, &input] {
+      if (failure_) std::rethrow_exception(failure_);
+      return Json::parse(Call(input));
+    });
+    auto result = task.get_future();
+    {
+      // ABI callers are serial, so a single request slot is enough.
+      const std::lock_guard lock(mutex_);
+      pending_ = std::move(task);
+    }
+    ready_.notify_one();
+    return result.get();
+  }
+
+ private:
+  auto Serve() -> void {
     // Cache init failures because Julia cannot be initialized again.
     try {
       Prepare();
     } catch (...) {
       failure_ = std::current_exception();
     }
+    for (;;) {
+      std::packaged_task<Json()> task;
+      {
+        std::unique_lock lock(mutex_);
+        ready_.wait(lock, [this] { return pending_.valid(); });
+        task = std::move(pending_);
+      }
+      task();
+    }
   }
 
-  auto Run(const std::string& input) const -> Json {
-    if (failure_) std::rethrow_exception(failure_);
-    if (thread_ != std::this_thread::get_id())
-      throw std::runtime_error(
-          "Julia Cards must run on the interpreter thread");
-    return Json::parse(Call(input));
-  }
-
- private:
   auto Call(const std::string& input) const -> std::string {
     const JuliaScope scope;
     jl_value_t* argument = nullptr;
@@ -209,15 +252,19 @@ class Interpreter {
 
     jl_value_t* root = nullptr;
     jl_value_t* entry = nullptr;
-    JL_GC_PUSH2(&root, &entry);
+    jl_value_t* prefix = nullptr;
+    JL_GC_PUSH3(&root, &entry, &prefix);
     root = jl_cstr_to_string(TSUGUMI_JULIA_SOURCE);
     entry = jl_cstr_to_string(TSUGUMI_JULIA_ENTRY);
-    jl_call2(load, root, entry);
+    prefix = jl_cstr_to_string(TSUGUMI_JULIA_SOURCE_PREFIX);
+    jl_call3(load, root, entry, prefix);
     JL_GC_POP();
     CheckJulia("Loading the Julia Card");
   }
 
-  std::thread::id thread_;
+  std::mutex mutex_;
+  std::condition_variable ready_;
+  std::packaged_task<Json()> pending_;
   jl_value_t* run_ = nullptr;
   std::exception_ptr failure_;
 };
@@ -225,8 +272,8 @@ class Interpreter {
 }  // namespace
 
 auto RunJulia(const std::string& input) -> Json {
-  static const Interpreter interpreter;
-  return interpreter.Run(input);
+  static auto* const interpreter = new Interpreter;
+  return interpreter->Run(input);
 }
 
 auto ReadFailure(const Json& failure) -> Tsugumi::Card::CardResultT {
@@ -240,7 +287,8 @@ auto ReadFailure(const Json& failure) -> Tsugumi::Card::CardResultT {
   const auto kind = Field<std::string>(failure, "kind");
   report.kind = FailureKind::worker_failed;
   for (const auto candidate : EnumValuesFailureKind()) {
-    if (EnumNameFailureKind(candidate) == kind) {
+    if (candidate != FailureKind::unspecified &&
+        EnumNameFailureKind(candidate) == kind) {
       report.kind = candidate;
       break;
     }

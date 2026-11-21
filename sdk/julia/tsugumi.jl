@@ -13,6 +13,8 @@ end
 Base.getindex(input::Inputs, name::AbstractString) = getfield(input, :ports)[name]
 Base.getproperty(input::Inputs, name::Symbol) =
     name === :params ? getfield(input, :params) : input[String(name)]
+Base.propertynames(input::Inputs, private::Bool=false) =
+    (:params, (Symbol(name) for name in keys(getfield(input, :ports)) if name != "params")...)
 path(input::Inputs, name::AbstractString) = input[name]["value"]
 
 struct CardFailure <: Exception
@@ -25,8 +27,8 @@ CardFailure(kind::Symbol, message::AbstractString; cell::AbstractString="") =
 Base.showerror(io::IO, failure::CardFailure) = print(io, failure.message)
 
 const HOST = Main.TSUGUMI_JULIA_HOST
-cancelled() = ccall(HOST.cancelled, Cint, ()) != 0
-remaining_ms() = ccall(HOST.remaining_ms, Int64, ())
+cancelled() = (@ccall gc_safe=true $(HOST.cancelled)()::Cint) != 0
+remaining_ms() = @ccall gc_safe=true $(HOST.remaining_ms)()::Int64
 
 struct Markdown
     text::String
@@ -77,7 +79,7 @@ View(module_id::AbstractString, config; blobs=Dict{String,Vector{UInt8}}()) =
 
 function emit(kind, value, record::Bool)
     data = JSON.json(value)
-    code = ccall(HOST.display, Cint, (Cstring, Cstring, Cint), kind, data, record)
+    code = @ccall gc_safe=true $(HOST.display)(kind::Cstring, data::Cstring, record::Cint)::Cint
     code == 0 || error("display was rejected")
     return nothing
 end
@@ -113,13 +115,14 @@ using ..Tsugumi: Markdown, Scalar, Table, Image, Points, LineChart, Plotly, Vega
 end
 
 const source_root = Ref("")
+const source_prefix = Ref("")
 const loaded = Ref(false)
 const load_failure = Ref("")
 
-function failure_json(err, bt)
+function failure_json(err, bt=nothing)
     source = ""
     line = 0
-    for frame in stacktrace(bt)
+    for frame in (bt === nothing ? () : stacktrace(bt))
         file = String(frame.file)
         if frame.line > 0 && startswith(file, source_root[] * "/")
             source = relpath(file, source_root[])
@@ -139,11 +142,13 @@ function failure_json(err, bt)
     kind = detail isa CardFailure ? String(detail.kind) : "worker_failed"
     cell = detail isa CardFailure ? detail.cell : ""
     message = detail isa CardFailure ? detail.message : sprint(showerror, err)
+    isempty(source) || (source = joinpath(source_prefix[], source))
     return JSON.json((; failure=(; kind, message, source, line, cell)))
 end
 
-function load(root, entry)
+function load(root, entry, prefix)
     source_root[] = root
+    source_prefix[] = prefix
     try
         Base.include(CardCode, joinpath(root, entry))
         isdefined(CardCode, :main) || error("define main(input) in " * entry)
@@ -160,7 +165,7 @@ function run(payload)
         values = JSON.parse(payload; inttype=Int128, allownan=false)
         output = Base.invokelatest(CardCode.main, Inputs(values["ports"], values["params"]))
         if output isa CardFailure
-            return failure_json(output, [])
+            return failure_json(output)
         end
         if !(output isa Union{AbstractDict,NamedTuple})
             return JSON.json((; failure=(; kind="output_invalid", message="return a Dict or NamedTuple of output ports")))

@@ -2,13 +2,17 @@
   "inputs": [
     {"name": "number", "type": "inputs.number.Number", "kind": "flatbuffer", "required": true},
     {"name": "table", "type": "inputs.table.Table", "kind": "flatbuffer", "required": true},
-    {"name": "file", "type": "inputs.file.File", "kind": "file", "required": false}
+    {"name": "file", "type": "inputs.file.File", "kind": "file", "required": false},
+    {"name": "directory", "type": "inputs.directory.Directory", "kind": "directory", "required": false},
+    {"name": "Params", "type": "inputs.class.template.union", "kind": "flatbuffer", "required": true}
   ],
   "outputs": [
     {"name": "number", "type": "outputs.number.Number", "kind": "flatbuffer", "required": true},
     {"name": "table", "type": "outputs.table.Table", "kind": "flatbuffer", "required": true},
     {"name": "file", "type": "outputs.file.File", "kind": "file", "required": false},
-    {"name": "forward", "type": "outputs.forward.File", "kind": "file", "required": false}
+    {"name": "forward", "type": "outputs.forward.File", "kind": "file", "required": false},
+    {"name": "directory", "type": "outputs.directory.Directory", "kind": "directory", "required": false},
+    {"name": "switch", "type": "outputs.concept.constexpr", "kind": "flatbuffer", "required": true}
   ],
   "params": [{"name": "mode"}, {"name": "fd"}]
 }

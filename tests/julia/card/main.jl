@@ -11,7 +11,15 @@ function main(input)
     mode == 5 && error("Card threw")
     mode == 6 && return (;)
     mode == 7 && return (; number=(; value=-1))
+    mode == 8 && return CardFailure(:input_missing, "returned failure"; cell="load")
+    mode == 9 && throw(CardFailure(:unspecified, "reserved failure kind"; cell="fit"))
+    mode == 10 && return (; number=input.number, table=(; rows=[nothing]))
 
+    for name in (:number, :table, :file, :directory, :Params, :params)
+        hasproperty(input, name) || error("missing property $name")
+    end
+    !hasproperty(input, :ports) && !hasproperty(input, :absent) || error("unexpected property")
+    input.Params["return"] == 43 && input.Params["__value"] == 7 || error("wrong reserved fields")
     input.number["value"] == typemax(UInt64) || error("lost integer precision")
     rows = input.table["rows"]
     rows[1]["measure"] == "NaN" || error("wrong NaN token")
@@ -28,6 +36,26 @@ function main(input)
     rows[3]["measure"] = -Inf
     rows[1]["bytes"] = base64encode(UInt8[255, 13, 0])
 
+    if mode == 11
+        cancelled() && remaining_ms() == 0 || error("wrong fallbacks for throwing host")
+        try
+            display("throwing host")
+            error("expected display rejection")
+        catch err
+            err isa ErrorException && err.msg == "display was rejected" || rethrow()
+        end
+    elseif 12 <= mode <= 14
+        check_gc_during_effect(mode, input.params["fd"])
+    elseif mode == 15 || mode == 16
+        effect_task[] = Threads.@spawn :default begin
+            mode == 15 ? cancelled() : remaining_ms() == -1
+        end
+        read_signal(input.params["fd"])
+        display("returning")
+    elseif mode == 17
+        fetch(effect_task[]) || error("wrong value from overlapping host callback")
+    end
+
     if mode == 1
         !cancelled() && remaining_ms() == 500 || error("wrong active effects")
         display("résumé\n\"")
@@ -43,9 +71,7 @@ function main(input)
         fd = input.params["fd"]
         # The embedding thread owns the interactive pool in this fixture.
         Threads.@spawn :default begin
-            signal = Ref{UInt8}(0)
-            received = @ccall gc_safe=true read(fd::Cint, signal::Ref{UInt8}, 1::Csize_t)::Cssize_t
-            received == 1 || error("read failed")
+            read_signal(fd)
             GC.gc()
             cancelled() && remaining_ms() == 0 || error("host still active outside the call")
             display("outside")
@@ -59,5 +85,32 @@ function main(input)
         file = (; value="output.txt")
         forward = (; value=source)
     end
-    return (; number=input.number, table=(; rows), file, forward)
+    directory = input.directory === nothing ? nothing : (; value=path(input, "directory"))
+    return (; number=input.number, table=(; rows), file, forward, directory, switch=input.Params)
+end
+
+const effect_task = Ref{Task}()
+
+function read_signal(fd)
+    signal = Ref{UInt8}(0)
+    received = @ccall gc_safe=true read(fd::Cint, signal::Ref{UInt8}, 1::Csize_t)::Cssize_t
+    received == 1 && signal[] == UInt8('!') || error("read failed")
+end
+
+function check_gc_during_effect(mode, fd)
+    task = Threads.@spawn :default begin
+        read_signal(fd)
+        GC.gc()
+        signal = Ref(UInt8('!'))
+        sent = @ccall gc_safe=true write(fd::Cint, signal::Ref{UInt8}, 1::Csize_t)::Cssize_t
+        sent == 1 || error("write failed")
+    end
+    if mode == 12
+        display("waiting for GC")
+    elseif mode == 13
+        !cancelled() || error("wrong cancellation status")
+    else
+        remaining_ms() == -1 || error("lost no-deadline sentinel")
+    end
+    fetch(task)
 end

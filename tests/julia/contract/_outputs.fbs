@@ -22,11 +22,19 @@ table File { value:string (required); }
 namespace outputs.forward;
 table File { value:string (required); }
 
+namespace outputs.directory;
+table Directory { value:string (required); }
+
+namespace outputs.concept;
+table constexpr { return:int; __value:int; }
+
 namespace outputs;
 table Outputs {
   number:outputs.number.Number (required);
   table:outputs.table.Table (required);
   file:outputs.file.File;
   forward:outputs.forward.File;
+  directory:outputs.directory.Directory;
+  switch:outputs.concept.constexpr (required);
 }
 root_type Outputs;

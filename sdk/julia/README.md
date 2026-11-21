@@ -43,8 +43,11 @@ A `[ubyte]` field uses standard padded base64, with `base64encode` and
 `VegaLite`, and `View`. Tasks scheduled on a separate Julia thread can keep
 sending displays after `main` returns. Outside a call, `cancelled()` returns true and
 `remaining_ms()` returns 0. Throw `CardFailure(:kind, "message"; cell="name")` to
-set the failure kind and optional cell. The SDK reports a source-relative
-filename and a one-based line from Card exceptions when available.
+set the failure kind and optional cell. Returning a `CardFailure` reports the
+same failure without a source location. For exceptions, the SDK reports a
+Card-definition-relative filename and one-based line when available. Set
+`sourcePrefix` to the location of `src` relative to the Card definition if it
+differs from `"src"`. Use `""` when `src` is the Card definition directory.
 
 The first valid call initializes Julia and loads the Card for the life of the
 worker. The SDK loads its pinned JSON.jl environment from the Nix closure and

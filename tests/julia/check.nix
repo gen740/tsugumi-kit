@@ -3,6 +3,7 @@
   stdenv,
   runCommandCC,
   flatbuffers,
+  python3,
   juliaCard,
   runtime,
 }:
@@ -23,7 +24,10 @@ let
 in
 runCommandCC "tsugumi-julia-abi9-check"
   {
-    nativeBuildInputs = [ flatbuffers ];
+    nativeBuildInputs = [
+      flatbuffers
+      python3
+    ];
     buildInputs = [ flatbuffers ];
   }
   ''
@@ -31,15 +35,13 @@ runCommandCC "tsugumi-julia-abi9-check"
     include=${runtime}/include
     card=${card}/lib/main.so
 
-    mkdir generated
-    for schema in _inputs _outputs _params; do
-      flatc --cpp --gen-object-api --scoped-enums -o generated ${./contract}/"$schema.fbs"
-    done
-    $CC -std=c11 -D_DEFAULT_SOURCE -Dalarm=julia_test_alarm -Wall -Wextra -Werror \
+    python3 ${../../sdk/cpp/card_cpp.py} ${./contract}/_contract.json generated \
+      ${flatbuffers.src}/reflection/reflection.fbs
+    $CC -std=c11 -D_DEFAULT_SOURCE -Dmain=shared_main -Dalarm=julia_test_alarm -Wall -Wextra -Werror \
       -I"$include" -c "$shared/fake_host.c"
     $CC -std=c11 -Wall -Wextra -Werror -c ${./watchdog.c} -o watchdog.o
     $CC -std=c11 -Wall -Wextra -Werror -fPIC -shared "$shared/legacy.c" -o legacy.so
-    $CXX -std=c++2c -Wall -Wextra -Werror -isystem generated -I"$include" -I"$shared" \
+    $CXX -std=c++2c -Wall -Wextra -Werror -isystem generated/include -I"$include" -I"$shared" \
       -I${../../sdk/cpp/src} \
       ${./wire.cc} fake_host.o watchdog.o ${runtime}/lib/libtsugumi_abi9.a \
       -pthread ${lib.optionalString (!isDarwin) "-ldl"} -o fake_host
@@ -48,6 +50,8 @@ runCommandCC "tsugumi-julia-abi9-check"
     export HOME="$PWD/work" TMPDIR="$PWD/scratch"
     export JULIA_NUM_THREADS=1,1
     printf 'card input\n' > "$HOME/input.txt"
+    mkdir "$HOME/input-directory"
+    printf 'directory input\n' > "$HOME/input-directory/keep.txt"
     (cd "$HOME" && ../fake_host "$card" "$OLDPWD/legacy.so")
     test -d "$HOME/.julia"
 

@@ -19,10 +19,19 @@ table Table { rows:[Row] (required); }
 namespace inputs.file;
 table File { value:string (required); }
 
+namespace inputs.directory;
+table Directory { value:string (required); }
+
+namespace inputs.class.template;
+table union { return:int; __value:int; }
+
 namespace inputs;
+table tsugumi_class { value:int; }
 table Inputs {
   number:inputs.number.Number (required);
   table:inputs.table.Table (required);
   file:inputs.file.File;
+  directory:inputs.directory.Directory;
+  Params:inputs.class.template.union (required);
 }
 root_type Inputs;

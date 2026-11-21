@@ -1,17 +1,16 @@
 """Emit typed C++ conversions. The schema metadata is used only in the build."""
 
 import json
+import subprocess
 import sys
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 sys.path.insert(0, str(Path(sys.argv[1]).parent))
-from card_cpp import KEYWORDS, ports
-
-# Flatc's C++ name escaping follows its own keyword list.
-CPP_KEYWORDS = (KEYWORDS - {"char8_t", "consteval", "constinit"}) | {
-    "atomic_cancel", "atomic_commit", "atomic_noexcept", "import", "module",
-    "synchronized",
-}
+from card_cpp import (
+    SCHEMAS, flatc_identifier, generate_headers, normalize_schema,
+    ports, schema_tokens, validators,
+)
 
 SCALARS = {
     "Bool": "bool",
@@ -29,12 +28,8 @@ SCALARS = {
 }
 
 
-def identifier(name):
-    return name + "_" if name in CPP_KEYWORDS else name
-
-
 def qualified(name):
-    return "::" + "::".join(map(identifier, name.split(".")))
+    return "::" + name.replace(".", "::")
 
 
 def literal(name):
@@ -42,9 +37,24 @@ def literal(name):
 
 
 class Schema:
-    def __init__(self, schema):
+    def __init__(self, schema, original, names):
         self.objects = schema["objects"]
         self.enums = schema["enums"]
+        def normalized_name(name):
+            return ".".join(names.get(part, part) for part in name.split("."))
+
+        self.original_fields = {
+            normalized_name(obj["name"]): {
+                field.get("id", 0): field["name"] for field in obj["fields"]
+            }
+            for obj in original["objects"]
+        }
+        self.original_variants = {
+            normalized_name(enum["name"]): {
+                variant.get("value", 0): variant["name"] for variant in enum["values"]
+            }
+            for enum in original["enums"]
+        }
 
     def type_for(self, typ, base):
         index = typ.get("index", -1)
@@ -66,14 +76,14 @@ class Schema:
             and "UType" not in (field["type"].get("base_type"), field["type"].get("element"))
         ]
         encode = []
-        decode = [f"  CheckObject(value, {{{', '.join(literal(f['name']) for f in fields)}}});"]
+        original = self.original_fields[obj["name"]]
+        keys = [literal(original[field.get("id", 0)]) for field in fields]
+        decode = [f"  CheckObject(value, {{{', '.join(keys)}}});"]
         arguments = []
         if not is_struct:
             decode.append(f"  {native} result;")
-        for field in fields:
-            name = field["name"]
-            key = literal(name)
-            member = identifier(name)
+        for field, key in zip(fields, keys):
+            member = flatc_identifier(field["name"])
             access = f"value.{member}" + ("()" if is_struct else "")
             typ = field["type"]
             base = typ["base_type"]
@@ -123,11 +133,12 @@ class Schema:
 
     def enum_codec(self, enum):
         native = qualified(enum["name"])
+        original = self.original_variants[enum["name"]]
         if not enum.get("is_union"):
             encode, decode = [], []
             for variant in enum["values"]:
-                name = literal(variant["name"])
-                tag = f"{native}::{identifier(variant['name'])}"
+                name = literal(original[variant.get("value", 0)])
+                tag = f"{native}::{flatc_identifier(variant['name'])}"
                 encode.append(f"  if (value == {tag}) return {name};")
                 decode.append(f"  if (value == {name}) return {tag};")
             raw = f"std::underlying_type_t<{native}>"
@@ -145,9 +156,9 @@ class Schema:
         ]
         for variant in enum["values"]:
             typ = variant.get("union_type", {})
-            member = variant["name"]
-            name = literal(member)
-            tag = f"{native}::{identifier(member)}"
+            member = flatc_identifier(variant["name"])
+            name = literal(original[variant.get("value", 0)])
+            tag = f"{native}::{member}"
             base = typ.get("base_type", "None")
             if base == "None":
                 encode.append(f"    case {tag}: return nullptr;")
@@ -156,7 +167,7 @@ class Schema:
             scalar = self.type_for(typ, base)
             encode += [
                 f"    case {tag}:",
-                f"      if (const auto* data = value.As{identifier(member)}())",
+                f"      if (const auto* data = value.As{member}())",
                 f'        return Json{{{{"type", {name}}}, {{"value", julia::Encode(*data)}}}};',
                 "      break;",
             ]
@@ -173,7 +184,7 @@ class Schema:
         return union, encode, decode
 
 
-def generate(contract, schemas):
+def generate(contract, schemas, names, output_schema):
     declarations = [
         '#include "_inputs_generated.h"',
         '#include "_outputs_generated.h"',
@@ -211,17 +222,19 @@ def generate(contract, schemas):
                 "}",
             ]
 
+    outputs = list(ports(contract["outputs"], {"Output"}, names))
     body = [
         "namespace {",
         "using namespace tsugumi::abi9;",
         "",
+        *validators(output_schema, (table for _, _, table, _, _ in outputs)),
         "auto RunCard(tsugumi_bytes bytes) -> Tsugumi::Card::CardResultT {",
         "  Input input(bytes);",
         "  auto members = Json::object();",
         "  std::string request;",
         "  try {",
     ]
-    for name, _, table, kind, required in ports(contract["inputs"], {"Inputs", "params"}):
+    for name, _, table, kind, required in ports(contract["inputs"], {"Inputs", "params"}, names):
         body.append(f"    members[{name}] = Encode(input.ReadPort<{table}>({name}, {kind}, {str(required).lower()}));")
     body += [
         "    input.CheckConsumed();",
@@ -238,14 +251,13 @@ def generate(contract, schemas):
         "  try {",
         '    const auto& output = response.at("output");',
     ]
-    outputs = list(ports(contract["outputs"], {"Output"}))
     body.append(f"    CheckObject(output, {{{', '.join(port[0] for port in outputs)}}});")
     for name, member, table, kind, required in outputs:
         body += [
             f"    const auto field_{member} = output.find({name});",
             f"    const auto value_{member} = field_{member} == output.end() ? std::nullopt",
             f"        : Decode<std::optional<{table}T>>(*field_{member});",
-            f"    WritePort<{table}>(result, {name}, {kind}, value_{member}, {str(required).lower()});",
+            f"    WritePort<{table}>(result, {name}, {kind}, value_{member}, {str(required).lower()}, IsPackable);",
         ]
     body += [
         "  } catch (const Json::exception& error) {",
@@ -268,7 +280,37 @@ def generate(contract, schemas):
     return "\n".join(declarations + definitions + body) + "\n"
 
 
+def reflect(schema, root, out, reflection):
+    subprocess.run(["flatc", "-b", "--schema", "-o", str(out), f"{schema}.fbs"],
+                   cwd=root, check=True)
+    subprocess.run(["flatc", "-t", "--strict-json", str(reflection), "--", f"{schema}.bfbs"],
+                   cwd=out, check=True)
+    return json.loads((out / f"{schema}.json").read_text())
+
+
 if __name__ == "__main__":
-    contract = json.loads(Path(sys.argv[2]).read_text())
-    schemas = [Schema(json.loads(Path(path).read_text())) for path in sys.argv[3:]]
-    sys.stdout.write(generate(contract, schemas))
+    contract_file, out, reflection = (Path(path).resolve() for path in sys.argv[2:])
+    root = contract_file.parent
+    (out / "include").mkdir(parents=True, exist_ok=True)
+    names, output_schema = generate_headers(root, out, reflection)
+    with TemporaryDirectory() as directory:
+        work = Path(directory)
+        # The wire IDs and numeric enum values let us recover the exact Julia
+        # keys and tags from the original schemas, even when flatc names change.
+        normalized = work / "normalized"
+        for path in root.rglob("*.fbs"):
+            if path.name.startswith("._"):
+                continue
+            target = normalized / path.relative_to(root)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            source = path.read_text(encoding="utf-8")
+            target.write_text(normalize_schema(source, schema_tokens(source), names))
+        schemas = []
+        for base in SCHEMAS:
+            original = reflect(base, root, work, reflection)
+            schema = output_schema if base == "_outputs" else reflect(
+                base, normalized, work, reflection
+            )
+            schemas.append(Schema(schema, original, names))
+        contract = json.loads(contract_file.read_text())
+        sys.stdout.write(generate(contract, schemas, names, output_schema))
