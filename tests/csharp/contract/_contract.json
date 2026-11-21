@@ -9,7 +9,8 @@
     {"name": "number", "type": "outputs.number.Number", "kind": "flatbuffer", "required": true},
     {"name": "out", "type": "outputs.out.Sample", "kind": "flatbuffer", "required": true},
     {"name": "file", "type": "outputs.file.File", "kind": "file", "required": true},
-    {"name": "directory", "type": "outputs.directory.Directory", "kind": "directory", "required": false}
+    {"name": "directory", "type": "outputs.directory.Directory", "kind": "directory", "required": false},
+    {"name": "pack", "type": "outputs.pack.Pack", "kind": "flatbuffer", "required": false}
   ],
   "params": [{"name": "mode"}, {"name": "fd"}]
 }

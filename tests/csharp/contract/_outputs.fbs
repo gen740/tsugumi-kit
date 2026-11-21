@@ -15,11 +15,16 @@ table File { value:string (required); }
 namespace outputs.directory;
 table Directory { value:string (required); }
 
+namespace outputs.pack;
+table Item { text:string (required); }
+table Pack { items:[Item] (required); }
+
 namespace outputs;
 table Outputs {
   number:outputs.number.Number;
   out:outputs.out.Sample;
   file:outputs.file.File (tsugumi: "file");
   directory:outputs.directory.Directory (tsugumi: "directory");
+  pack:outputs.pack.Pack;
 }
 root_type Outputs;

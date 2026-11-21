@@ -1,11 +1,12 @@
 attribute "tsugumi";
 
 namespace inputs.number;
-table Number { value:long; }
+struct Position (force_align: 32) { x:long; y:long; }
+table Number { position:Position (required); }
 
 namespace inputs.sample;
 table Label { value:string (required); }
-table Count { value:int; }
+table Count { value:int; detail:string; }
 union Value { Label, Count }
 table Sample { name:string (required); value:Value; }
 

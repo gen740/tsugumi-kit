@@ -17,7 +17,7 @@ public sealed class Failure(
 {
     internal Wire.CardFailureT ToWire() => new()
     {
-        Kind = kind,
+        Kind = kind != FailureKind.unspecified && Enum.IsDefined(kind) ? kind : FailureKind.worker_failed,
         Message = Message,
         Source = source.StartsWith("/card/", StringComparison.Ordinal) ? source[6..] : null,
         Line = source.StartsWith("/card/", StringComparison.Ordinal) ? (uint)line : 0,

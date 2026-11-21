@@ -3,8 +3,6 @@
 #include <dlfcn.h>
 #include <hostfxr.h>
 
-#include <cstdlib>
-
 #include "adapter.hh"
 
 namespace {
@@ -33,8 +31,6 @@ using Entry = int (*)(const uint8_t*, size_t, decltype(&Display),
                       Sink);
 
 auto LoadCard() -> Entry {
-  // Diagnostics would open a socket in the worker's sandbox.
-  ::setenv("DOTNET_EnableDiagnostics", "0", 1);
   const auto library = ::dlopen(TSUGUMI_HOSTFXR, RTLD_NOW | RTLD_LOCAL);
   if (!library) return nullptr;
 

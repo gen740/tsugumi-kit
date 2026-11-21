@@ -53,6 +53,12 @@ let
         cp ${./Entry.cs} Sdk/Entry.cs
         cp ${./Effects.cs} Sdk/Effects.cs
         cp ${pkgs.flatbuffers.src}/net/FlatBuffers/*.cs Sdk/FlatBuffers/
+        # The vendored runtime predates nullable reference type annotations.
+        sed -i '1s/^\xef\xbb\xbf//; 1i #nullable disable' Sdk/FlatBuffers/*.cs
+        # Vtable positions are 32-bit buffer offsets. Only their entries are 16-bit.
+        substituteInPlace Sdk/FlatBuffers/FlatBufferVerify.cs --replace-fail \
+          'short vtable = Convert.ToInt16(pos - ReadSOffsetT(verifier_buffer, pos));' \
+          'int vtable = pos - ReadSOffsetT(verifier_buffer, pos);'
         # The pinned managed verifier uses null for no file identifier.
         # Its nested-buffer caller passes an empty string instead.
         sed -i 's/CheckBufferFromStart("", 0, verifyAction)/CheckBufferFromStart(null, 0, verifyAction)/' \
@@ -76,6 +82,7 @@ let
             <GenerateRuntimeConfigurationFiles>true</GenerateRuntimeConfigurationFiles>
             <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
             <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+            <Nullable>enable</Nullable>
             <NuGetAudit>false</NuGetAudit>
             <DebugType>none</DebugType>
           </PropertyGroup>
