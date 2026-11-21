@@ -7,7 +7,9 @@ The derivation contains `lib/main.so`. Set `entry` to select another R file with
 `src`. Extra R packages can be selected with `packages = ps: [ ps.ggplot2 ];`.
 
 Define `main` as a function with a single argument. Its input is a named list
-whose keys are the input ports and `params`. Return a named list of outputs using
+whose keys are the input ports and `params`. If a port is named `params`, find it
+under `params_` (with more underscores if needed to avoid other port names).
+Return a named list of outputs using
 the table fields from the output schemas. Omit optional ports or return `NULL`
 for them. A missing required output and a value that fails conversion produce a
 Card failure. An uncaught R error produces a Card failure with the source and
@@ -26,22 +28,26 @@ main <- function(input) {
 File and Directory ports use a table with a `value` path. Create new outputs
 under the working directory and close them before returning. Return an input
 path unchanged to forward it. R starts and sources the Card on the first valid
-call in each worker process. The R session's `tempdir()` lives under `HOME` and
-survives the worker's per-call cleanup of `TMPDIR`.
+call in each worker process. The R session's `tempdir()` lives under `TMPDIR`.
+The host clears it between calls and the SDK restores the directory before
+running the Card again. Keep files needed across calls under `HOME`.
 
 ## R values
 
-- FlatBuffers tables and structs use named lists. Vectors and fixed arrays
-  arrive as R lists. Use an unnamed list or `I(vector)` to return a JSON array
-  even when it has one element. A missing nullable scalar or child table
+- FlatBuffers tables and structs use named lists. Numeric vectors and fixed
+  arrays arrive as R numeric vectors, including empty and single-element
+  values. A vector containing wide integers represented as decimal strings
+  stays a list to preserve their precision. Other arrays arrive as lists.
+  Return numeric vectors directly. For other arrays, return an unnamed list
+  or use `I(vector)`. A missing nullable scalar or child table
   arrives as `NULL`. The generated object API represents absent strings and
   vectors by empty values.
 - Known enum values use their schema names. A union uses
   `list(type = "Variant", value = ...)` and an unset union uses `NULL`.
 - Integers of magnitude greater than `2^53` travel as decimal strings. Use
   decimal strings to produce these values from R. The floating-point tokens
-  are `"NaN"`, `"Inf"` and `"-Inf"`. R's corresponding floating-point values
-  can also be returned directly.
+  `"NaN"`, `"Inf"` and `"-Inf"` arrive as their R floating-point values in
+  numeric vectors and as strings in scalar fields. Either form can be returned.
 - A `[ubyte]` vector uses a base64 string. Use `jsonlite::base64_dec()` to
   obtain an R raw vector. Either a raw vector or a base64 string can be
   returned.
@@ -56,5 +62,20 @@ matrix. The constructors `markdown(text)`, `scalar(value, label)`,
 `record = TRUE` to keep an individual display in history.
 
 Use `cancelled()` to poll the host and `remaining_ms()` to read its deadline
-budget in milliseconds. The embedded R interpreter runs on the worker thread
-that owns the Card. Ordinary R calls to the SDK functions run on that thread.
+budget in milliseconds. If the host's query fails, these return `TRUE` and
+`0` respectively. The SDK initializes and evaluates R on one dedicated thread
+for the lifetime of the worker process. Call R effect functions from that thread.
+
+Native R extensions can look up these C functions with
+`R_GetCCallable("tsugumi", name)` on the interpreter thread and invoke the saved
+pointers from their own threads:
+
+| Name | C signature |
+| --- | --- |
+| `display` | `int (tsugumi_bytes, int record)` |
+| `cancelled` | `bool (void)` |
+| `remaining_ms` | `double (void)` |
+
+The native display function accepts a serialized ABI 9 `CardDisplay` and returns
+zero on success. Keep its bytes alive until it returns. It can display after
+`main` returns. Outside an invocation the queries return `true` and `0`.

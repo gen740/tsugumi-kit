@@ -68,8 +68,8 @@ runCommandCC name
     source="$source_root"/${lib.escapeShellArg entry}
     test -f "$source"
     includes=(-I"${runtime}/include" -I"${../cpp/src}" -isystem "${generated}/include" -I"${./.}")
-    $CC -std=c11 -D_POSIX_C_SOURCE=200809L -O2 -fPIC -fvisibility=hidden -Wall -Wextra -Werror \
-      -I"${rHome}/include" -DTSUGUMI_LIBR='"${rHome}/lib/${rShared}"' \
+    $CC -std=c11 -D_POSIX_C_SOURCE=200809L -O2 -fPIC -fvisibility=hidden -Wall -Wextra -Werror -pthread \
+      -I"${runtime}/include" -I"${rHome}/include" -DTSUGUMI_LIBR='"${rHome}/lib/${rShared}"' \
       -DTSUGUMI_R_HOME='"${rHome}"' -DTSUGUMI_R_LIBS="\"$R_LIBS_SITE\"" \
       -DTSUGUMI_R_SDK='"${./tsugumi.R}"' -DTSUGUMI_R_SOURCE="\"$source\"" \
       -DTSUGUMI_R_SOURCE_ROOT="\"$source_root\"" \

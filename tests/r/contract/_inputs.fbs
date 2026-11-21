@@ -3,7 +3,7 @@ attribute "tsugumi";
 namespace rtest;
 
 enum Unit : ubyte { Counts, Volts }
-struct Position { coordinates:[int:2]; units:[Unit:2]; }
+struct Position { coordinates:[int:2]; units:[Unit:2]; depth:[int:1]; }
 table Number { value:double; unit:Unit; }
 table Choice { name:string (required); }
 union Selection { Choice, Alias:Choice, Description:string }
@@ -12,6 +12,9 @@ table Row {
   signed_value:long;
   unsigned_value:ulong;
   special:[double];
+  single:[double];
+  empty:[int];
+  wide:[ulong];
   bytes:[ubyte];
   enabled:[bool];
   unit:[Unit];
@@ -21,11 +24,15 @@ table Row {
 }
 table DataTable { rows:[Row] (required); }
 table File { value:string (required); }
+table Directory { value:string (required); }
 
 namespace inputs;
 table Inputs {
   number:rtest.Number (required);
+  params:rtest.Number (required);
+  params_:rtest.Number (required);
   table:rtest.DataTable (required);
   file:rtest.File (tsugumi: "file");
+  directory:rtest.Directory (tsugumi: "directory");
 }
 root_type Inputs;

@@ -84,16 +84,22 @@ auto FromValue(const Json& value) -> T {
   }
 }
 
-template <typename Range, typename Convert>
+template <bool Numeric = false, typename Range, typename Convert>
 auto ToArray(const Range& values, Convert convert) -> Json {
   Json array = Json::array();
   for (const auto& value : values) array.push_back(convert(value));
+  // FlatBuffers field names cannot start with '$'. Keep nested tables and
+  // lists distinct from numeric vectors, even when the vector is empty.
+  if constexpr (Numeric) return Json{{"$numeric", std::move(array)}};
   return array;
 }
 
-template <typename Convert>
+template <bool AllowScalar = false, typename Convert>
 auto ReadVector(const Json& array, Convert convert)
     -> std::vector<decltype(convert(array[0]))> {
+  if constexpr (AllowScalar) {
+    if (array.is_primitive()) return {convert(array)};
+  }
   if (!array.is_array()) throw std::invalid_argument("Expected an array");
   std::vector<decltype(convert(array[0]))> values;
   values.reserve(array.size());
@@ -101,8 +107,11 @@ auto ReadVector(const Json& array, Convert convert)
   return values;
 }
 
-template <typename T, size_t N, typename Convert>
+template <typename T, size_t N, bool AllowScalar = false, typename Convert>
 auto ReadArray(const Json& array, Convert convert) -> std::array<T, N> {
+  if constexpr (N == 1 && AllowScalar) {
+    if (array.is_primitive()) return {convert(array)};
+  }
   if (!array.is_array() || array.size() != N)
     throw std::invalid_argument("Wrong size for fixed array");
   std::array<T, N> values;
@@ -127,7 +136,16 @@ inline auto ToBase64(const std::vector<uint8_t>& bytes) -> Json {
 }
 
 inline auto FromBase64(const Json& value) -> std::vector<uint8_t> {
-  const auto& text = value.get_ref<const std::string&>();
+  std::string_view text = value.get_ref<const std::string&>();
+  std::string unwrapped;
+  // jsonlite wraps base64 from raw values, including image and module blobs.
+  if (text.find_first_of("\r\n") != text.npos) {
+    unwrapped.reserve(text.size());
+    for (const char ch : text) {
+      if (ch != '\r' && ch != '\n') unwrapped.push_back(ch);
+    }
+    text = unwrapped;
+  }
   const auto invalid = [] { throw std::invalid_argument("Invalid base64"); };
   if (text.size() % 4 != 0) invalid();
   std::vector<uint8_t> bytes;

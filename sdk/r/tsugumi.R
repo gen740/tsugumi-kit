@@ -76,6 +76,18 @@ remaining_ms <- function() .Call("tsugumi_r_remaining_ms")
 
 .tsugumi_state <- new.env(parent = emptyenv())
 
+.tsugumi_decode_input <- function(value) {
+  if (!is.list(value)) return(value)
+  numbers <- value[["$numeric"]]
+  if (is.null(numbers)) return(lapply(value, .tsugumi_decode_input))
+  # Wide integers are decimal strings, since a double may round them.
+  wide_integer <- function(item) {
+    is.character(item) && !(item %in% c("NaN", "Inf", "-Inf"))
+  }
+  if (any(vapply(numbers, wide_integer, logical(1L)))) return(numbers)
+  vapply(numbers, as.double, numeric(1L))
+}
+
 .tsugumi_failure <- function(error, root) {
   failure <- list(kind = "worker_failed", message = conditionMessage(error))
   # Use the innermost Card function with a retained R source reference.
@@ -98,6 +110,13 @@ remaining_ms <- function() .Call("tsugumi_r_remaining_ms")
     failure <<- .tsugumi_failure(error, root)
   }
   reply <- tryCatch(withCallingHandlers({
+    # The host clears TMPDIR between calls, including R's session directory.
+    # Restore the directory at the path R and its packages already use.
+    scratch <- tempdir()
+    if (!dir.exists(scratch) &&
+        !dir.create(scratch, mode = "0700", showWarnings = FALSE)) {
+      stop("Cannot restore R temporary directory")
+    }
     if (is.null(.tsugumi_state$entry)) {
       if (!is.null(.tsugumi_state$load_failure)) {
         return(.tsugumi_json(list(failure = .tsugumi_state$load_failure)))
@@ -119,7 +138,7 @@ remaining_ms <- function() .Call("tsugumi_r_remaining_ms")
         return(.tsugumi_json(list(failure = .tsugumi_state$load_failure)))
       }
     }
-    input <- jsonlite::fromJSON(json, simplifyVector = FALSE)
+    input <- lapply(jsonlite::fromJSON(json, simplifyVector = FALSE), .tsugumi_decode_input)
     output <- .tsugumi_state$entry(input)
     output_names <- names(output)
     if (is.null(output) || (is.list(output) && !length(output))) {

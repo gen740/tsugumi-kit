@@ -87,6 +87,11 @@ class Codecs:
     def element(self, type_):
         return dict(type_, base_type=type_["element"])
 
+    def numeric(self, type_, schema):
+        base = type_["base_type"]
+        return (base in SCALARS and base not in ("Bool", "String")
+                and not self.type_name(type_, schema))
+
     def field(self, field):
         name = field["name"]
         return name + "_" if name in self.keywords else name
@@ -134,7 +139,8 @@ class Codecs:
             return f"ToBase64({value})"
         dereference = target and element["base_type"] == "Obj" and not self.types[target][0].get("is_struct")
         converted = self.convert(element, schema, "To", "*item" if dereference else "item")
-        return f"ToArray({value}, [](const auto& item) {{ return {converted}; }})"
+        array = "ToArray<true>" if self.numeric(element, schema) else "ToArray"
+        return f"{array}({value}, [](const auto& item) {{ return {converted}; }})"
 
     def from_field(self, type_, schema, value):
         if type_["base_type"] != "Vector":
@@ -146,7 +152,8 @@ class Codecs:
         converted = self.convert(element, schema, "From", "item")
         if target and element["base_type"] == "Obj" and not self.types[target][0].get("is_struct"):
             converted = f"std::make_unique<{self.used[target][1]}>({converted})"
-        return f"ReadVector({value}, [](const Json& item) {{ return {converted}; }})"
+        vector = "ReadVector<true>" if self.numeric(element, schema) else "ReadVector"
+        return f"{vector}({value}, [](const Json& item) {{ return {converted}; }})"
 
     def struct(self, entry, schema, native):
         to = ["  Json json = Json::object();"]
@@ -171,9 +178,12 @@ class Codecs:
                     if item_type == "bool":
                         item_type = "uint8_t"
                 convert = self.convert(element, schema, "To", item)
-                to.append(f"  json[{name}] = ToArray(*{value}, [](const auto& item) {{ return {convert}; }});")
+                numeric = self.numeric(element, schema)
+                array = "ToArray<true>" if numeric else "ToArray"
+                to.append(f"  json[{name}] = {array}(*{value}, [](const auto& item) {{ return {convert}; }});")
                 convert = self.convert(element, schema, "From", "item")
-                from_.append(f"  const auto array_{key} = ReadArray<{item_type}, {length}>({source}, [](const Json& item) {{ return static_cast<{item_type}>({convert}); }});")
+                allow_scalar = ", true" if numeric and length == 1 else ""
+                from_.append(f"  const auto array_{key} = ReadArray<{item_type}, {length}{allow_scalar}>({source}, [](const Json& item) {{ return static_cast<{item_type}>({convert}); }});")
                 args.append(f"flatbuffers::span<const {item_type}, {length}>(array_{key})")
             else:
                 to.append(f'  json[{name}] = {self.convert(type_, schema, "To", value)};')
@@ -244,12 +254,17 @@ def generate(contract, schemas, shared):
     codecs = Codecs(schemas, shared.KEYWORDS)
     read = []
     write = []
+    port_names = {port["name"] for port in contract["inputs"]}
+    params_port = "params_"
+    while params_port in port_names:
+        params_port += "_"
     inputs = shared.ports(contract["inputs"], {"Inputs", "params"})
     for name, _, table, kind, required in inputs:
         codec = codecs.use(table.removeprefix("::").replace("::", "."))
+        key = quote(params_port) if name == '"params"' else name
         read += [
             f"  if (const auto port = buffer.ReadPort<{table}>({name}, {kind}, {str(required).lower()}))",
-            f"    input[{name}] = To{codec}(*port);",
+            f"    input[{key}] = To{codec}(*port);",
         ]
     params = codecs.use("parameters.Params")
     read += ["  buffer.CheckConsumed();",

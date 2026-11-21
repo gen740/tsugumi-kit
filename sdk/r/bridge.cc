@@ -57,16 +57,15 @@ auto Display(const Json& request, bool record) -> int {
     return card::display(card::Points{x, y, z, colors}, record);
   }
   if (kind == "line-chart") {
-    const auto& series = value.at("series");
     const auto x = ReadVector(
-        series, [](const Json& item) { return Array<double>(item.at("x")); });
+        value, [](const Json& item) { return Array<double>(item.at("x")); });
     const auto y = ReadVector(
-        series, [](const Json& item) { return Array<double>(item.at("y")); });
+        value, [](const Json& item) { return Array<double>(item.at("y")); });
     std::vector<card::Series> views;
-    for (size_t i = 0; i < series.size(); ++i) {
-      views.push_back({series[i].at("id").get_ref<const std::string&>(),
-                       series[i].at("label").get_ref<const std::string&>(),
-                       x[i], y[i]});
+    for (size_t i = 0; i < value.size(); ++i) {
+      views.push_back({value[i].at("id").get_ref<const std::string&>(),
+                       value[i].at("label").get_ref<const std::string&>(), x[i],
+                       y[i]});
     }
     return card::display(card::LineChart{views}, record);
   }
@@ -93,16 +92,36 @@ auto Display(const Json& request, bool record) -> int {
 }  // namespace
 }  // namespace tsugumi::r
 
-extern "C" auto tsugumi_r_cancelled() -> bool { return card::cancelled(); }
-
-extern "C" auto tsugumi_r_remaining_ms() -> double {
-  return static_cast<double>(card::remaining_ms());
+extern "C" auto tsugumi_r_cancelled() noexcept -> bool {
+  try {
+    return card::cancelled();
+  } catch (...) {
+    return true;
+  }
 }
 
-extern "C" auto tsugumi_r_display(const char* request, bool record) -> bool {
+extern "C" auto tsugumi_r_remaining_ms() noexcept -> double {
+  try {
+    return static_cast<double>(card::remaining_ms());
+  } catch (...) {
+    return 0;
+  }
+}
+
+extern "C" auto tsugumi_r_display(const char* request, bool record) noexcept
+    -> bool {
   try {
     return tsugumi::r::Display(tsugumi::r::Json::parse(request), record) == 0;
   } catch (...) {
     return false;
+  }
+}
+
+extern "C" auto tsugumi_r_send_display(tsugumi_bytes bytes, int record) noexcept
+    -> int {
+  try {
+    return tsugumi::abi9::SendDisplay(bytes, record != 0);
+  } catch (...) {
+    return 1;
   }
 }

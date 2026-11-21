@@ -1,14 +1,32 @@
 {
   flatbuffers,
   lib,
+  R,
   rCard,
   runCommandCC,
   runtime,
   stdenv,
 }:
 let
+  cardSource =
+    runCommandCC "tsugumi-r-test-source"
+      {
+        buildInputs = [
+          flatbuffers
+          R
+        ];
+      }
+      ''
+        mkdir -p "$out"
+        cp "${../wire.h}" wire.h
+        $CXX -std=c++2c -Wall -Wextra -Werror -fPIC -shared -pthread \
+          -I"${runtime}/include" -I"${R}/lib/R/include" -I. \
+          ${./effects.cc} -L"${R}/lib/R/lib" -lR -o "$out/effects.so"
+        substitute "${./card/main.R}" "$out/main.R" \
+          --replace-fail @native_effects@ "$out/effects.so"
+      '';
   card = rCard {
-    src = ./card;
+    src = cardSource;
     contract = ./contract;
   };
   inherit (stdenv.hostPlatform) isDarwin;
@@ -27,17 +45,18 @@ runCommandCC "tsugumi-r-abi9-check"
     cp ${../fake_host.c} fake_host.c
     cp ${../wire.h} wire.h
     $CC -std=c11 -D_DEFAULT_SOURCE -Wall -Wextra -Werror \
-      -I"$include" -I. -c ${./host.c} -o host.o
+      -I"$include" -I. -pthread -c ${./host.c} -o host.o
     $CC -std=c11 -Wall -Wextra -Werror -fPIC -shared "${../legacy.c}" -o legacy.so
-    $CXX -std=c++2c -Wall -Wextra -Werror -I. -I"$include" -I. \
+    $CXX -std=c++2c -Wall -Wextra -Werror -I. -I"$include" \
       ${./wire.cc} host.o -pthread ${lib.optionalString (!isDarwin) "-ldl"} -o fake-host
 
     mkdir home
     pushd home
     export HOME="$PWD"
-    mkdir scratch
+    mkdir scratch directory
     export TMPDIR="$PWD/scratch"
     printf 'input\n' > input.txt
+    printf 'directory\n' > directory/child
     touch scratch/clear-me
     ../fake-host "$card" "$OLDPWD/legacy.so"
     popd

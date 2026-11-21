@@ -7,5 +7,6 @@ table Outputs {
   table:rtest.DataTable (required);
   file:rtest.File (tsugumi: "file");
   forwarded:rtest.File (tsugumi: "file");
+  directory:rtest.Directory (tsugumi: "directory");
 }
 root_type Outputs;
