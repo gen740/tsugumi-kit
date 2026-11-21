@@ -65,6 +65,10 @@ auto InputPath() -> std::string {
   return std::filesystem::absolute("../input.txt").lexically_normal().string();
 }
 
+auto DirectoryPath() -> std::string {
+  return std::filesystem::absolute("../input dir").lexically_normal().string();
+}
+
 auto CheckBlob(const CardDisplay& display, size_t i, std::string_view name,
                std::initializer_list<uint8_t> expected) -> void {
   const auto* blob = display.blobs()->Get(i);
@@ -74,7 +78,7 @@ auto CheckBlob(const CardDisplay& display, size_t i, std::string_view name,
 
 }  // namespace
 
-extern "C" auto make_input(input_case test_case, int mode, int fd)
+auto MakeInput(input_case test_case, int mode, int fd, int ack_fd)
     -> tsugumi_bytes {
   static constexpr uint8_t bad[] = {1, 2, 3};
   if (test_case == MALFORMED_ENVELOPE) return {bad, sizeof(bad)};
@@ -83,22 +87,27 @@ extern "C" auto make_input(input_case test_case, int mode, int fd)
   parameters::ParamsT params;
   params.mode = mode;
   params.fd = fd;
+  params.ack_fd = ack_fd;
   input.params = Encode<parameters::Params>(params);
   if (test_case == MALFORMED_PARAMS) input.params = {1, 2, 3};
 
   if (test_case != MISSING_INPUT) {
-    inputs::number::NumberT number;
-    number.value = 40;
-    auto value = Encode<inputs::number::Number>(number);
+    inputs::from::NumberT number;
+    number.position = std::make_unique<inputs::from::Position>(39, -200);
+    auto value = Encode<inputs::from::Number>(number);
     const auto kind = test_case == UNKNOWN_KIND ? static_cast<PortKind>(255)
                       : test_case == WRONG_KIND ? PortKind::File
                                                 : PortKind::FlatBuffer;
     AddPort(
-        input, "number", kind,
+        input, "from", kind,
         test_case == MALFORMED_PORT ? std::vector<uint8_t>{1, 2, 3} : value);
-    if (test_case == DUPLICATE_PORT) AddPort(input, "number", kind, value);
+    if (test_case == DUPLICATE_PORT) AddPort(input, "from", kind, value);
     if (test_case == UNKNOWN_PORT) AddPort(input, "unknown", kind, value);
   }
+  inputs::from_::NumberT extra_number;
+  extra_number.value = 1;
+  AddPort(input, "from_", PortKind::FlatBuffer,
+          Encode<inputs::from_::Number>(extra_number));
 
   inputs::table::DataT table;
   auto row = std::make_unique<inputs::table::RowT>();
@@ -115,12 +124,21 @@ extern "C" auto make_input(input_case test_case, int mode, int fd)
     inputs::file::FileT file;
     file.value = InputPath();
     AddPort(input, "file", PortKind::File, Encode<inputs::file::File>(file));
+    inputs::directory::DirectoryT directory;
+    directory.value = DirectoryPath();
+    AddPort(input, "directory", PortKind::Directory,
+            Encode<inputs::directory::Directory>(directory));
   }
 
   flatbuffers::FlatBufferBuilder builder;
   builder.Finish(CardInput::Pack(builder, &input));
   input_buffer = builder.Release();
   return {input_buffer.data(), input_buffer.size()};
+}
+
+extern "C" auto make_input(input_case test_case, int mode, int fd)
+    -> tsugumi_bytes {
+  return MakeInput(test_case, mode, fd, -1);
 }
 
 extern "C" auto check_success(tsugumi_bytes bytes, int optional_ports) -> void {
@@ -135,15 +153,19 @@ extern "C" auto check_success(tsugumi_bytes bytes, int optional_ports) -> void {
   }
   CHECK(result && !result->failure() && result->outputs());
   const auto& ports = *result->outputs();
-  CHECK(ports.size() == 3);
+  CHECK(ports.size() == (optional_ports ? 4 : 3));
   const auto number = DecodePort<outputs::number::Number>(
       *ports.Get(0), "number", PortKind::FlatBuffer);
   CHECK(number.value == 42);
+  CHECK(number.position && number.position->x() == 39 &&
+        number.position->y() == -200);
   const auto table = DecodePort<outputs::table::Data>(*ports.Get(1), "table",
                                                       PortKind::FlatBuffer);
   CHECK(table.rows.size() == 1 && table.rows.front()->name == "first");
   CHECK(table.rows.front()->count == 2 && table.detail.AsCount());
   CHECK(table.detail.AsCount()->value == 2);
+  CHECK(table.rows.front()->row_detail.AsCount() &&
+        table.rows.front()->row_detail.AsCount()->value == 2);
   const auto file =
       DecodePort<outputs::file::File>(*ports.Get(2), "file", PortKind::File);
   CHECK(file.value == (optional_ports ? InputPath() : "result.txt"));
@@ -153,6 +175,14 @@ extern "C" auto check_success(tsugumi_bytes bytes, int optional_ports) -> void {
   std::string contents;
   std::getline(stream, contents);
   CHECK(contents == (optional_ports ? "sample input" : "42"));
+  if (optional_ports) {
+    const auto directory = DecodePort<outputs::with::Directory>(
+        *ports.Get(3), "with", PortKind::Directory);
+    CHECK(directory.value == DirectoryPath());
+    std::ifstream sample(std::filesystem::path(directory.value) / "sample.txt");
+    std::getline(sample, contents);
+    CHECK(contents == "sample directory");
+  }
 }
 
 extern "C" auto check_input_failure(tsugumi_bytes bytes, input_case test_case)
@@ -180,6 +210,14 @@ extern "C" auto check_card_failure(tsugumi_bytes bytes, int mode) -> void {
       CHECK(CheckFailure(bytes, FailureKind::worker_failed).message ==
             "SystemExit: 5");
       break;
+    case 8:
+    case 9:
+    case 10: {
+      const auto failure = CheckFailure(bytes, FailureKind::output_invalid);
+      CHECK(failure.message.find("does not match its union tag") !=
+            std::string::npos);
+      break;
+    }
     default:
       CheckFailure(bytes, FailureKind::output_invalid);
       break;

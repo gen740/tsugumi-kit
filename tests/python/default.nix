@@ -10,6 +10,24 @@ let
   card = pythonCard {
     src = ./src;
     contract = ./contract;
+    packages = ps: [
+      ps.packaging
+      (ps.buildPythonPackage {
+        pname = "tsugumi-pth-probe";
+        version = "1";
+        pyproject = false;
+        dontUnpack = true;
+        installPhase = ''
+          site="$out/${ps.python.sitePackages}"
+          mkdir -p "$site/tsugumi-pth-modules"
+          cat > "$site/tsugumi-pth-probe.pth" <<'EOF'
+          tsugumi-pth-modules
+          import sys, tsugumi_pth_probe; sys.path.insert(0, ""); tsugumi_pth_probe.loaded = True
+          EOF
+          echo 'loaded = False' > "$site/tsugumi-pth-modules/tsugumi_pth_probe.py"
+        '';
+      })
+    ];
   };
   host = lib.fileset.toSource {
     root = ../.;
@@ -36,13 +54,17 @@ runCommandCC "tsugumi-python-abi9-check"
     done
     $CC -std=c11 -D_DEFAULT_SOURCE -Wall -Wextra -Werror -I"$include" -c "$tests/fake_host.c"
     $CC -std=c11 -Wall -Wextra -Werror -fPIC -shared "$tests/legacy.c" -o legacy.so
-    $CXX -std=c++2c -Wall -Wextra -Werror -I. -I"$tests" -I"$include" -I${../../sdk/cpp/src} \
-      "${./wire.cc}" fake_host.o "${runtime}/lib/libtsugumi_abi9.a" \
-      -pthread ${lib.optionalString (!isDarwin) "-ldl"} -o fake_host
+    cxx=(-std=c++2c -Wall -Wextra -Werror -I. -I"$tests" -I"$include" -I${../../sdk/cpp/src})
+    link=("${runtime}/lib/libtsugumi_abi9.a" -pthread ${lib.optionalString (!isDarwin) "-ldl"})
+    $CXX "''${cxx[@]}" -c "${./wire.cc}" -o wire.o
+    $CXX "''${cxx[@]}" fake_host.o wire.o "''${link[@]}" -o fake_host
+    $CXX "''${cxx[@]}" "${./effects.cc}" wire.o "''${link[@]}" -o effects
 
-    mkdir work
+    mkdir work effects-work 'input dir'
     printf '%s' 'sample input' > input.txt
+    printf '%s' 'sample directory' > 'input dir/sample.txt'
     (cd work && HOME="$PWD" ../fake_host "$card" "$PWD/../legacy.so")
+    (cd effects-work && HOME="$PWD" ../effects "$card")
 
     ${
       if isDarwin then

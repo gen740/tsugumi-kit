@@ -29,12 +29,17 @@ let
         contract=${lib.escapeShellArg "${contract}"}
         abi=${../../abi/9}
         mkdir -p "$out/include" "$out/python" "$out/wire"
+        python3 ${./generate.py} prepare "${../cpp}" "$contract"
         for schema in _inputs _outputs _params; do
-          flatc --cpp --gen-object-api --scoped-enums -o "$out/include" "$contract/$schema.fbs"
-          flatc --python --gen-object-api -o "$out/python" "$contract/$schema.fbs"
+          flatc --cpp --scoped-enums -I "$contract" -o "$out/include" "$schema.fbs"
+          flatc --python --gen-object-api -I "$contract" -o "$out/python" "$schema.fbs"
         done
         flatc --python --gen-object-api -o "$out/wire" "$abi/tsugumi_enums.fbs" "$abi/card.fbs"
-        python3 ${./generate.py} "$contract/_contract.json" "$out/python/card.py" "$out/card_adapter.cc"
+        # Use schema metadata only during generation of the Python union checks.
+        flatc --binary --schema -I "$contract" _outputs.fbs
+        flatc --json --strict-json --defaults-json --raw-binary \
+          ${flatbuffers.src}/reflection/reflection.fbs -- _outputs.bfbs
+        python3 ${./generate.py} generate "$out/python/card.py" "$out/card_adapter.cc"
       '';
 in
 runCommandCC "tsugumi-python-card"

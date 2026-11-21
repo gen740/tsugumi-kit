@@ -30,6 +30,17 @@ class Gil {
   PyGILState_STATE state_;
 };
 
+class ReleaseGil {
+ public:
+  ReleaseGil() : state_(PyEval_SaveThread()) {}
+  ~ReleaseGil() { PyEval_RestoreThread(state_); }
+  ReleaseGil(const ReleaseGil&) = delete;
+  auto operator=(const ReleaseGil&) -> ReleaseGil& = delete;
+
+ private:
+  PyThreadState* state_;
+};
+
 auto Display(PyObject*, PyObject* args) -> PyObject* {
   const char* module_id;
   const char* config;
@@ -55,14 +66,8 @@ auto Display(PyObject*, PyObject* args) -> PyObject* {
             static_cast<size_t>(PyBytes_GET_SIZE(data))}});
     }
     // The callback can block while a different Card thread needs the GIL.
-    auto* state = PyEval_SaveThread();
-    try {
-      status = card::display(card::Module{module_id, config, blobs}, record);
-    } catch (...) {
-      PyEval_RestoreThread(state);
-      throw;
-    }
-    PyEval_RestoreThread(state);
+    const ReleaseGil release;
+    status = card::display(card::Module{module_id, config, blobs}, record);
   } catch (const std::bad_alloc&) {
     return PyErr_NoMemory();
   } catch (...) {
@@ -76,12 +81,31 @@ auto Display(PyObject*, PyObject* args) -> PyObject* {
   Py_RETURN_NONE;
 }
 
+template <class Query, class Convert>
+auto QueryHost(Query query, Convert convert, const char* error) -> PyObject* {
+  try {
+    decltype(query()) value;
+    {
+      const ReleaseGil release;
+      value = query();
+    }
+    return convert(value);
+  } catch (const std::bad_alloc&) {
+    return PyErr_NoMemory();
+  } catch (...) {
+    PyErr_SetString(PyExc_RuntimeError, error);
+    return nullptr;
+  }
+}
+
 auto Cancelled(PyObject*, PyObject*) -> PyObject* {
-  return PyBool_FromLong(card::cancelled());
+  return QueryHost(card::cancelled, PyBool_FromLong,
+                   "The host cancellation query failed");
 }
 
 auto RemainingMs(PyObject*, PyObject*) -> PyObject* {
-  return PyLong_FromLongLong(card::remaining_ms());
+  return QueryHost(card::remaining_ms, PyLong_FromLongLong,
+                   "The host deadline query failed");
 }
 
 PyMethodDef methods[] = {
@@ -128,11 +152,22 @@ auto ConfigurePython() -> std::string {
   if (PyStatus_Exception(status))
     return status.err_msg ? status.err_msg : "Cannot initialize Python";
 
+  // Process .pth files in the Nix environment at their usual site boundary.
+  const Object site(PyImport_ImportModule("site"));
+  const Object packages(PyUnicode_DecodeFSDefault(TSUGUMI_PY_PACKAGES));
+  const Object configured(
+      site && packages
+          ? PyObject_CallMethod(site.get(), "addsitedir", "O", packages.get())
+          : nullptr);
+  if (!configured) {
+    PyErr_WriteUnraisable(nullptr);
+    return "Cannot initialize the Python package environment";
+  }
+  // Keep the generated modules and Card source ahead of any .pth additions.
   auto* path = PySys_GetObject("path");
-  const char* paths[] = {TSUGUMI_PY_SDK, TSUGUMI_PY_SOURCE, TSUGUMI_PY_WIRE,
-                         TSUGUMI_PY_PACKAGES};
+  const char* paths[] = {TSUGUMI_PY_SDK, TSUGUMI_PY_SOURCE, TSUGUMI_PY_WIRE};
   for (Py_ssize_t i = 0; i < static_cast<Py_ssize_t>(std::size(paths)); ++i) {
-    Object item(PyUnicode_DecodeFSDefault(paths[i]));
+    const Object item(PyUnicode_DecodeFSDefault(paths[i]));
     if (!item || PyList_Insert(path, i, item.get()) < 0) {
       PyErr_WriteUnraisable(nullptr);
       return "Cannot configure the Python import path";
@@ -220,11 +255,53 @@ auto ReadResult(PyObject* value) -> Tsugumi::Card::CardResultT {
 
 }  // namespace
 
-auto RunPython(tsugumi_bytes bytes) -> Tsugumi::Card::CardResultT {
-  const Buffer input_buffer(bytes);
-  const auto* input = input_buffer.Verify<Tsugumi::Card::CardInput>();
-  if (!input) Reject(FailureKind::invalid_request, "Invalid CardInput");
+PythonInput::PythonInput(tsugumi_bytes bytes)
+    : buffer_(bytes), input_(buffer_.Verify<Tsugumi::Card::CardInput>()) {
+  if (!input_) Reject(FailureKind::invalid_request, "Invalid CardInput");
+  if (!input_->inputs()) return;
+  for (const auto* port : *input_->inputs()) {
+    switch (port->kind()) {
+      case PortKind::FlatBuffer:
+      case PortKind::File:
+      case PortKind::Directory:
+        break;
+      default:
+        Reject(FailureKind::invalid_request, "Unknown input port kind");
+    }
+    const auto name = port->name()->string_view();
+    if (!ports_.emplace(name, port).second)
+      Reject(FailureKind::invalid_request,
+             "Duplicate input " + std::string(name));
+  }
+}
 
+auto PythonInput::TakePort(std::string_view name, PortKind kind, bool required)
+    -> const Tsugumi::Card::CardPort* {
+  const auto port = ports_.extract(name);
+  if (port.empty()) {
+    if (required)
+      Reject(FailureKind::input_missing, "Missing input " + std::string(name));
+    return nullptr;
+  }
+  if (port.mapped()->kind() != kind)
+    Reject(FailureKind::invalid_request,
+           "Wrong kind for input " + std::string(name));
+  return port.mapped();
+}
+
+auto PythonInput::Params() const -> tsugumi_bytes {
+  const auto* params = input_->params();
+  return params ? tsugumi_bytes{params->data(), params->size()}
+                : tsugumi_bytes{};
+}
+
+auto PythonInput::CheckConsumed() const -> void {
+  if (!ports_.empty())
+    Reject(FailureKind::invalid_request, "Unknown input port");
+}
+
+auto RunPython(const Tsugumi::Card::CardInput& input)
+    -> Tsugumi::Card::CardResultT {
   static const auto initialization_error = InitializePython();
   if (!initialization_error.empty())
     Reject(FailureKind::worker_failed, initialization_error);
@@ -235,7 +312,7 @@ auto RunPython(tsugumi_bytes bytes) -> Tsugumi::Card::CardResultT {
   if (!dispatch)
     Reject(FailureKind::worker_failed, "Cannot load the Python Card SDK");
 
-  const Object value(CallDispatch(dispatch, *input));
+  const Object value(CallDispatch(dispatch, input));
   if (!value) {
     PyErr_WriteUnraisable(nullptr);
     Reject(FailureKind::worker_failed, "Cannot run the Python Card adapter");
