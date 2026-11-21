@@ -1,0 +1,14 @@
+{
+  "inputs": [
+    {"name": "number", "type": "rtest.Number", "kind": "flatbuffer", "required": true},
+    {"name": "table", "type": "rtest.DataTable", "kind": "flatbuffer", "required": true},
+    {"name": "file", "type": "rtest.File", "kind": "file", "required": true}
+  ],
+  "outputs": [
+    {"name": "number", "type": "rtest.Number", "kind": "flatbuffer", "required": true},
+    {"name": "table", "type": "rtest.DataTable", "kind": "flatbuffer", "required": true},
+    {"name": "file", "type": "rtest.File", "kind": "file", "required": true},
+    {"name": "forwarded", "type": "rtest.File", "kind": "file", "required": false}
+  ],
+  "params": [{"name": "mode"}]
+}

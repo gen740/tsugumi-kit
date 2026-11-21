@@ -17,6 +17,7 @@
       ];
       imports = [
         ./nix/outputs.nix
+        ./nix/r.nix
         ./nix/checks.nix
         ./nix/csharp.nix
         ./nix/go.nix

@@ -1,0 +1,11 @@
+include "_inputs.fbs";
+attribute "tsugumi";
+
+namespace outputs;
+table Outputs {
+  number:rtest.Number (required);
+  table:rtest.DataTable (required);
+  file:rtest.File (tsugumi: "file");
+  forwarded:rtest.File (tsugumi: "file");
+}
+root_type Outputs;

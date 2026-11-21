@@ -1,0 +1,31 @@
+attribute "tsugumi";
+
+namespace rtest;
+
+enum Unit : ubyte { Counts, Volts }
+struct Position { coordinates:[int:2]; units:[Unit:2]; }
+table Number { value:double; unit:Unit; }
+table Choice { name:string (required); }
+union Selection { Choice, Alias:Choice, Description:string }
+table Row {
+  name:string (required);
+  signed_value:long;
+  unsigned_value:ulong;
+  special:[double];
+  bytes:[ubyte];
+  enabled:[bool];
+  unit:[Unit];
+  nullable:int = null;
+  position:Position;
+  selection:Selection;
+}
+table DataTable { rows:[Row] (required); }
+table File { value:string (required); }
+
+namespace inputs;
+table Inputs {
+  number:rtest.Number (required);
+  table:rtest.DataTable (required);
+  file:rtest.File (tsugumi: "file");
+}
+root_type Inputs;
