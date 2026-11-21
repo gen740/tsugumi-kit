@@ -12,6 +12,9 @@ attribute for use outside the build. The built-in lock covers the SDK's
 dependencies. For other registry dependencies, generate a Cargo lockfile
 with the generated SDK in place and pass it as `lock`. The builder then
 uses that lockfile for the offline build.
+Supply system libraries needed by Cargo dependencies in `buildInputs`.
+The builder uses Cargo and rustc's native link requirements when linking
+`main.so`.
 
 ```rust
 use tsugumi::{Failure, FailureKind, Inputs, Output, cancelled, display};
@@ -20,12 +23,10 @@ fn run(input: Inputs<'_>) -> Result<Output, Failure> {
     if cancelled() {
         return Err(Failure::new(FailureKind::cancelled, "Processing stopped"));
     }
-    display(input.measurement.value());
-    let mut output = Output::default();
+    display!(input.measurement.value())?;
     let mut measurement = tsugumi::outputs::Measurement::default();
     measurement.value = input.measurement.value() * 2.0;
-    output.measurement = Some(measurement);
-    Ok(output)
+    Ok(Output { measurement })
 }
 
 tsugumi::export!(run);
@@ -34,13 +35,15 @@ tsugumi::export!(run);
 The example assumes required input and output ports named `measurement`
 with a `value:double` field. Inputs and parameters borrow verified
 FlatBuffers for the duration of `run`. The output fields take FlatBuffers'
-owned objects, including native union enums. Output fields are `Option`
-and a missing required output produces `output_invalid`.
+owned objects, including native union enums. Required outputs are fields of
+their object type, and optional outputs are `Option`. Invalid output objects
+produce `output_invalid`.
 
-`display(value)` shows live output. Use `display_with_record(value, true)`
-to record that particular display. Both accept text, `f64`, and the SDK's
+`display!(value)` shows live output. Use `display!(value, true)` or
+`display(value, true)` to record that particular display. These accept text,
+`f64`, and the SDK's
 `Scalar`, `Markdown`, `Table`, `Image`, `Points`, `LineChart`, `Plotly`,
-`VegaLite`, and `Module` types. The return status is zero on success.
+`VegaLite`, and `Module` types, and return `tsugumi::Result<()>`.
 A Card-owned thread can send displays after `run` returns. Between calls
 `cancelled()` returns `true` and `remaining_ms()` returns `0`.
 

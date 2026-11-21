@@ -3,7 +3,7 @@ use std::ffi::c_int;
 use flatbuffers::FlatBufferBuilder;
 use serde_json::{Value, json};
 
-use crate::runtime::send_display;
+use crate::runtime::{Failure, FailureKind, Result, send_display};
 use crate::wire::tsugumi::card::{
     CardDisplay, CardDisplayArgs, CardDisplayBlob, CardDisplayBlobArgs,
 };
@@ -13,14 +13,29 @@ pub trait DisplayValue {
     fn send(self, record: bool) -> c_int;
 }
 
-/// Show a value live. Returns zero when the host accepts the display.
-pub fn display(value: impl DisplayValue) -> c_int {
-    display_with_record(value, false)
+/// Show a value and choose whether to record it. A rejected display is a Card failure.
+#[track_caller]
+pub fn display(value: impl DisplayValue, record: bool) -> Result<()> {
+    let status = value.send(record);
+    if status == 0 {
+        Ok(())
+    } else {
+        Err(Failure::new(
+            FailureKind::worker_failed,
+            format!("Display failed (status {status})"),
+        ))
+    }
 }
 
-/// Show a value and choose whether to record this display.
-pub fn display_with_record(value: impl DisplayValue, record: bool) -> c_int {
-    value.send(record)
+/// Show a value. Recording defaults to false when the second argument is omitted.
+#[macro_export]
+macro_rules! display {
+    ($value:expr $(,)?) => {
+        $crate::display($value, false)
+    };
+    ($value:expr, $record:expr $(,)?) => {
+        $crate::display($value, $record)
+    };
 }
 
 pub struct Blob<'a> {

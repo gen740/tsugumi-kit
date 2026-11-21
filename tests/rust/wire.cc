@@ -75,14 +75,15 @@ auto ReadFailure(tsugumi_bytes bytes, FailureKind kind) -> const CardFailure& {
   return *result.failure();
 }
 
-}  // namespace
-
-extern "C" auto make_input(input_case scenario, int mode, int fd)
+auto MakeInput(input_case scenario, int mode, int fd, bool zero_root)
     -> tsugumi_bytes {
-  constexpr std::array<uint8_t, 3> bad{1, 2, 3};
+  static constexpr std::array<uint8_t, 3> short_buffer{1, 2, 3};
+  static constexpr std::array<uint8_t, 12> zero_offset{};
+  const auto bad =
+      zero_root ? tsugumi_bytes{zero_offset.data(), zero_offset.size()}
+                : tsugumi_bytes{short_buffer.data(), short_buffer.size()};
   if (scenario == MALFORMED_ENVELOPE) {
-    static constexpr auto malformed = bad;
-    return {malformed.data(), malformed.size()};
+    return bad;
   }
 
   CardInputT input;
@@ -90,17 +91,18 @@ extern "C" auto make_input(input_case scenario, int mode, int fd)
   params.mode = mode;
   params.fd = fd;
   input.params = Encode<parameters::Params>(params);
-  if (scenario == MALFORMED_PARAMS) input.params.assign(bad.begin(), bad.end());
+  if (scenario == MALFORMED_PARAMS)
+    input.params.assign(bad.data, bad.data + bad.size);
 
   if (scenario != MISSING_INPUT) {
     rust_inputs::number::NumberT number;
-    number.value = 42;
+    number.position = std::make_unique<rust_inputs::number::Position>(40, 2);
     const auto kind = scenario == UNKNOWN_KIND ? static_cast<PortKind>(255)
                       : scenario == WRONG_KIND ? PortKind::File
                                                : PortKind::FlatBuffer;
     AddPort(input, "number", kind,
             scenario == MALFORMED_PORT
-                ? std::vector<uint8_t>(bad.begin(), bad.end())
+                ? std::vector<uint8_t>(bad.data, bad.data + bad.size)
                 : Encode<rust_inputs::number::Number>(number));
     if (scenario == UNKNOWN_PORT)
       AddPort(input, "unknown", kind,
@@ -124,12 +126,41 @@ extern "C" auto make_input(input_case scenario, int mode, int fd)
     std::ofstream(file.value) << "card data\n";
     AddPort(input, "file", PortKind::File,
             Encode<rust_inputs::file::File>(file));
+    rust_inputs::directory::DirectoryT directory;
+    directory.value = std::filesystem::absolute("input-dir").string();
+    std::filesystem::create_directory(directory.value);
+    AddPort(input, "directory", PortKind::Directory,
+            Encode<rust_inputs::directory::Directory>(directory));
   }
 
   flatbuffers::FlatBufferBuilder builder;
   builder.Finish(CardInput::Pack(builder, &input));
   input_buffer = builder.Release();
   return {input_buffer.data(), input_buffer.size()};
+}
+
+}  // namespace
+
+extern "C" auto make_input(input_case scenario, int mode, int fd)
+    -> tsugumi_bytes {
+  return MakeInput(scenario, mode, fd, false);
+}
+
+extern "C" auto check_zero_roots(tsugumi_main_fn entry) -> void {
+  const std::array cases{
+      std::pair{MALFORMED_ENVELOPE, "Invalid CardInput"},
+      std::pair{MALFORMED_PARAMS, "Invalid FlatBuffer for params"},
+      std::pair{MALFORMED_PORT, "Invalid FlatBuffer for number"},
+  };
+  for (const auto& [scenario, message] : cases) {
+    const tsugumi_call call{TSUGUMI_ABI_VERSION,
+                            MakeInput(scenario, 0, -1, true), nullptr, nullptr};
+    tsugumi_bytes result{};
+    CHECK(entry(&call, &result) == 0);
+    CHECK(ReadFailure(result, FailureKind::invalid_request)
+              .message()
+              ->string_view() == message);
+  }
 }
 
 extern "C" auto check_number(tsugumi_bytes bytes, int64_t expected) -> void {
@@ -142,7 +173,7 @@ extern "C" auto check_number(tsugumi_bytes bytes, int64_t expected) -> void {
 extern "C" auto check_success(tsugumi_bytes bytes, int optional_ports) -> void {
   const auto& result = Decode<CardResult>(bytes);
   check_number(bytes, 42);
-  CHECK(result.outputs()->size() == (optional_ports ? 4u : 2u));
+  CHECK(result.outputs()->size() == (optional_ports ? 7u : 2u));
   const auto summary =
       ReadPort<rust_outputs::summary::Summary>(result, 1, "summary");
   CHECK(summary.values == (std::vector<int64_t>{3, 5}));
@@ -162,6 +193,13 @@ extern "C" auto check_success(tsugumi_bytes bytes, int optional_ports) -> void {
                                result, 3, "forwarded", PortKind::File)
                                .value;
     CHECK(forwarded == std::filesystem::absolute("input.txt"));
+    const auto directory = ReadPort<rust_outputs::directory::Directory>(
+        result, 4, "forwarded_directory", PortKind::Directory);
+    CHECK(directory.value == std::filesystem::absolute("input-dir"));
+    const auto point = ReadPort<rust_outputs::_2d::Value>(result, 5, "_2d");
+    CHECK(point.x == 40 && point.y == 2);
+    const auto async = ReadPort<rust_outputs::async::Value>(result, 6, "async");
+    CHECK(async.data.AsLabel() && async.data.AsLabel()->text == "choice");
   }
 }
 
@@ -182,17 +220,36 @@ extern "C" auto check_card_failure(tsugumi_bytes bytes, int mode) -> void {
                 ->string_view() == "standard exception");
       break;
     case 5:
+    case 12:
       CHECK(ReadFailure(bytes, FailureKind::worker_failed)
                 .message()
                 ->string_view() == "Card panicked");
+      break;
+    case 6:
+    case 7:
+      CHECK(ReadFailure(bytes, FailureKind::output_invalid)
+                .message()
+                ->string_view() ==
+            (mode == 6 ? "Invalid output async" : "Invalid output summary"));
       break;
     case 8:
       CHECK(
           ReadFailure(bytes, FailureKind::cancelled).message()->string_view() ==
           "host cancelled");
       break;
-    default:
-      ReadFailure(bytes, FailureKind::output_invalid);
+    case 10:
+    case 11:
+      CHECK(ReadFailure(bytes, FailureKind::worker_failed)
+                .message()
+                ->string_view() ==
+            (mode == 10 ? "unknown failure kind" : "reserved failure kind"));
       break;
+    case 13:
+      CHECK(ReadFailure(bytes, FailureKind::worker_failed)
+                .message()
+                ->string_view() == "Display failed (status 73)");
+      break;
+    default:
+      CHECK(false);
   }
 }

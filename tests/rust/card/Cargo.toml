@@ -8,3 +8,4 @@ crate-type = ["staticlib"]
 
 [dependencies]
 tsugumi = { path = "tsugumi" }
+test-zlib = { path = "zlib" }

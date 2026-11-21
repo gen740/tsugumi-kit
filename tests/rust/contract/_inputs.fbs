@@ -1,7 +1,8 @@
 attribute "tsugumi";
 
 namespace rust_inputs.number;
-table Number { value:long; }
+struct Position (force_align: 32) { x:long; y:long; }
+table Number { position:Position (required); }
 
 namespace rust_inputs.payload;
 table Label { text:string (required); }
@@ -11,10 +12,14 @@ table Payload { data:Choice; values:[long]; }
 namespace rust_inputs.file;
 table File { value:string (required); }
 
+namespace rust_inputs.directory;
+table Directory { value:string (required); }
+
 namespace rust_inputs;
 table Inputs {
   number:rust_inputs.number.Number (required);
   payload:rust_inputs.payload.Payload (required);
   file:rust_inputs.file.File (tsugumi: "file");
+  directory:rust_inputs.directory.Directory (tsugumi: "directory");
 }
 root_type Inputs;

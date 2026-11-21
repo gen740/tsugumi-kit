@@ -16,6 +16,26 @@ pub(crate) use crate::wire::tsugumi::data::PortKind;
 
 pub type Result<T> = std::result::Result<T, Failure>;
 
+fn valid_root_offset(bytes: &[u8]) -> bool {
+    // Require room for a root offset, a table offset, and a vtable header.
+    // The Rust verifier alone can accept a zero root offset for empty tables.
+    if !(12..i32::MAX as usize).contains(&bytes.len()) {
+        return false;
+    }
+    let root = u32::from_le_bytes(bytes[..4].try_into().unwrap()) as usize;
+    (4..=bytes.len() - 4).contains(&root)
+}
+
+fn read_root<'a, T>(bytes: &'a [u8], error: impl FnOnce() -> Failure) -> Result<T>
+where
+    T: Follow<'a, Inner = T> + Verifiable + 'a,
+{
+    if !valid_root_offset(bytes) {
+        return Err(error());
+    }
+    flatbuffers::root::<T>(bytes).map_err(|_| error())
+}
+
 #[derive(Debug)]
 pub struct Failure {
     pub kind: FailureKind,
@@ -90,7 +110,7 @@ pub(crate) struct Input<'a> {
 
 impl<'a> Input<'a> {
     pub(crate) fn parse(bytes: &'a [u8]) -> Result<Self> {
-        let input = flatbuffers::root::<CardInput>(bytes).map_err(|_| {
+        let input = read_root::<CardInput>(bytes, || {
             Failure::without_location(FailureKind::invalid_request, "Invalid CardInput")
         })?;
         let mut ports = HashMap::new();
@@ -160,7 +180,7 @@ impl<'a> Input<'a> {
     where
         T: Follow<'a, Inner = T> + Verifiable + 'a,
     {
-        flatbuffers::root::<T>(bytes).map_err(|_| {
+        read_root::<T>(bytes, || {
             Failure::without_location(
                 FailureKind::invalid_request,
                 format!("Invalid FlatBuffer for {name}"),
@@ -176,20 +196,8 @@ pub(crate) fn write_port<'a, T: Verifiable>(
     ports: &mut OutputPorts<'a>,
     name: &str,
     kind: PortKind,
-    pack: Option<impl FnOnce(&mut FlatBufferBuilder<'_>)>,
-    required: bool,
+    pack: impl FnOnce(&mut FlatBufferBuilder<'_>),
 ) -> Result<()> {
-    let Some(pack) = pack else {
-        return if required {
-            Err(Failure::without_location(
-                FailureKind::output_invalid,
-                format!("Missing output {name}"),
-            ))
-        } else {
-            Ok(())
-        };
-    };
-
     let mut value = FlatBufferBuilder::new();
     // flatc's object API can panic when a required field was left empty.
     if catch_unwind(AssertUnwindSafe(|| pack(&mut value))).is_err()
@@ -311,6 +319,11 @@ pub(crate) fn send_display(bytes: &[u8], record: bool) -> c_int {
 
 fn failure_result(builder: &mut FlatBufferBuilder<'_>, error: Failure) {
     builder.reset();
+    let kind = if error.kind != FailureKind::unspecified && error.kind.variant_name().is_some() {
+        error.kind
+    } else {
+        FailureKind::worker_failed
+    };
     let message = builder.create_string(&error.message);
     let source = error
         .source
@@ -323,7 +336,7 @@ fn failure_result(builder: &mut FlatBufferBuilder<'_>, error: Failure) {
     let failure = CardFailure::create(
         builder,
         &CardFailureArgs {
-            kind: error.kind,
+            kind,
             message: Some(message),
             source,
             line: error.line,
@@ -379,6 +392,11 @@ pub unsafe fn invoke<O: PackOutput>(
                     &mut builder,
                     Failure::without_location(FailureKind::worker_failed, message),
                 );
+                // Disposing of a custom panic payload must not prevent delivery
+                // of the structured failure. A second payload may also panic.
+                if let Err(payload) = catch_unwind(AssertUnwindSafe(|| drop(payload))) {
+                    std::mem::forget(payload);
+                }
             }
         };
         result.extend_from_slice(builder.finished_data());

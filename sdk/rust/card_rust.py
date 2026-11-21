@@ -13,13 +13,28 @@ yield try gen union raw safe
 """.split())
 
 # The flatc Rust generator escapes these spellings before converting namespaces.
-FLATC_KEYWORDS = (KEYWORDS - set("async await dyn gen raw safe try union".split())) | set("""
+UNESCAPED_KEYWORDS = {"async", "await", "dyn", "gen", "try"}
+FLATC_KEYWORDS = (KEYWORDS - UNESCAPED_KEYWORDS - {"raw", "safe", "union"}) | set("""
 alignof offsetof proc pure sizeof std usize isize u8 i8 u16 i16 u32 i32 u64 i64
 u128 i128 f32 f64 follow push to_little_endian from_little_endian ENUM_MAX
 ENUM_MIN ENUM_VALUES
 """.split())
 
 KINDS = {"file": "File", "directory": "Directory", "flatbuffer": "FlatBuffer"}
+
+
+def escape_generated_rust(source):
+    # flatc predates these keywords and emits them as bare identifiers. Keep
+    # the wire names in string literals and the generated comments intact.
+    return re.sub(
+        r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\b[A-Za-z_]\w*\b',
+        lambda token: raw_identifier(token[0]),
+        source,
+    )
+
+
+def raw_identifier(name):
+    return f"r#{name}" if name in UNESCAPED_KEYWORDS else name
 
 
 def snake(name):
@@ -41,7 +56,7 @@ def rust_type(name, module):
         re.sub(r"(?<=[a-z])(?=[A-Z0-9])|(?<=[0-9])(?=[A-Z])", "_", part).lower()
         for part in namespace
     ]
-    return "::".join([module, *namespace, leaf])
+    return "::".join([module, *map(raw_identifier, namespace), raw_identifier(leaf)])
 
 
 def unique(name, used):
@@ -60,6 +75,8 @@ def ports(entries, module, reserved=()):
         alias = "".join(part[:1].upper() + part[1:] for part in field.split("_"))
         if not alias:
             alias = "Port"
+        elif alias[0].isdigit():
+            alias = f"Port{alias}"
         yield (
             json.dumps(name, ensure_ascii=False),
             field,
@@ -105,14 +122,14 @@ def generate(contract):
     lines += [
         "}",
         "",
-        "/// Owned output objects. Required ports must contain a value.",
-        "#[derive(Default)]",
-        "pub struct Output {",
+        "/// Owned output objects. Only optional ports can be omitted.",
     ]
+    if not any(required for _, _, _, _, _, required in outputs):
+        lines.append("#[derive(Default)]")
+    lines.append("pub struct Output {")
     for _, field, alias, _, _, required in outputs:
-        if required:
-            lines.append("    /// Required.")
-        lines.append(f"    pub {field}: Option<outputs::{alias}>,")
+        typ = f"outputs::{alias}"
+        lines.append(f"    pub {field}: {typ if required else f'Option<{typ}>'},")
     lines += [
         "}",
         "",
@@ -135,17 +152,21 @@ def generate(contract):
         "    fn pack(self, builder: &mut flatbuffers::FlatBufferBuilder<'_>) -> Result<()> {",
         f"        let {'mut ' if outputs else ''}ports = Vec::with_capacity({len(outputs)});",
     ]
-    for name, field, alias, typ, kind, required in outputs:
+    for name, field, _, typ, kind, required in outputs:
+        indent = "        "
+        if required:
+            lines.append(f"{indent}let value = self.{field};")
+        else:
+            lines.append(f"{indent}if let Some(value) = self.{field} {{")
+            indent += "    "
         lines += [
-            f"        let pack = self.{field}.map(|value: outputs::{alias}| {{",
-            "            move |builder: &mut flatbuffers::FlatBufferBuilder<'_>| {",
-            "                let root = value.pack(builder);",
-            "                builder.finish(root, None);",
-            "            }",
-            "        });",
-            f"        runtime::write_port::<{typ}>(builder, &mut ports,",
-            f"            {name}, {kind}, pack, {str(required).lower()})?;",
+            f"{indent}runtime::write_port::<{typ}>(builder, &mut ports, {name}, {kind}, |builder| {{",
+            f"{indent}    let root = value.pack(builder);",
+            f"{indent}    builder.finish(root, None);",
+            f"{indent}}})?;",
         ]
+        if not required:
+            lines.append("        }")
     lines += [
         "        runtime::finish_outputs(builder, &ports);",
         "        Ok(())",
@@ -179,4 +200,7 @@ macro_rules! export {
 
 if __name__ == "__main__":
     contract, output = map(Path, sys.argv[1:])
+    for generated in output.parent.glob("*_generated.rs"):
+        source = generated.read_text(encoding="utf-8")
+        generated.write_text(escape_generated_rust(source), encoding="utf-8")
     output.write_text(generate(json.loads(contract.read_text(encoding="utf-8"))), encoding="utf-8")

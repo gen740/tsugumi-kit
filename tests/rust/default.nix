@@ -5,12 +5,14 @@
   runCommandCC,
   flatbuffers,
   rustCard,
+  zlib,
 }:
 let
   card = rustCard {
     src = ./card;
     contract = ./contract;
     sourcePrefix = "card";
+    buildInputs = [ zlib ];
   };
   headers = pkgs.callPackage ../../nix/abi-headers.nix { };
   inherit (stdenv.hostPlatform) isDarwin;
@@ -57,6 +59,10 @@ runCommandCC "tsugumi-rust-abi9-check"
           readelf -d "$card" > deps
         ''
     }
+    if ! grep -q 'libz\.' deps; then
+      echo "Missing dynamic zlib dependency in main.so" >&2
+      exit 1
+    fi
     if grep -Ei 'flatbuffers|libtsugumi' deps; then
       echo "Unexpected SDK shared-library dependency" >&2
       exit 1

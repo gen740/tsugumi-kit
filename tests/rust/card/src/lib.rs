@@ -7,54 +7,41 @@ use std::thread::{self, JoinHandle};
 use tsugumi::output_types::rust_outputs::summary::{ChoiceT, LabelT};
 use tsugumi::{
     Blob, Failure, FailureKind, Image, Inputs, LineChart, Markdown, Module, Output, Plotly, Points,
-    Result, Series, Table, VegaLite, cancelled, display, display_with_record, outputs,
-    remaining_ms,
+    Result, Series, Table, VegaLite, cancelled, display, outputs, remaining_ms,
 };
 
 static BACKGROUND: Mutex<Option<JoinHandle<()>>> = Mutex::new(None);
 
-fn display_samples() {
+fn display_samples() -> Result<()> {
     let image = [0, 13, 255];
-    assert_eq!(display("résumé\n\""), 0);
-    assert_eq!(display_with_record(Markdown("**text**"), true), 0);
-    assert_eq!(display(2.5), 0);
-    assert_eq!(
-        display(Table {
-            columns: &["n"],
-            rows: &[vec!["1"]]
-        }),
-        0
-    );
-    assert_eq!(
-        display(Image {
-            media_type: "image/png",
-            bytes: &image,
-            alt: "sample"
-        }),
-        0
-    );
-    assert_eq!(
-        display(Points {
-            x: &[1.0],
-            y: &[1.0],
-            z: &[1.0],
-            colors: &[0x123456]
-        }),
-        0
-    );
-    assert_eq!(
-        display(LineChart {
-            series: &[Series {
-                id: "id",
-                label: "line",
-                x: &[2.0],
-                y: &[2.0]
-            }]
-        }),
-        0
-    );
-    assert_eq!(display(Plotly(r#"{"data":[]}"#)), 0);
-    assert_eq!(display(VegaLite(r#"{"mark":"point"}"#)), 0);
+    display!("résumé\n\"")?;
+    display!(Markdown("**text**"), true)?;
+    display(2.5, false)?;
+    display!(Table {
+        columns: &["n"],
+        rows: &[vec!["1"]],
+    })?;
+    display!(Image {
+        media_type: "image/png",
+        bytes: &image,
+        alt: "sample",
+    })?;
+    display!(Points {
+        x: &[1.0],
+        y: &[1.0],
+        z: &[1.0],
+        colors: &[0x123456],
+    })?;
+    display!(LineChart {
+        series: &[Series {
+            id: "id",
+            label: "line",
+            x: &[2.0],
+            y: &[2.0],
+        }],
+    })?;
+    display!(Plotly(r#"{"data":[]}"#))?;
+    display!(VegaLite(r#"{"mark":"point"}"#))?;
     let module = Module {
         module: "custom",
         config: r#"{"key":1}"#,
@@ -63,7 +50,15 @@ fn display_samples() {
             bytes: &image,
         }],
     };
-    assert_eq!(display_with_record(module, true), 0);
+    display(module, true)
+}
+
+struct PanicsOnDrop;
+
+impl Drop for PanicsOnDrop {
+    fn drop(&mut self) {
+        std::panic::panic_any(PanicsOnDrop);
+    }
 }
 
 fn run(input: Inputs<'_>) -> Result<Output> {
@@ -74,7 +69,7 @@ fn run(input: Inputs<'_>) -> Result<Output> {
                     .join()
                     .unwrap()
             );
-            display_samples();
+            display_samples()?;
             // The fake host keeps the descriptor open. The Card thread owns
             // its duplicate and can wait until the host returns from the call.
             let fd = unsafe { BorrowedFd::borrow_raw(input.params.fd()) }.try_clone_to_owned()?;
@@ -83,7 +78,7 @@ fn run(input: Inputs<'_>) -> Result<Output> {
                 file.read_exact(&mut [0]).unwrap();
                 assert!(cancelled());
                 assert_eq!(remaining_ms(), 0);
-                assert_eq!(display("outside"), 0);
+                display!("outside").unwrap();
             }));
         }
         2 => BACKGROUND.lock().unwrap().take().unwrap().join().unwrap(),
@@ -92,30 +87,46 @@ fn run(input: Inputs<'_>) -> Result<Output> {
         }
         4 => panic!("standard exception"),
         5 => std::panic::panic_any(5),
-        6 => return Ok(Output::default()),
         8 => {
             assert_eq!(remaining_ms(), -1);
             if cancelled() {
                 return Err(Failure::new(FailureKind::cancelled, "host cancelled"));
             }
         }
+        10 => return Err(Failure::new(FailureKind(u16::MAX), "unknown failure kind")),
+        11 => {
+            return Err(Failure::new(
+                FailureKind::unspecified,
+                "reserved failure kind",
+            ));
+        }
+        12 => std::panic::panic_any(PanicsOnDrop),
+        13 => display!("rejected")?,
         _ => {}
     }
 
-    let mut output = Output::default();
+    assert!(!test_zlib::version().to_bytes().is_empty());
+    let position = input.number.position();
     let mut number = outputs::Number::default();
-    number.value = input.number.value() + i64::from(input.params.mode() == 9);
-    output.number = Some(number);
-    if input.params.mode() == 7 {
-        return Ok(output);
-    }
+    number.value = position.x() + position.y() + i64::from(input.params.mode() == 9);
 
     let mut summary = outputs::Summary::default();
-    let mut label = LabelT::default();
-    label.text = input.payload.data_as_label().unwrap().text().to_owned();
-    summary.data = ChoiceT::Label(Box::new(label));
+    if input.params.mode() != 7 {
+        let mut label = LabelT::default();
+        label.text = input.payload.data_as_label().unwrap().text().to_owned();
+        summary.data = ChoiceT::Label(Box::new(label));
+    }
     summary.values = input.payload.values().map(|values| values.iter().collect());
-    output.summary = Some(summary);
+
+    let mut output = Output {
+        number,
+        summary,
+        copy: None,
+        forwarded: None,
+        forwarded_directory: None,
+        _2d: None,
+        async_: None,
+    };
 
     if let Some(file) = input.file {
         copy(file.value(), "copy.txt")?;
@@ -126,6 +137,23 @@ fn run(input: Inputs<'_>) -> Result<Output> {
         let mut forwarded = outputs::Forwarded::default();
         forwarded.value = file.value().to_owned();
         output.forwarded = Some(forwarded);
+    }
+    if let Some(directory) = input.directory {
+        let mut forwarded = outputs::ForwardedDirectory::default();
+        forwarded.value = directory.value().to_owned();
+        output.forwarded_directory = Some(forwarded);
+
+        let mut point = outputs::Port2d::default();
+        point.x = position.x();
+        point.y = position.y();
+        output._2d = Some(point);
+
+        let mut value = outputs::Async::default();
+        value.data = output.summary.data.clone();
+        output.async_ = Some(value);
+    }
+    if input.params.mode() == 6 {
+        output.async_ = Some(outputs::Async::default());
     }
     Ok(output)
 }

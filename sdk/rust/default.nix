@@ -46,6 +46,7 @@ pkgs.runCommandCC name
     inherit buildInputs;
     nativeBuildInputs = [
       pkgs.cargo
+      pkgs.python3
       pkgs.rustc
     ]
     ++ nativeBuildInputs;
@@ -74,23 +75,27 @@ pkgs.runCommandCC name
     [source.vendored-sources]
     directory = "${vendor}"
     TOML
-    cargo build --lib --release --offline --target ${target} ${
+    set -o pipefail
+    target_dir="$TMPDIR/target"
+    cargo rustc --lib --release --offline --target-dir "$target_dir" --target ${target} ${
       lib.optionalString (lock != null) "--locked"
-    }
+    } --message-format=json -- --print=native-static-libs \
+      | python3 ${./native_link.py} "$target_dir/${target}" > "$TMPDIR/native-link-args"
+    mapfile -t native_link < "$TMPDIR/native-link-args"
     $CC -std=c11 -fPIC -fvisibility=hidden -Wall -Wextra -Werror -I${abi} \
       -c ${./rust_host.c} -o rust_host.o
     ${
       if isDarwin then
         ''
-          link=(-Wl,-exported_symbol,_tsugumi_main -Wl,-undefined,error
-                -framework Security -framework SystemConfiguration -lresolv)
+          link=(-Wl,-exported_symbol,_tsugumi_main -Wl,-undefined,error)
         ''
       else
         ''
           printf '{ global: tsugumi_main; local: *; };\n' > "$TMPDIR/exports"
-          link=(-Wl,--version-script,"$TMPDIR/exports" -Wl,-z,defs -pthread -ldl -lm)
+          link=(-Wl,--version-script,"$TMPDIR/exports" -Wl,-z,defs)
         ''
     }
-    $CC -shared rust_host.o "target/${target}/release/lib${library}.a" "''${link[@]}" \
+    $CC -shared rust_host.o "$target_dir/${target}/release/lib${library}.a" \
+      "''${link[@]}" "''${native_link[@]}" \
       -o "$out/lib/main.so"
   ''
