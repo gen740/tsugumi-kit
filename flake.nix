@@ -21,6 +21,7 @@
         ./nix/csharp.nix
         ./nix/go.nix
         ./nix/python.nix
+        ./nix/ruby.nix
       ];
     };
 }

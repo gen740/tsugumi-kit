@@ -1,0 +1,14 @@
+{
+  "inputs": [
+    {"name": "number", "type": "inputs.number.Number", "kind": "flatbuffer", "required": true},
+    {"name": "rows", "type": "inputs.rows.Rows", "kind": "flatbuffer", "required": true},
+    {"name": "file", "type": "inputs.file.File", "kind": "file", "required": false}
+  ],
+  "outputs": [
+    {"name": "number", "type": "outputs.number.Number", "kind": "flatbuffer", "required": true},
+    {"name": "rows", "type": "outputs.rows.Rows", "kind": "flatbuffer", "required": true},
+    {"name": "file", "type": "outputs.file.File", "kind": "file", "required": false},
+    {"name": "original", "type": "outputs.file.File", "kind": "file", "required": false}
+  ],
+  "params": [{"name": "mode"}, {"name": "fd"}]
+}

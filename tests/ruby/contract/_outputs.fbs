@@ -1,0 +1,35 @@
+attribute "tsugumi";
+
+namespace outputs.number;
+table Number { value:long; }
+
+namespace outputs.rows;
+enum Tone:ubyte { Default, Warm }
+struct Position (force_align: 32) { point:[double:2]; }
+table Word { text:string (required); }
+table Count { value:int; }
+union Choice { Word, Count }
+table Row {
+  label:string (required);
+  magnitude:double;
+  bytes:[ubyte];
+  tone:Tone;
+  optional:uint = null;
+  position:Position (required);
+  choice:Choice;
+  history:[Choice];
+  readings:[double];
+}
+table Rows { rows:[Row] (required); }
+
+namespace outputs.file;
+table File { value:string (required); }
+
+namespace outputs;
+table Outputs {
+  number:outputs.number.Number (required);
+  rows:outputs.rows.Rows (required);
+  file:outputs.file.File (tsugumi: "file");
+  original:outputs.file.File (tsugumi: "file");
+}
+root_type Outputs;
