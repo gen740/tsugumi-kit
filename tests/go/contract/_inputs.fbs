@@ -1,0 +1,15 @@
+namespace inputs.number;
+table Number { value:long; }
+
+namespace inputs.data;
+table Row { value:long; }
+table Text { text:string; }
+table Count { value:long; }
+union Choice { Text, Count }
+table Data {
+  rows:[Row] (required);
+  choice:Choice;
+}
+
+namespace inputs.file;
+table File { value:string (required); }

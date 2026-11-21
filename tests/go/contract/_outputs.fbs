@@ -1,0 +1,18 @@
+namespace outputs.number;
+table Number { value:long; }
+
+namespace outputs.data;
+table Row { value:long; }
+table Text { text:string; }
+table Count { value:long; }
+union Choice { Text, Count }
+table Data {
+  rows:[Row] (required);
+  choice:Choice;
+}
+
+namespace outputs.file;
+table File { value:string (required); }
+
+namespace outputs.forwarded;
+table File { value:string (required); }
