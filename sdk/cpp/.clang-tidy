@@ -1,0 +1,12 @@
+Checks: >-
+  -*,
+  clang-analyzer-core.*,
+  clang-analyzer-cplusplus.*,
+  clang-analyzer-unix.*,
+  bugprone-exception-escape,
+  bugprone-use-after-move,
+  modernize-use-trailing-return-type
+WarningsAsErrors: '*'
+HeaderFilterRegex: '(^|/)(adapter\.hh|card_runtime\.hh)$'
+CheckOptions:
+  modernize-use-trailing-return-type.TransformLambdas: none

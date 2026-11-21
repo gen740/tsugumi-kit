@@ -1,0 +1,20 @@
+attribute "tsugumi";
+
+namespace outputs.number;
+table Value { value:long; }
+table Number { number:Value (required); }
+
+namespace outputs.file;
+table File { value:string (required); }
+
+namespace outputs.directory;
+table Directory { value:string (required); }
+
+namespace outputs;
+table Outputs {
+  number:outputs.number.Number;
+  file:outputs.file.File (tsugumi: "file");
+  directory:outputs.directory.Directory (tsugumi: "directory");
+}
+
+root_type Outputs;

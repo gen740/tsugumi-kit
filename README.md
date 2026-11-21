@@ -26,7 +26,10 @@ whole or to Tsugumi's worker, which belongs to the core.
 | [C++ SDK guide](docs/cpp-sdk.md) | Write a typed Card for ABI 9, display results and work with files in the worker. |
 | [Template guide](docs/templates.md) | Template format, Git import and the host and project stores. |
 | [Example templates](templates/README.md) | A [CSV filter](templates/filter-counts/) and a [two-Card temperature conversion](templates/temperature-conversion/). |
-| `sdk/<language>/` | One SDK per language (moving here from the Tsugumi repository). |
+| `abi/9/` | Vendored Card ABI 9 header and FlatBuffers schemas. |
+| `sdk/cpp/` | C++ Card code generator, adapter and static runtime. |
+| `nix/` | Flake outputs, including the C++ Card builder and runtime package. |
+| `tests/` | Example ABI 9 Card, fake host and compatibility checks. |
 
 ## Status
 
