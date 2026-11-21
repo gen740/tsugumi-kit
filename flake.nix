@@ -24,6 +24,7 @@
         ./nix/python.nix
         ./nix/ruby.nix
         ./nix/rust.nix
+        ./nix/julia.nix
       ];
     };
 }
