@@ -1,0 +1,6 @@
+namespace outputs.fahrenheit.thermometer;
+table Temperature { value:double (id: 0); }
+
+namespace outputs;
+table Outputs { fahrenheit:outputs.fahrenheit.thermometer.Temperature (id: 0, required); }
+root_type Outputs;

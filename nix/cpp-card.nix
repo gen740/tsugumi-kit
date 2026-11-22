@@ -6,35 +6,29 @@
   flatbuffers,
   python3,
   runtime,
+  portCodegen,
 }:
-let
-  buildCard =
+{
+  cppCard =
     {
       src,
-      contract,
-      definitionDir,
-      buildInputs,
-      cxxflags,
-      tools,
+      schemas,
+      buildInputs ? [ ],
+      cxxflags ? [ ],
+      tools ? [ ],
     }:
     let
-      definition = toString definitionDir;
-      source = toString src;
-      sourceFlags = lib.optionals (source == definition || lib.hasPrefix "${definition}/" source) [
-        "-ffile-prefix-map=${src}=${
-          if source == definition then "." else lib.removePrefix "${definition}/" source
-        }"
-      ];
+      sourceFlags = [ "-ffile-prefix-map=${src}=${baseNameOf (toString src)}" ];
       generated =
         runCommand "tsugumi-cpp-card-headers"
           {
             nativeBuildInputs = [
               flatbuffers
-              python3
+              (python3.withPackages (_: [ portCodegen ]))
             ];
           }
           ''
-            python3 ${../sdk/cpp/card_cpp.py} ${lib.escapeShellArg "${contract}/_contract.json"} "$out" \
+            python3 ${../sdk/cpp/card_cpp.py} ${lib.escapeShellArg "${schemas}"} "$out" \
               ${flatbuffers.src}/reflection/reflection.fbs
           '';
     in
@@ -44,7 +38,9 @@ let
         buildInputs = [ flatbuffers ] ++ buildInputs;
       }
       ''
-        mkdir -p "$out/lib"
+        mkdir -p "$out/lib" "$out/share/tsugumi/api"
+        cp "${generated}/README.md" "${generated}/include/"*.h "${generated}/include/card.hh" \
+          "$out/share/tsugumi/api/"
         ${
           if stdenv.hostPlatform.isDarwin then
             ''
@@ -73,50 +69,4 @@ let
           "''${sources[@]}" "${generated}/src/card_adapter.cc" \
           "${runtime}/lib/libtsugumi_abi9.a" ${lib.escapeShellArgs cxxflags} -pthread -o "$out/lib/main.so"
       '';
-in
-{
-  # Omit src to bind the core's contract and definition directory before
-  # injecting this builder into the Card's default.nix.
-  cppCard =
-    {
-      contract,
-      src ? null,
-      definitionDir ? src,
-      buildInputs ? [ ],
-      cxxflags ? [ ],
-      tools ? [ ],
-    }:
-    let
-      withContract =
-        {
-          src,
-          buildInputs ? [ ],
-          cxxflags ? [ ],
-          tools ? [ ],
-        }:
-        buildCard {
-          inherit
-            src
-            contract
-            definitionDir
-            buildInputs
-            cxxflags
-            tools
-            ;
-        };
-    in
-    if src != null then
-      withContract {
-        inherit
-          src
-          buildInputs
-          cxxflags
-          tools
-          ;
-      }
-    else
-      assert lib.assertMsg (
-        definitionDir != null && buildInputs == [ ] && cxxflags == [ ] && tools == [ ]
-      ) "cppCard: bind contract and definitionDir first, then pass src, buildInputs, cxxflags and tools";
-      withContract;
 }

@@ -146,6 +146,16 @@ int main(int argc, char** argv) {
   CHECK(entry(&call, &result) == 0);
   check_cpp_success(result);
 
+  for (int scenario = MERGE_TEMPERATURE; scenario <= MERGE_EMPTY; ++scenario) {
+    call.input = make_cpp_input(scenario, 0, -1);
+    CHECK(entry(&call, &result) == 0);
+    check_merge(result, scenario);
+  }
+
+  call.input = make_cpp_input(VALID, 20, -1);
+  CHECK(entry(&call, &result) == 0);
+  check_cpp_failure(result, 20);
+
   for (int mode = 8; mode <= 14; ++mode) {
     call.input = make_input(VALID, mode, -1);
     CHECK(entry(&call, &result) == 0);

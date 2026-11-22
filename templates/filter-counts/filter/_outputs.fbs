@@ -1,10 +1,8 @@
 attribute "tsugumi";
 namespace counts;
 
-table CsvFile { value:string (required); }
-
 table Outputs {
-  filtered:CsvFile (required, tsugumi: "file");
-  original:CsvFile (required, tsugumi: "file");
+  filtered:string (required, tsugumi: "path");
+  original:string (required, tsugumi: "path");
 }
 root_type Outputs;

@@ -1,6 +1,9 @@
 #pragma once
 
+#include <algorithm>
+#include <concepts>
 #include <cstdint>
+#include <optional>
 #include <source_location>
 #include <span>
 #include <stdexcept>
@@ -8,7 +11,7 @@
 #include <string_view>
 #include <vector>
 
-#include "tsugumi/protocol/tsugumi_enums_generated.h"
+#include "tsugumi/protocol/card_enums_generated.h"
 
 namespace tsugumi {
 
@@ -21,6 +24,49 @@ struct Failure : std::runtime_error {
   std::source_location location;
   std::string cell;
 };
+
+namespace abi9::detail {
+
+template <std::size_t Size>
+struct InputName {
+  char text[Size];
+
+  // A string literal can be used as a template argument in the generated API.
+  constexpr InputName(const char (&name)[Size]) {
+    std::copy_n(name, Size, text);
+  }
+};
+
+template <class T>
+inline constexpr bool kIsOptional = false;
+
+template <class T>
+inline constexpr bool kIsOptional<std::optional<T>> = true;
+
+template <class T>
+auto MissingInput(std::string_view name) -> T {
+  if constexpr (kIsOptional<T>) {
+    return std::nullopt;
+  } else {
+    throw Failure(Tsugumi::Data::FailureKind::input_missing,
+                  "Missing input " + std::string(name), {});
+  }
+}
+
+template <class T, class U>
+auto GetInput(std::string_view name, const std::optional<U>& value) -> T {
+  if (!value) return MissingInput<T>(name);
+  if constexpr (std::same_as<T, std::optional<U>>) {
+    return value;
+  } else if constexpr (std::same_as<T, U>) {
+    return *value;
+  } else {
+    throw Failure(Tsugumi::Data::FailureKind::invalid_request,
+                  "Wrong C++ type for input " + std::string(name), {});
+  }
+}
+
+}  // namespace abi9::detail
 
 }  // namespace tsugumi
 

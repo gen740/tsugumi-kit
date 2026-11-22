@@ -41,7 +41,8 @@ auto ParseNumber(std::string_view field, std::size_t line_number)
 }  // namespace
 
 auto run(const Card::Inputs& input) -> Card::Output {
-  std::ifstream source(input.counts.value);
+  const auto counts_path = input.get<std::filesystem::path>("counts");
+  std::ifstream source(counts_path);
   if (!source) {
     throw tsugumi::Failure(FailureKind::invalid_request, "Cannot open counts");
   }
@@ -95,7 +96,7 @@ auto run(const Card::Inputs& input) -> Card::Output {
       {"counts", "Counts by channel", preview_channels, preview_counts}};
   card::display::send(card::display::LineChart{series});
   Card::Output output;
-  output.filtered.emplace().value = path.string();
-  output.original.emplace().value = input.counts.value;
+  output.filtered = path;
+  output.original = counts_path;
   return output;
 }

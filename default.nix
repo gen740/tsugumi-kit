@@ -3,7 +3,7 @@
 # kit's own pin.
 { pkgs }:
 let
-  inherit (pkgs) lib;
+  portCodegen = pkgs.callPackage ./nix/port-codegen.nix { };
   cppRuntime = pkgs.callPackage ./nix/cpp-runtime.nix {
     abiHeaders = pkgs.callPackage ./nix/abi-headers.nix { };
   };
@@ -11,7 +11,7 @@ let
   ipaexGothic = pkgs.callPackage ./nix/ipaex-gothic.nix { };
   views = pkgs.callPackage ./sdk/views { };
   builders = {
-    inherit (pkgs.callPackage ./nix/cpp-card.nix { inherit runtime; }) cppCard;
+    inherit (pkgs.callPackage ./nix/cpp-card.nix { inherit runtime portCodegen; }) cppCard;
     pythonCard = pkgs.callPackage ./sdk/python { inherit runtime ipaexGothic; };
     javaCard = pkgs.callPackage ./nix/java-card.nix { inherit runtime; };
     inherit (import ./nix/go-card.nix { inherit pkgs runtime; }) goCard goCardSdk;
@@ -70,31 +70,9 @@ let
       views = views.charts;
     };
   };
-  # A builder whose contract the core supplies; the Card passes everything else.
-  withContract =
-    contract: build: args:
-    build (args // { inherit contract; });
 in
 builders
 // sdks
 // {
-  inherit cppRuntime;
-
-  # The SDKs as the core injects them into a Card's default.nix as
-  # `inputs.tsugumi`: every builder is bound to that Card's contract, and
-  # cppCard also to its definition directory for source paths.
-  bind =
-    { contract, definitionDir }:
-    lib.mapAttrs (
-      _: sdk:
-      lib.mapAttrs (
-        name: value:
-        if name == "views" then
-          value
-        else if name == "cppCard" then
-          value { inherit contract definitionDir; }
-        else
-          withContract contract value
-      ) sdk
-    ) sdks;
+  inherit cppRuntime portCodegen;
 }

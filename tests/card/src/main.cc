@@ -67,6 +67,11 @@ auto CheckTools(bool declared) -> void {
 }  // namespace
 
 auto run(const Card::Inputs& input) -> Card::Output {
+  const auto number_input = input.get<Card::input_types::number>("number");
+  using Path = std::filesystem::path;
+  if (input.get<std::optional<Path>>("unwired"))
+    throw std::runtime_error("Unwired input should be absent");
+  if (input.params.mode == 20) (void)input.get<Path>("unwired");
   // Exercise both the dependency's header search path and its link flag.
   if (zlibVersion()[0] != ZLIB_VERSION[0]) {
     throw std::runtime_error("Unexpected zlib version");
@@ -135,7 +140,7 @@ auto run(const Card::Inputs& input) -> Card::Output {
   auto& number = out.number.emplace();
   number.number = std::make_unique<ValueT>();
   number.number->value =
-      input.number.position->x() + input.number.position->y();
+      number_input.position->x() + number_input.position->y();
   number.choices.emplace_back().Set(std::string("valid"));
   NestedT nested;
   nested.return_ = std::make_unique<ValueT>();
@@ -160,8 +165,25 @@ auto run(const Card::Inputs& input) -> Card::Output {
       number.choices.emplace_back();
       break;
   }
-  if (input.file) out.file.emplace().value = input.file->value;
-  if (input.directory) out.directory.emplace().value = input.directory->value;
+  out.file = input.get<std::optional<Path>>("file");
+  out.directory = input.get<std::optional<Path>>("directory");
+  if (input.arrival) {
+    using namespace outputs::arrival::tsugumi::merge;
+    if (const auto* temperature =
+            std::get_if<inputs::arrival::tsugumi::merge::t0::TemperatureT>(
+                &*input.arrival)) {
+      t0::TemperatureT value;
+      value.value = temperature->value + 1;
+      out.arrival = std::move(value);
+    } else {
+      const auto& reading =
+          std::get<inputs::arrival::tsugumi::merge::t1::ReadingT>(
+              *input.arrival);
+      t1::ReadingT value;
+      value.name = reading.name;
+      out.arrival = std::move(value);
+    }
+  }
   if (input.Params) out.switch_.emplace().value = input.Params->value + 1;
   return out;
 }

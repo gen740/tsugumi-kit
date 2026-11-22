@@ -1,7 +1,5 @@
-/* ABI 9. Based on gen740/Tsugumi c935f278d9471105785c08e2cce820ac22ad3c89
- * (sdk/abi9/include/tsugumi/abi9/abi.h), with the 2026-11-22 send effect. */
-#ifndef TSUGUMI_ABI9_ABI_H
-#define TSUGUMI_ABI9_ABI_H
+#ifndef TSUGUMI_CARD_ABI_H
+#define TSUGUMI_CARD_ABI_H
 
 #include <stddef.h>
 #include <stdint.h>
@@ -19,11 +17,8 @@ typedef struct tsugumi_bytes {
 
 typedef struct tsugumi_effects {
   /* Process-lifetime callback, callable from Card threads between calls.
-   * The host context for send is valid for the process lifetime. The host
-   * must consume or copy view and bytes before returning. A nonzero return
-   * means only that the host could not accept the message. The core forwards
-   * the view name unchecked. The UI shows an error for an undeclared view.
-   * The host does not record messages.
+   * The host consumes or copies the opaque bytes before returning.
+   * Returns zero on success. The host context remains valid for send.
    */
   int (*send)(void* host, const char* view, const uint8_t* bytes, size_t size);
   /* These callbacks and their context are valid only during the call.
@@ -52,4 +47,4 @@ int tsugumi_main(const tsugumi_call* call, tsugumi_bytes* result);
 }
 #endif
 
-#endif /* TSUGUMI_ABI9_ABI_H */
+#endif /* TSUGUMI_CARD_ABI_H */

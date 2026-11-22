@@ -1,4 +1,4 @@
-"""Generate card.hh and the ABI 9 adapter from the core's _contract.json."""
+"""Generate card.hh and the ABI 9 adapter from the Card's FlatBuffers schemas."""
 
 import json
 import re
@@ -6,6 +6,8 @@ import subprocess
 import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
+
+from tsugumi_ports import load_card_schemas, reflect_schema, write_api_readme
 
 KEYWORDS = set("""
 alignas alignof and and_eq asm auto bitand bitor bool break case catch char
@@ -26,7 +28,6 @@ CPP_KEYWORDS = KEYWORDS | {
 # The pinned flatc appends an underscore for these keywords in field and
 # enum value names. Preserve those names in the existing object API.
 FLATC_KEYWORDS = CPP_KEYWORDS - {"char8_t", "consteval", "constinit", "contract_assert", "reflexpr"}
-KINDS = {"file": "File", "directory": "Directory", "flatbuffer": "FlatBuffer"}
 SCHEMAS = ("_inputs", "_outputs", "_params")
 IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z_0-9]*")
 TOKEN = re.compile(
@@ -95,11 +96,11 @@ def normalize_schema(source, tokens, names):
     return "".join(pieces)
 
 
-def generate_headers(contract_dir, out, reflection):
+def generate_headers(schemas, out, reflection):
     # Use the same names in all schemas and in card.hh. The rewritten schemas
     # are private to the C++ build and retain field IDs, enum values and layout.
-    sources = {file.relative_to(contract_dir): file.read_text(encoding="utf-8")
-               for file in contract_dir.rglob("*.fbs") if not file.name.startswith("._")}
+    sources = {file.relative_to(schemas): file.read_text(encoding="utf-8")
+               for file in schemas.rglob("*.fbs") if not file.name.startswith("._")}
     tokens = {path: schema_tokens(source) for path, source in sources.items()}
     identifiers = {token.group() for matches in tokens.values() for token in matches
                    if IDENTIFIER.fullmatch(token.group())}
@@ -129,29 +130,42 @@ def generate_headers(contract_dir, out, reflection):
             subprocess.run(["flatc", "--cpp", "--gen-object-api", "--scoped-enums",
                             "-o", str(out / "include"), f"{schema}.fbs"],
                            cwd=work, check=True)
-        subprocess.run(["flatc", "-b", "--schema", "--bfbs-builtins", "_outputs.fbs"],
-                       cwd=work, check=True)
-        subprocess.run(["flatc", "-t", "--strict-json", str(reflection), "--", "_outputs.bfbs"],
-                       cwd=work, check=True)
-        return names, json.loads((work / "_outputs.json").read_text())
+        return names, reflect_schema(work / "_outputs.fbs", reflection)
 
 
-def ports(entries, reserved, names=None):
-    used = (KEYWORDS if names is None else CPP_KEYWORDS) | set(reserved)
-    names = names or {}
+def ports(entries, reserved, names):
+    used = CPP_KEYWORDS | set(reserved)
     for port in entries:
-        name = port["name"]
+        name = port.name
         member = names.get(name, name) if name.startswith("_") or "__" in name else name
         while member in used:
             member += "_"
         used.add(member)
-        yield (
-            json.dumps(name),
-            member,
-            "::" + "::".join(names.get(part, part) for part in port["type"].split(".")),
-            "PortKind::" + KINDS[port["kind"]],
-            port["required"],
-        )
+        yield port, member
+
+
+def cpp_type(type_, names):
+    return "::" + "::".join(names.get(part, part) for part in type_.split("."))
+
+
+def native_type(type_, members, names):
+    if members:
+        types = ", ".join(native_type(member.type, member.merge, names) for member in members)
+        return f"std::variant<{types}>"
+    return f"{cpp_type(type_, names)}::NativeTableType"
+
+
+def port_type(port, names):
+    if port.kind == "Path":
+        return "std::filesystem::path"
+    return native_type(port.type, port.merge, names)
+
+
+def merged_leaves(type_, members):
+    if not members:
+        yield type_
+    for member in members:
+        yield from merged_leaves(member.type, member.merge)
 
 
 def validators(schema, roots):
@@ -233,16 +247,70 @@ def validators(schema, roots):
                for line in [signature + " {", *body, "}", ""]])
 
 
-def generate(contract, out, names=None, schema=None):
-    out.joinpath("include").mkdir(parents=True, exist_ok=True)
+def decode_merge(type_, members, names, functions):
+    table = cpp_type(type_, names)
+    function = f"DecodeMerge{len(functions)}"
+    functions[function] = body = [
+        f"auto {function}(const {table}::NativeTableType& merged, std::string_view name)",
+        f"    -> {native_type(type_, members, names)} {{",
+    ]
+    for member in members:
+        tag = flatc_identifier(names.get(member.tag, member.tag))
+        target = cpp_type(member.type, names)
+        read = f"ReadValue<{target}>({{box->bytes.data(), box->bytes.size()}}, name)"
+        if member.merge:
+            child = decode_merge(member.type, member.merge, names, functions)
+            read = f"{child}({read}, name)"
+        body += [f"  if (const auto* box = merged.value.As{tag}())",
+                 f"    return {read};"]
+    body += ['  Reject(FailureKind::invalid_request, "Invalid Merge input " + std::string(name));',
+             "}", ""]
+    return function
+
+
+def encode_merge(type_, members, names, functions):
+    table = cpp_type(type_, names)
+    function = f"EncodeMerge{len(functions)}"
+    functions[function] = body = [
+        f"auto {function}(const {native_type(type_, members, names)}& value, std::string_view name)",
+        f"    -> {table}::NativeTableType {{",
+        f"  {table}::NativeTableType merged;",
+    ]
+    for member in members:
+        box = cpp_type(member.box_type, names)
+        target = cpp_type(member.type, names)
+        native = native_type(member.type, member.merge, names)
+        if member.merge:
+            child = encode_merge(member.type, member.merge, names, functions)
+            pack = f"PackValue<{target}>({child}(*item, name), name)"
+        else:
+            pack = f"PackValue<{target}>(*item, name, IsPackable)"
+        body += [f"  if (const auto* item = std::get_if<{native}>(&value)) {{",
+                 f"    {box}::NativeTableType box;",
+                 f"    box.bytes = {pack};",
+                 "    merged.value.Set(std::move(box));",
+                 "    return merged;",
+                 "  }"]
+    body += ['  Reject(FailureKind::output_invalid, "Invalid Merge output " + std::string(name));',
+             "}", ""]
+    return function
+
+
+def generate(card, out, names, output_schema):
     out.joinpath("src").mkdir(parents=True, exist_ok=True)
-    inputs = list(ports(contract["inputs"], {"Inputs", "params"}, names))
-    outputs = list(ports(contract["outputs"], {"Output"}, names))
+    out.joinpath("include").mkdir(parents=True, exist_ok=True)
+    inputs = list(ports(card.inputs, {"Inputs", "get", "params"}, names))
+    outputs = list(ports(card.outputs, {"Output"}, names))
+    params = cpp_type(card.params_type, names)
     hh = [
         "// Generated by the Tsugumi ABI 9 SDK. Do not edit.",
         "#pragma once",
         "",
+        "#include <filesystem>",
         "#include <optional>",
+        "#include <string_view>",
+        "#include <type_traits>",
+        "#include <variant>",
         '#include "tsugumi/abi9/card_runtime.hh"',
         '#include "_inputs_generated.h"',
         '#include "_outputs_generated.h"',
@@ -250,51 +318,106 @@ def generate(contract, out, names=None, schema=None):
         "",
         "namespace Card {",
         "",
-        "using Params = ::parameters::ParamsT;",
-        "struct Inputs {",
+        f"using Params = {params}::NativeTableType;",
+        "namespace input_types {",
     ]
-    for _, member, table, _, required in inputs:
-        native = f"{table}::NativeTableType"
-        hh.append(f"  {native if required else f'std::optional<{native}>'} {member};")
-    hh += ["  ::Card::Params params;", "};", "", "struct Output {"]
-    for _, member, table, _, required in outputs:
-        hh.append(f"  std::optional<{table}::NativeTableType> {member};"
-                  + ("  // Required." if required else ""))
+    for port, member in inputs:
+        hh.append(f"using {member} = {port_type(port, names)};")
+    hh += [
+        "}  // namespace input_types",
+        "",
+        "template <tsugumi::abi9::detail::InputName Name, class Fallback>",
+        "using InputType = typename decltype([] {",
+    ]
+    if inputs:
+        for index, (port, member) in enumerate(inputs):
+            branch = "if" if index == 0 else "} else if"
+            hh += [f"  {branch} constexpr (std::string_view(Name.text) == {json.dumps(port.name)}) {{",
+                   f"    return std::type_identity<input_types::{member}>{{}};"]
+        hh += ["  } else {", "    return std::type_identity<Fallback>{};", "  }"]
+    else:
+        hh.append("  return std::type_identity<Fallback>{};")
+    hh += ["}())::type;", "", "struct Inputs {"]
+    for port, member in inputs:
+        hh.append(f"  std::optional<input_types::{member}> {member};")
+    hh += [
+        "  ::Card::Params params;",
+        "",
+        "  template <class T>",
+        "  auto get(std::string_view name) const -> T {",
+    ]
+    for port, member in inputs:
+        hh.append(f"    if (name == {json.dumps(port.name)})"
+                  f" return tsugumi::abi9::detail::GetInput<T>(name, this->{member});")
+    hh += ["    return tsugumi::abi9::detail::MissingInput<T>(name);",
+           "  }", "};", "", "struct Output {"]
+    for port, member in outputs:
+        hh.append(f"  std::optional<{port_type(port, names)}> {member};"
+                  + ("  // Required." if port.required else ""))
     hh += ["};", "", "}  // namespace Card", "",
            "auto run(const Card::Inputs& input) -> Card::Output;", ""]
 
+    roots = (cpp_type(type_, names) for port, _ in outputs if port.kind == "FlatBuffer"
+             for type_ in merged_leaves(port.type, port.merge))
+    functions = {}
+    body = [
+        "auto RunCard(tsugumi_bytes bytes) -> Tsugumi::Card::CardResultT {",
+        "  Input buffer(bytes);",
+        "  Card::Inputs input;",
+    ]
+    for port, member in inputs:
+        name = json.dumps(port.name)
+        if port.kind == "Path":
+            body.append(f"  input.{member} = buffer.ReadPath({name});")
+            continue
+        table = cpp_type(port.type, names)
+        read = f"buffer.ReadPort<{table}>({name})"
+        if port.merge:
+            decode = decode_merge(port.type, port.merge, names, functions)
+            body += [f"  if (const auto merged = {read})",
+                     f"    input.{member} = {decode}(*merged, {name});"]
+        else:
+            body.append(f"  input.{member} = {read};")
+    body += [
+        "  buffer.CheckConsumed();",
+        f'  input.params = ReadValue<{params}>(buffer.Params(), "params");',
+        "  const auto output = run(input);" if outputs else "  run(input);",
+        "  Tsugumi::Card::CardResultT result;",
+    ]
+    for port, member in outputs:
+        name = json.dumps(port.name)
+        required = str(port.required).lower()
+        if port.kind == "Path":
+            body.append(f"  WritePath(result, {name}, output.{member}, {required});")
+            continue
+        table = cpp_type(port.type, names)
+        value = f"output.{member}"
+        validator = ", IsPackable"
+        if port.merge:
+            encode = encode_merge(port.type, port.merge, names, functions)
+            body += [f"  std::optional<{table}::NativeTableType> {member}_boxed;",
+                     f"  if ({value}) {member}_boxed = {encode}(*{value}, {name});"]
+            value = f"{member}_boxed"
+            validator = ""
+        body.append(f"  WritePort<{table}>(result, {name}, {value}, {required}{validator});")
+    body += ["  return result;", "}"]
     cc = [
         "// Generated by the Tsugumi ABI 9 SDK. Do not edit.",
         '#include "card.hh"',
         '#include "adapter.hh"',
         "",
         "namespace {",
+        "using tsugumi::abi9::FailureKind;",
         "using tsugumi::abi9::Input;",
-        "using tsugumi::abi9::PortKind;",
+        "using tsugumi::abi9::PackValue;",
         "using tsugumi::abi9::ReadValue;",
+        "using tsugumi::abi9::Reject;",
+        "using tsugumi::abi9::WritePath;",
         "using tsugumi::abi9::WritePort;",
         "",
-        *(validators(schema, (table for _, _, table, _, _ in outputs)) if schema is not None else []),
-        "auto RunCard(tsugumi_bytes bytes) -> Tsugumi::Card::CardResultT {",
-        "  Input buffer(bytes);",
-        "  Card::Inputs input;",
-    ]
-    for name, member, table, kind, required in inputs:
-        read = f"buffer.ReadPort<{table}>({name}, {kind}, {str(required).lower()})"
-        cc.append(f"  input.{member} = {'*' if required else ''}{read};")
-    cc += [
-        "  buffer.CheckConsumed();",
-        '  input.params = ReadValue<::parameters::Params>(buffer.Params(), "params");',
-        "  const auto output = run(input);" if outputs else "  run(input);",
-        "  Tsugumi::Card::CardResultT result;",
-    ]
-    validator = ", IsPackable" if schema is not None else ""
-    for name, member, table, kind, required in outputs:
-        cc.append(f"  WritePort<{table}>(result, {name}, {kind}, output.{member}, "
-                  f"{str(required).lower()}{validator});")
-    cc += [
-        "  return result;",
-        "}",
+        *validators(output_schema, roots),
+        *(line for function in reversed(functions.values()) for line in function),
+        *body,
         "",
         "}  // namespace",
         "",
@@ -304,17 +427,20 @@ def generate(contract, out, names=None, schema=None):
         "}",
         "",
     ]
-    out.joinpath("include/card.hh").write_text("\n".join(hh))
-    out.joinpath("src/card_adapter.cc").write_text("\n".join(cc))
+    out.joinpath("include/card.hh").write_text("\n".join(hh), encoding="utf-8")
+    out.joinpath("src/card_adapter.cc").write_text("\n".join(cc), encoding="utf-8")
+    write_api_readme(
+        out / "README.md",
+        ((port.name, f"std::optional<{port_type(port, names)}>") for port, _ in inputs),
+        ((port.name, f"std::optional<{port_type(port, names)}>"
+          + (" (required output)" if port.required else "")) for port, _ in outputs),
+        ((param.name, param.type) for param in card.params),
+    )
 
 
 if __name__ == "__main__":
-    contract_file, out, *reflection = (Path(path).resolve() for path in sys.argv[1:])
-    contract = json.loads(contract_file.read_text())
-    if reflection:
-        (out / "include").mkdir(parents=True, exist_ok=True)
-        names, schema = generate_headers(contract_file.parent, out, reflection[0])
-        generate(contract, out, names, schema)
-    else:
-        # Other SDKs supply their own FlatBuffers headers and wire adapters.
-        generate(contract, out)
+    schemas, out, reflection = (Path(path).resolve() for path in sys.argv[1:])
+    card = load_card_schemas(schemas, reflection)
+    (out / "include").mkdir(parents=True, exist_ok=True)
+    names, output_schema = generate_headers(schemas, out, reflection)
+    generate(card, out, names, output_schema)

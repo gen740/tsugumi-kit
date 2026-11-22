@@ -1,4 +1,5 @@
 {
+  pkgs,
   lib,
   stdenv,
   runCommandCC,
@@ -13,7 +14,7 @@ let
   inherit (kit) cppSdk;
   inherit (cppSdk) cppCard;
   runtime = kit.cppRuntime;
-  contract = ../tests/cpp/contract;
+  schemas = ../tests/cpp/schemas;
   tests = lib.fileset.toSource {
     root = ../tests;
     fileset = lib.fileset.unions [
@@ -24,20 +25,22 @@ let
       ../tests/cpp/cases.h
       ../tests/cpp/fake_host.c
       ../tests/cpp/wire.cc
+      ../tests/cpp/template.cc
     ];
   };
-  definitionDir = ../tests/card;
-  # Inject the SDKs the way the core does.
-  injected = kit.bind { inherit contract definitionDir; };
-  bound = injected.cppSdk.cppCard;
   testTool = writeShellScriptBin "tsugumi-test-tool" "exit 42";
-  definition = import definitionDir {
-    pkgs = { inherit coreutils testTool zlib; };
-    inputs.tsugumi = injected;
+  cardArgs = {
+    pkgs = pkgs // {
+      inherit testTool;
+    };
+    inputs.tsugumi = kit;
+    params = { };
+    inherit schemas;
   };
+  definition = import ../tests/card cardArgs;
   card = definition.run;
-  directArgs = {
-    inherit contract definitionDir;
+  withoutTools = cppCard {
+    inherit schemas;
     src = ../tests/card/src;
     buildInputs = [ zlib ];
     cxxflags = [
@@ -45,36 +48,24 @@ let
       "-lz"
     ];
   };
-  direct = cppCard (
-    directArgs
-    // {
-      tools = [
-        coreutils
-        testTool
-      ];
-    }
+  template =
+    definitionDir: schemas:
+    import definitionDir {
+      inherit pkgs schemas;
+      inputs.tsugumi = kit;
+      params = { };
+    };
+  filter = template ../templates/filter-counts/filter ../tests/templates/filter-counts;
+  convert = template ../templates/temperature-conversion/convert ../tests/templates/temperature-conversion;
+  convertUnwired = template ../templates/temperature-conversion/convert (
+    pkgs.runCommand "tsugumi-unwired-converter-schemas" { } ''
+      mkdir "$out"
+      cp ${../tests/templates/temperature-conversion}/_{outputs,params}.fbs "$out/"
+      printf 'namespace inputs; table Inputs {} root_type Inputs;\n' > "$out/_inputs.fbs"
+    ''
   );
-  withoutTools = cppCard directArgs;
-  checkTemplate =
-    template:
-    let
-      definition = import template {
-        inputs.tsugumi.cppSdk = cppSdk // {
-          cppCard = args: { inherit (args) src; };
-        };
-      };
-    in
-    definition.run.src == template + "/src" && definition.views == cppSdk.views;
   inherit (stdenv.hostPlatform) isDarwin;
 in
-assert
-  builtins.functionArgs bound == {
-    src = false;
-    buildInputs = true;
-    cxxflags = true;
-    tools = true;
-  };
-assert card.drvPath == direct.drvPath;
 assert definition.views == cppSdk.views;
 assert !(card ? views);
 assert
@@ -105,11 +96,17 @@ assert lib.all
       rubySdk
     ]
   );
-assert checkTemplate ../templates/filter-counts/filter;
-assert checkTemplate ../templates/temperature-conversion/convert;
+assert filter.views == cppSdk.views && convert.views == cppSdk.views;
 runCommandCC "tsugumi-cpp-abi9-check"
   {
     buildInputs = [ flatbuffers ];
+    passthru.apiCards = [
+      card
+      withoutTools
+      filter.run
+      convert.run
+      convertUnwired.run
+    ];
   }
   ''
     card=${card}/lib/main.so
@@ -129,6 +126,15 @@ runCommandCC "tsugumi-cpp-abi9-check"
     env -i ./fake_host --tools "$card" "${card}/bin"
     env -i ./fake_host --tools "${withoutTools}/lib/main.so" ""
     ./fake_host "$card" "$PWD/legacy.so"
+
+    $CXX -std=c++2c -Wall -Wextra -Werror -I"${filter.run.generated}/include" -I"$include" \
+      -DFILTER "$tests/cpp/template.cc" ${lib.optionalString (!isDarwin) "-ldl"} -o filter-host
+    ./filter-host "${filter.run}/lib/main.so"
+    $CXX -std=c++2c -Wall -Wextra -Werror -I"${convert.run.generated}/include" -I"$include" \
+      "$tests/cpp/template.cc" ${lib.optionalString (!isDarwin) "-ldl"} -o convert-host
+    ./convert-host "${convert.run}/lib/main.so"
+    ./convert-host "${convertUnwired.run}/lib/main.so" --unwired
+
 
     ${
       if isDarwin then

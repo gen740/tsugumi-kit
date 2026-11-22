@@ -1,8 +1,32 @@
 { self, ... }:
 {
   perSystem =
-    { pkgs, system, ... }:
+    {
+      config,
+      pkgs,
+      system,
+      ...
+    }:
     let
+      inherit (pkgs) lib;
+      kit = self.lib.${system};
+      pendingSdkChecks = import ./pending-sdk-checks.nix;
+      enabled = sdk: !(builtins.elem sdk pendingSdkChecks);
+      abiChecks = [
+        "cpp"
+        "csharp"
+        "go"
+        "java"
+        "js"
+        "julia"
+        "python"
+        "r"
+        "ruby"
+        "rust"
+      ];
+      apiCards = lib.concatMap (sdk: config.checks."${sdk}Abi9".apiCards) (
+        builtins.filter enabled abiChecks
+      );
       # A nixpkgs pin other than the flake's, standing in for a project's pin.
       projectPkgs = import (builtins.fetchTarball {
         url = "https://github.com/NixOS/nixpkgs/archive/c78b9f9c117e3ad7a6c1a161a48dc388693049b0.tar.gz";
@@ -12,10 +36,11 @@
       checkTextTemplate =
         name: definitionDir: libraries:
         let
-          # These starters connect a required Text input to a required File output.
-          contract = ../tests/templates/text-to-file;
           definition = import definitionDir {
-            inputs.tsugumi = self.lib.${system}.bind { inherit contract definitionDir; };
+            inherit pkgs;
+            inputs.tsugumi = kit;
+            params = { };
+            schemas = ../tests/templates/text-to-path;
           };
         in
         assert builtins.elem "text" (map (view: view.name) definition.views);
@@ -30,27 +55,41 @@
         '';
     in
     {
-      checks.jsAbi9 = pkgs.callPackage ./js-check.nix { kit = self.lib.${system}; };
-      checks.cppAbi9 = pkgs.callPackage ./cpp-check.nix { kit = self.lib.${system}; };
-      checks.javaAbi9 = pkgs.callPackage ./java-check.nix { kit = self.lib.${system}; };
-      # The root entry builds with the caller's pkgs, not the kit's pin.
-      checks.cppAbi9ProjectPkgs =
-        assert projectKit.cppRuntime.drvPath != self.lib.${system}.cppRuntime.drvPath;
-        projectPkgs.callPackage ./cpp-check.nix { kit = projectKit; };
-      checks.goNormalizeTextTemplate =
-        checkTextTemplate "go-normalize-text" ../templates/go-normalize-text/normalize
-          [
-            "main.so"
-            "go-card.so"
-          ];
-      checks.rustNumberLinesTemplate =
-        checkTextTemplate "rust-number-lines" ../templates/rust-number-lines/number
-          [ "main.so" ];
-      checks.javaWriteTextTemplate =
-        checkTextTemplate "java-write-text" ../templates/java-write-text/write
-          [
-            "main.so"
-            "card.jar"
-          ];
+      checks = {
+        cppAbi9 = pkgs.callPackage ./cpp-check.nix { inherit kit; };
+        cppAbi9ProjectPkgs =
+          assert projectKit.cppRuntime.drvPath != kit.cppRuntime.drvPath;
+          projectPkgs.callPackage ./cpp-check.nix { kit = projectKit; };
+        sdkApi = pkgs.runCommand "tsugumi-sdk-api-check" { } ''
+          for card in ${lib.escapeShellArgs (map toString apiCards)}; do
+            test -s "$card/lib/main.so"
+            test -s "$card/share/tsugumi/api/README.md"
+          done
+          touch "$out"
+        '';
+      }
+      // lib.optionalAttrs (enabled "js") {
+        jsAbi9 = pkgs.callPackage ./js-check.nix { inherit kit; };
+      }
+      // lib.optionalAttrs (enabled "java") {
+        javaAbi9 = pkgs.callPackage ./java-check.nix { inherit kit; };
+        javaWriteTextTemplate = checkTextTemplate "java-write-text" ../templates/java-write-text/write [
+          "main.so"
+          "card.jar"
+        ];
+      }
+      // lib.optionalAttrs (enabled "go") {
+        goNormalizeTextTemplate =
+          checkTextTemplate "go-normalize-text" ../templates/go-normalize-text/normalize
+            [
+              "main.so"
+              "go-card.so"
+            ];
+      }
+      // lib.optionalAttrs (enabled "rust") {
+        rustNumberLinesTemplate =
+          checkTextTemplate "rust-number-lines" ../templates/rust-number-lines/number
+            [ "main.so" ];
+      };
     };
 }

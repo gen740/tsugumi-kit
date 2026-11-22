@@ -3,6 +3,7 @@
 #include <flatbuffers/flatbuffers.h>
 
 #include <cstdint>
+#include <filesystem>
 #include <memory>
 #include <optional>
 #include <string>
@@ -11,7 +12,7 @@
 #include <utility>
 #include <vector>
 
-#include "tsugumi/abi9/abi.h"
+#include "tsugumi/abi9/card_abi.h"
 #include "tsugumi/abi9/card_runtime.hh"
 #include "tsugumi/protocol/card_generated.h"
 
@@ -74,9 +75,9 @@ class Input {
   explicit Input(tsugumi_bytes bytes);
 
   template <class Table>
-  auto ReadPort(std::string_view name, PortKind kind, bool required)
+  auto ReadPort(std::string_view name)
       -> std::optional<typename Table::NativeTableType> {
-    const auto* port = TakePort(name, kind, required);
+    const auto* port = TakePort(name, PortKind::FlatBuffer);
     if (!port) return std::nullopt;
     const auto* bytes = port->bytes();
     return ReadValue<Table>(
@@ -84,11 +85,12 @@ class Input {
         name);
   }
 
+  auto ReadPath(std::string_view name) -> std::optional<std::filesystem::path>;
   auto Params() const -> tsugumi_bytes;
   auto CheckConsumed() const -> void;
 
  private:
-  auto TakePort(std::string_view name, PortKind kind, bool required)
+  auto TakePort(std::string_view name, PortKind kind)
       -> const Tsugumi::Card::CardPort*;
 
   Buffer buffer_;
@@ -96,9 +98,31 @@ class Input {
   std::unordered_map<std::string_view, const Tsugumi::Card::CardPort*> ports_;
 };
 
+auto WritePath(Tsugumi::Card::CardResultT& result, std::string_view name,
+               const std::optional<std::filesystem::path>& path, bool required)
+    -> void;
+
+template <class Table>
+auto PackValue(
+    const typename Table::NativeTableType& value, std::string_view name,
+    bool (*is_packable)(const typename Table::NativeTableType&) = nullptr)
+    -> std::vector<uint8_t> {
+  if (is_packable && !is_packable(value)) {
+    Reject(FailureKind::output_invalid, "Invalid output " + std::string(name));
+  }
+  flatbuffers::FlatBufferBuilder builder;
+  builder.Finish(Table::Pack(builder, &value));
+  flatbuffers::Verifier verifier(builder.GetBufferPointer(), builder.GetSize());
+  if (!verifier.VerifyBuffer<Table>()) {
+    Reject(FailureKind::output_invalid, "Invalid output " + std::string(name));
+  }
+  return {builder.GetBufferPointer(),
+          builder.GetBufferPointer() + builder.GetSize()};
+}
+
 template <class Table>
 auto WritePort(
-    Tsugumi::Card::CardResultT& result, std::string_view name, PortKind kind,
+    Tsugumi::Card::CardResultT& result, std::string_view name,
     const std::optional<typename Table::NativeTableType>& value, bool required,
     bool (*is_packable)(const typename Table::NativeTableType&) = nullptr)
     -> void {
@@ -109,20 +133,10 @@ auto WritePort(
     }
     return;
   }
-  if (is_packable && !is_packable(*value)) {
-    Reject(FailureKind::output_invalid, "Invalid output " + std::string(name));
-  }
-  flatbuffers::FlatBufferBuilder builder;
-  builder.Finish(Table::Pack(builder, &*value));
-  flatbuffers::Verifier verifier(builder.GetBufferPointer(), builder.GetSize());
-  if (!verifier.VerifyBuffer<Table>()) {
-    Reject(FailureKind::output_invalid, "Invalid output " + std::string(name));
-  }
   auto port = std::make_unique<Tsugumi::Card::CardPortT>();
   port->name = name;
-  port->kind = kind;
-  port->bytes.assign(builder.GetBufferPointer(),
-                     builder.GetBufferPointer() + builder.GetSize());
+  port->kind = PortKind::FlatBuffer;
+  port->bytes = PackValue<Table>(*value, name, is_packable);
   result.outputs.push_back(std::move(port));
 }
 

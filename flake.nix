@@ -9,6 +9,18 @@
 
   outputs =
     inputs:
+    let
+      pendingSdkChecks = import ./nix/pending-sdk-checks.nix;
+      sdkCheckModules = {
+        r = ./nix/r.nix;
+        csharp = ./nix/csharp.nix;
+        go = ./nix/go.nix;
+        python = ./nix/python.nix;
+        ruby = ./nix/ruby.nix;
+        rust = ./nix/rust.nix;
+        julia = ./nix/julia.nix;
+      };
+    in
     inputs.flake-parts.lib.mkFlake { inherit inputs; } {
       systems = [
         "aarch64-darwin"
@@ -17,14 +29,8 @@
       ];
       imports = [
         ./nix/outputs.nix
-        ./nix/r.nix
         ./nix/checks.nix
-        ./nix/csharp.nix
-        ./nix/go.nix
-        ./nix/python.nix
-        ./nix/ruby.nix
-        ./nix/rust.nix
-        ./nix/julia.nix
-      ];
+      ]
+      ++ builtins.attrValues (builtins.removeAttrs sdkCheckModules pendingSdkChecks);
     };
 }

@@ -1,0 +1,6 @@
+namespace inputs.celsius.thermometer;
+table Temperature { value:double (id: 0); }
+
+namespace inputs;
+table Inputs { celsius:inputs.celsius.thermometer.Temperature (id: 0); }
+root_type Inputs;

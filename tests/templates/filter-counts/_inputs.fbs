@@ -1,0 +1,4 @@
+attribute "tsugumi";
+namespace inputs;
+table Inputs { counts:string (id: 0, tsugumi: "path"); }
+root_type Inputs;

@@ -150,9 +150,19 @@ Input::Input(tsugumi_bytes bytes)
   for (const auto* port : *input_->inputs()) {
     switch (port->kind()) {
       case PortKind::FlatBuffer:
-      case PortKind::File:
-      case PortKind::Directory:
+        if (port->path())
+          Reject(FailureKind::invalid_request, "FlatBuffer input has a path");
         break;
+      case PortKind::Path: {
+        const auto* path = port->path();
+        if (!path || path->string_view().find('\0') != std::string_view::npos ||
+            !std::filesystem::path(path->string_view()).is_absolute() ||
+            (port->bytes() && port->bytes()->size() != 0)) {
+          Reject(FailureKind::invalid_request,
+                 "Invalid Path input " + port->name()->str());
+        }
+        break;
+      }
       default:
         Reject(FailureKind::invalid_request, "Unknown input port kind");
     }
@@ -164,20 +174,42 @@ Input::Input(tsugumi_bytes bytes)
   }
 }
 
-auto Input::TakePort(std::string_view name, PortKind kind, bool required)
+auto Input::TakePort(std::string_view name, PortKind kind)
     -> const Tsugumi::Card::CardPort* {
   const auto port = ports_.extract(name);
-  if (port.empty()) {
-    if (required) {
-      Reject(FailureKind::input_missing, "Missing input " + std::string(name));
-    }
-    return nullptr;
-  }
+  if (port.empty()) return nullptr;
   if (port.mapped()->kind() != kind) {
     Reject(FailureKind::invalid_request,
            "Wrong kind for input " + std::string(name));
   }
   return port.mapped();
+}
+
+auto Input::ReadPath(std::string_view name)
+    -> std::optional<std::filesystem::path> {
+  const auto* port = TakePort(name, PortKind::Path);
+  return port
+             ? std::optional{std::filesystem::path(port->path()->string_view())}
+             : std::nullopt;
+}
+
+auto WritePath(Tsugumi::Card::CardResultT& result, std::string_view name,
+               const std::optional<std::filesystem::path>& path, bool required)
+    -> void {
+  if (!path) {
+    if (required)
+      Reject(FailureKind::output_invalid,
+             "Missing output " + std::string(name));
+    return;
+  }
+  auto port = std::make_unique<Tsugumi::Card::CardPortT>();
+  port->name = name;
+  port->kind = PortKind::Path;
+  port->path = path->native();
+  if (port->path.empty() || port->path.find('\0') != std::string::npos)
+    Reject(FailureKind::output_invalid,
+           "Invalid Path output " + std::string(name));
+  result.outputs.push_back(std::move(port));
 }
 
 auto Input::Params() const -> tsugumi_bytes {

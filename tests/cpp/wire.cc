@@ -34,17 +34,44 @@ extern "C" auto make_cpp_input(int test_case, int mode, int fd)
       CorruptRootOffset(port->data(), port->size());
       break;
     }
-    case RESERVED_IDENTIFIERS: {
-      CardInputT with_params_port;
-      input.UnPackTo(&with_params_port);
-      using ParamsPort =
-          inputs::tsugumi_class_2::tsugumi_template::tsugumi_union;
-      ParamsPort::NativeTableType params_port;
-      params_port.value = 43;
-      AddPort(with_params_port, "Params", PortKind::FlatBuffer,
-              Encode<ParamsPort>(params_port));
+    case RESERVED_IDENTIFIERS:
+    case MERGE_TEMPERATURE:
+    case MERGE_READING:
+    case MERGE_BAD_BYTES:
+    case MERGE_EMPTY: {
+      CardInputT with_port;
+      input.UnPackTo(&with_port);
+      if (test_case == RESERVED_IDENTIFIERS) {
+        using ParamsPort =
+            inputs::tsugumi_class_2::tsugumi_template::tsugumi_union;
+        ParamsPort::NativeTableType params_port;
+        params_port.value = 43;
+        AddPort(with_port, "Params", PortKind::FlatBuffer,
+                Encode<ParamsPort>(params_port));
+      } else {
+        using namespace inputs::arrival::tsugumi::merge;
+        MergedT merged;
+        if (test_case == MERGE_TEMPERATURE || test_case == MERGE_BAD_BYTES) {
+          t0::TemperatureT temperature;
+          temperature.value = 20.0;
+          TemperatureBoxT box;
+          box.bytes = test_case == MERGE_BAD_BYTES
+                          ? std::vector<uint8_t>{1, 2, 3}
+                          : Encode<t0::Temperature>(temperature);
+          merged.value.Set(std::move(box));
+        }
+        if (test_case == MERGE_READING) {
+          t1::ReadingT reading;
+          reading.name = "sensor";
+          ReadingBoxT box;
+          box.bytes = Encode<t1::Reading>(reading);
+          merged.value.Set(std::move(box));
+        }
+        AddPort(with_port, "arrival", PortKind::FlatBuffer,
+                Encode<Merged>(merged));
+      }
       flatbuffers::FlatBufferBuilder builder;
-      builder.Finish(CardInput::Pack(builder, &with_params_port));
+      builder.Finish(CardInput::Pack(builder, &with_port));
       input_buffer = builder.Release();
       break;
     }
@@ -72,8 +99,39 @@ extern "C" auto check_cpp_success(tsugumi_bytes result) -> void {
   CHECK(DecodePort<KeywordPort>(keyword).value == 44);
 }
 
+extern "C" auto check_merge(tsugumi_bytes result, int scenario) -> void {
+  if (scenario == MERGE_BAD_BYTES || scenario == MERGE_EMPTY) {
+    const auto& failure = Failure(result, FailureKind::invalid_request);
+    CHECK(failure.message()->str().find("arrival") != std::string::npos);
+    return;
+  }
+  const auto& decoded = Decode<CardResult>(result);
+  CHECK(!decoded.failure() && decoded.outputs() &&
+        decoded.outputs()->size() == 2);
+  const auto& port = *decoded.outputs()->Get(1);
+  CHECK(port.name()->str() == "arrival" && port.kind() == PortKind::FlatBuffer);
+  using namespace outputs::arrival::tsugumi::merge;
+  const auto merged = DecodePort<Merged>(port);
+  if (scenario == MERGE_TEMPERATURE) {
+    const auto* box = merged.value.AsTemperatureBox();
+    CHECK(box);
+    CHECK(Decode<t0::Temperature>({box->bytes.data(), box->bytes.size()})
+              .value() == 21.0);
+  } else {
+    const auto* box = merged.value.AsReadingBox();
+    CHECK(box);
+    CHECK(Decode<t1::Reading>({box->bytes.data(), box->bytes.size()})
+              .name()
+              ->str() == "sensor");
+  }
+}
+
 extern "C" auto check_cpp_failure(tsugumi_bytes result, int mode) -> void {
   switch (mode) {
+    case 20:
+      CHECK(Failure(result, FailureKind::input_missing).message()->str() ==
+            "Missing input unwired");
+      break;
     case 13:
       CHECK(Failure(result, FailureKind::worker_failed).message()->str() ==
             "Invalid FailureKind 0: reserved failure");

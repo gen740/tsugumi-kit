@@ -81,25 +81,27 @@ extern "C" auto make_input(input_case test_case, int mode, int fd)
     inputs::number::NumberT number;
     number.position = std::make_unique<inputs::number::Position>(40, 2);
     const auto kind = test_case == UNKNOWN_KIND ? static_cast<PortKind>(255)
-                      : test_case == WRONG_KIND ? PortKind::File
+                      : test_case == WRONG_KIND ? PortKind::Path
                                                 : PortKind::FlatBuffer;
-    AddPort(input, "number", kind,
-            test_case == MALFORMED_PORT
-                ? std::vector<uint8_t>{1, 2, 3}
-                : Encode<inputs::number::Number>(number));
+    if (test_case == WRONG_KIND) {
+      AddPort(input, "number", kind, {});
+      input.inputs.back()->path = "/inputs/wrong";
+    } else {
+      AddPort(input, "number", kind,
+              test_case == MALFORMED_PORT
+                  ? std::vector<uint8_t>{1, 2, 3}
+                  : Encode<inputs::number::Number>(number));
+    }
     if (test_case == DUPLICATE_PORT)
       AddPort(input, "number", kind, Encode<inputs::number::Number>(number));
     if (test_case == UNKNOWN_PORT)
       AddPort(input, "unknown", kind, Encode<inputs::number::Number>(number));
   }
   if (test_case == OPTIONAL_PORTS) {
-    inputs::file::FileT file;
-    file.value = "/inputs/file";
-    inputs::directory::DirectoryT directory;
-    directory.value = "/inputs/directory";
-    AddPort(input, "file", PortKind::File, Encode<inputs::file::File>(file));
-    AddPort(input, "directory", PortKind::Directory,
-            Encode<inputs::directory::Directory>(directory));
+    AddPort(input, "file", PortKind::Path, {});
+    input.inputs.back()->path = "/inputs/file";
+    AddPort(input, "directory", PortKind::Path, {});
+    input.inputs.back()->path = "/inputs/directory";
   }
   flatbuffers::FlatBufferBuilder builder;
   builder.Finish(CardInput::Pack(builder, &input));
@@ -119,19 +121,23 @@ extern "C" auto check_success(tsugumi_bytes result, int optional_ports)
   if (optional_ports) {
     const auto& file = *decoded.outputs()->Get(1);
     const auto& directory = *decoded.outputs()->Get(2);
-    CHECK(file.name()->str() == "file" && file.kind() == PortKind::File);
+    CHECK(file.name()->str() == "file" && file.kind() == PortKind::Path);
     CHECK(directory.name()->str() == "directory" &&
-          directory.kind() == PortKind::Directory);
-    CHECK(DecodePort<outputs::file::File>(file).value == "/inputs/file");
-    CHECK(DecodePort<outputs::directory::Directory>(directory).value ==
-          "/inputs/directory");
+          directory.kind() == PortKind::Path);
+    CHECK(file.path()->str() == "/inputs/file");
+    CHECK(directory.path()->str() == "/inputs/directory");
+    CHECK(!file.bytes() && !directory.bytes());
   }
 }
 
 extern "C" auto check_input_failure(tsugumi_bytes result, input_case test_case)
     -> void {
-  Failure(result, test_case == MISSING_INPUT ? FailureKind::input_missing
-                                             : FailureKind::invalid_request);
+  if (test_case == MISSING_INPUT) {
+    CHECK(Failure(result, FailureKind::input_missing).message()->str() ==
+          "Missing input number");
+  } else {
+    Failure(result, FailureKind::invalid_request);
+  }
 }
 
 extern "C" auto check_card_failure(tsugumi_bytes result, int mode) -> void {
