@@ -3,6 +3,8 @@
 
 #include "wire.h"
 
+extern void check_revision2(tsugumi_main_fn entry);
+
 static int cancelled(void* host) {
   CHECK(host);
   ++*(int*)host;
@@ -40,5 +42,6 @@ int main(int argc, char** argv) {
   call.input = make_input(VALID, 0, -1);
   CHECK(entry(&call, &result) == 0);
   check_success(result, 0);
+  check_revision2(entry);
   return 0;
 }

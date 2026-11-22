@@ -8,6 +8,8 @@ import (
 	"example.org/go-card/compression"
 	"tsugumi"
 	input "tsugumi/inputs/data"
+	mergeNumber "tsugumi/outputs/arrival/tsugumi/merge/t0/nested/t0"
+	mergeReading "tsugumi/outputs/arrival/tsugumi/merge/t1"
 	output "tsugumi/outputs/data"
 	"tsugumi/outputs/number"
 )
@@ -95,12 +97,26 @@ func run(in tsugumi.Inputs) (tsugumi.Output, error) {
 		return out, <-done
 	}
 
-	data := in.Data()
+	if value, err := tsugumi.OptionalInput[string](in, "unwired"); value != nil || err != nil {
+		return out, errors.New("unwired input should be absent")
+	}
+	if in.Params().Mode == 20 {
+		_, err := tsugumi.RequireInput[string](in, "unwired")
+		return out, err
+	}
+	data, err := tsugumi.RequireInput[tsugumi.InputData](in, "data")
+	if err != nil {
+		return out, err
+	}
+	numberInput, err := tsugumi.RequireInput[tsugumi.InputNumber](in, "number")
+	if err != nil {
+		return out, err
+	}
 	choice, ok := data.Choice.Value.(*input.TextT)
 	if data.Choice.Type != input.ChoiceText || !ok {
 		return out, errors.New("input union was not decoded")
 	}
-	position := in.Number().Position
+	position := numberInput.Position
 	out.Number = &tsugumi.OutputNumber{Position: &number.PositionT{
 		X: position.X + data.Rows[0].Value,
 		Y: position.Y,
@@ -112,19 +128,32 @@ func run(in tsugumi.Inputs) (tsugumi.Output, error) {
 			Value: &output.CountT{Value: int64(len(choice.Text))},
 		},
 	}
-	if in.File() != nil {
-		content, err := os.ReadFile(in.File().Value)
+	if file := in.File(); file != nil {
+		content, err := os.ReadFile(*file)
 		if err != nil {
 			return out, err
 		}
 		if err := os.WriteFile("result.txt", content, 0600); err != nil {
 			return out, err
 		}
-		out.File = &tsugumi.OutputFile{Value: "result.txt"}
-		out.Forwarded = &tsugumi.OutputForwarded{Value: in.File().Value}
+		path := "result.txt"
+		out.File = &path
+		out.Forwarded = file
 	}
 	if directory := in.Directory(); directory != nil {
-		out.Directory = &tsugumi.OutputDirectory{Value: directory.Value}
+		out.Directory = directory
+	}
+	if arrival := in.Arrival(); arrival != nil {
+		if arrival.Merged != nil {
+			out.Arrival = &tsugumi.OutputArrival{Merged: &tsugumi.OutputArrivalMerged{
+				Temperature: &mergeNumber.TemperatureT{Value: arrival.Merged.Temperature.Value + 1},
+			}}
+		} else {
+			out.Arrival = &tsugumi.OutputArrival{Reading: &mergeReading.ReadingT{Name: arrival.Reading.Name}}
+		}
+	}
+	if in.Params().Mode == 24 {
+		out.Arrival = &tsugumi.OutputArrival{}
 	}
 	return out, nil
 }

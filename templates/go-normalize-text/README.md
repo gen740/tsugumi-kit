@@ -1,7 +1,7 @@
 # Normalize text with Go
 
 An Input Card supplies text to a Go Card that collapses whitespace, writes
-`normalized.txt` and returns it on the `file` port. **Targets Card ABI 9.**
+`normalized.txt` and returns it on the `file` port. **Targets Card ABI 9 revision 2.**
 
 ```text
 settings.text → normalize.text
@@ -15,3 +15,6 @@ Change `settings.value` to try another input.
 
 Use `templates/go-normalize-text` as the Git import subdirectory.
 [Template guide](../../docs/templates.md) · [Go source](normalize/src/card.go)
+
+The Card build publishes its typed API under `share/tsugumi/api/`.
+[Go SDK guide](../../docs/go-sdk.md)

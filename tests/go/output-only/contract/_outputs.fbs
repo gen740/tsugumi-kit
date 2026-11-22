@@ -1,2 +1,0 @@
-namespace outputs.number;
-table Number { value:long; }

@@ -1,7 +1,0 @@
-{
-  "inputs": [],
-  "outputs": [
-    {"name": "number", "type": "outputs.number.Number", "kind": "flatbuffer", "required": true}
-  ],
-  "params": [{"name": "value"}]
-}

@@ -16,6 +16,7 @@ import (
 
 	wire "tsugumi/Tsugumi/Card"
 	"tsugumi/Tsugumi/Data"
+	"tsugumi/flatbuffers"
 )
 
 // Failure carries a Card failure kind and an optional definition-relative location.
@@ -131,4 +132,45 @@ func verifyInput(index int, data []byte) bool {
 
 func writeOutput(result unsafe.Pointer, index int, data []byte) bool {
 	return C.tsugumi_go_output(result, C.size_t(index), bytesPointer(data), C.size_t(len(data))) != 0
+}
+
+// OptionalInput returns the typed value for name, or nil if it did not arrive.
+func OptionalInput[T any](input Inputs, name string) (*T, error) {
+	value := input.value(name)
+	if value == nil {
+		return nil, nil
+	}
+	if typed, ok := value.(*T); ok {
+		return typed, nil
+	}
+	return nil, &Failure{Kind: "invalid_request", Message: fmt.Sprintf("Wrong Go type for input %s", name)}
+}
+
+// RequireInput returns a value or an input_missing failure that names the port.
+func RequireInput[T any](input Inputs, name string) (T, error) {
+	value, err := OptionalInput[T](input, name)
+	if value != nil {
+		return *value, nil
+	}
+	var zero T
+	if err != nil {
+		return zero, err
+	}
+	return zero, &Failure{Kind: "input_missing", Message: fmt.Sprintf("Missing input %s", name)}
+}
+
+func pack(value interface {
+	Pack(*flatbuffers.Builder) flatbuffers.UOffsetT
+}) []byte {
+	builder := flatbuffers.NewBuilder(256)
+	builder.Finish(value.Pack(builder))
+	return builder.FinishedBytes()
+}
+
+func writePath(result unsafe.Pointer, index int, value string) bool {
+	if value == "" || strings.ContainsRune(value, 0) {
+		return false
+	}
+	return C.tsugumi_go_output(result, C.size_t(index),
+		(*C.uint8_t)(unsafe.Pointer(unsafe.StringData(value))), C.size_t(len(value))) != 0
 }

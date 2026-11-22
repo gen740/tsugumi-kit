@@ -9,7 +9,7 @@
     }:
     {
       checks.goAbi9 = pkgs.callPackage ../tests/go/check.nix {
-        inherit (self.lib.${system}) goCard goCardSdk;
+        kit = self.lib.${system};
         runtime = config.packages.cppRuntime;
       };
     };

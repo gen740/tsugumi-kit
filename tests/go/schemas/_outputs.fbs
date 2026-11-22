@@ -1,0 +1,47 @@
+attribute "tsugumi";
+
+namespace outputs.number;
+struct Position (force_align: 32) { x:long; y:long; }
+table Number { position:Position (required); }
+
+namespace outputs.data;
+table Row { value:long; }
+table Text { text:string; }
+table Count { value:long; }
+union Choice { Text, Count }
+table Data {
+  rows:[Row] (required);
+  choice:Choice;
+}
+
+namespace outputs.arrival.tsugumi.merge.t0.nested.t0;
+table Temperature { value:double; }
+
+namespace outputs.arrival.tsugumi.merge.t0.nested.t1;
+table Count { count:long; }
+
+namespace outputs.arrival.tsugumi.merge.t0.nested;
+table TemperatureBox { bytes:[ubyte] (id: 0, nested_flatbuffer: "outputs.arrival.tsugumi.merge.t0.nested.t0.Temperature"); }
+table CountBox { bytes:[ubyte] (id: 0, nested_flatbuffer: "outputs.arrival.tsugumi.merge.t0.nested.t1.Count"); }
+union Arrival { TemperatureBox, CountBox }
+table Merged { value:Arrival (id: 1); }
+
+namespace outputs.arrival.tsugumi.merge.t1;
+table Reading { name:string (required); }
+
+namespace outputs.arrival.tsugumi.merge;
+table MergedBox { bytes:[ubyte] (id: 0, nested_flatbuffer: "outputs.arrival.tsugumi.merge.t0.nested.Merged"); }
+table ReadingBox { bytes:[ubyte] (id: 0, nested_flatbuffer: "outputs.arrival.tsugumi.merge.t1.Reading"); }
+union Arrival { MergedBox, ReadingBox }
+table Merged { value:Arrival (id: 1); }
+
+namespace outputs;
+table Outputs {
+  number:outputs.number.Number (id: 0, required);
+  data:outputs.data.Data (id: 1, required);
+  file:string (id: 2, tsugumi: "path");
+  forwarded:string (id: 3, tsugumi: "path");
+  directory:string (id: 4, tsugumi: "path");
+  arrival:outputs.arrival.tsugumi.merge.Merged (id: 5);
+}
+root_type Outputs;

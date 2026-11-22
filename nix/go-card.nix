@@ -2,13 +2,14 @@
 let
   inherit (pkgs) lib;
   sdk = ../sdk/go;
+  portCodegen = pkgs.callPackage ./port-codegen.nix { };
   nativeFlags = ''
     cxx_flags=(-std=c++2c -O2 -DNDEBUG -fPIC -fvisibility=hidden -fvisibility-inlines-hidden
       -Wall -Wextra -Werror -Wformat=2 -Wimplicit-fallthrough)
   '';
   mkGoCardSdk =
     {
-      contract,
+      schemas,
       goMod,
       sourcePrefix ? "src",
     }:
@@ -17,7 +18,7 @@ let
         nativeBuildInputs = [
           pkgs.go
           pkgs.flatbuffers
-          pkgs.python3
+          (pkgs.python3.withPackages (_: [ portCodegen ]))
         ];
         buildInputs = [ pkgs.flatbuffers ];
         env = {
@@ -27,23 +28,22 @@ let
         };
       }
       ''
-        mkdir -p "$out/flatbuffers" "$out/lib" include module
+        mkdir -p "$out/flatbuffers" "$out/lib" cpp/include module
         cp ${sdk}/{go.mod,runtime.go,display.go,native.go,host.h} "$out/"
         for file in ${pkgs.flatbuffers.src}/go/*.go; do
           case "$file" in *_test.go|*/doc.go) continue;; esac
           cp "$file" "$out/flatbuffers/"
         done
 
-        contract=${lib.escapeShellArg "${contract}"}
+        schemas=${lib.escapeShellArg "${schemas}"}
         abi=${../abi/9}
         flatc --go --gen-object-api --go-import tsugumi/flatbuffers --go-module-name tsugumi \
-          -o "$out" "$abi/tsugumi_enums.fbs" "$abi/card.fbs"
-        for schema in _inputs _outputs _params; do
-          flatc --go --gen-object-api --go-import tsugumi/flatbuffers --go-module-name tsugumi \
-            -o "$out" "$contract/$schema.fbs"
-          flatc --cpp --scoped-enums -o include "$contract/$schema.fbs"
-        done
-        python3 ${sdk}/card_go.py "$contract/_contract.json" "$out"
+          -o "$out" "$abi/card_enums.fbs" "$abi/card.fbs"
+        flatc --go --gen-object-api --go-import tsugumi/flatbuffers --go-module-name tsugumi \
+          -o "$out" "$schemas"/_{inputs,outputs,params}.fbs
+        python3 ${sdk}/card_go.py "$schemas" "$out" \
+          ${pkgs.flatbuffers.src}/reflection/reflection.fbs cpp ${../sdk/cpp}
+        gofmt -w "$out/card.go"
 
         cp ${lib.escapeShellArg "${goMod}"} module/go.mod
         export GOCACHE="$TMPDIR/go-cache" GOMODCACHE="$TMPDIR/go-modules"
@@ -62,7 +62,7 @@ let
         ${nativeFlags}
         mv "$out/card_ports.cc" .
         for source in ${sdk}/{host,entry}.cc card_ports.cc; do
-          $CXX "''${cxx_flags[@]}" -Iinclude -I${sdk} -I${runtime}/include \
+          $CXX "''${cxx_flags[@]}" -Icpp/include -I${sdk} -I${runtime}/include \
             -I${../sdk/cpp/src} -c "$source"
         done
         $AR rcs "$out/lib/go-host.a" host.o card_ports.o entry.o
@@ -71,7 +71,7 @@ let
   mkGoCard =
     {
       src,
-      contract,
+      schemas,
       name ? "tsugumi-go-card",
       sourcePrefix ? "src",
       lock ? null,
@@ -85,7 +85,7 @@ let
     ) "goCard: supply lock (go.sum) and hash together for external Go modules";
     let
       generatedSdk = mkGoCardSdk {
-        inherit contract sourcePrefix;
+        inherit schemas sourcePrefix;
         goMod = "${src}/go.mod";
       };
       inherit (pkgs.stdenv.hostPlatform) isDarwin;
@@ -137,14 +137,20 @@ let
         };
       }
       ''
-        mkdir -p card "$out/lib"
+        api="$out/share/tsugumi/api"
+        mkdir -p card "$out/lib" "$api"
+        cp ${generatedSdk}/{README.md,card.go} "$api/"
+        for package in ${generatedSdk}/*/; do
+          case "$(basename "$package")" in flatbuffers|lib|Tsugumi) continue;; esac
+          cp -r "$package" "$api/"
+        done
         cp -r --no-preserve=mode ${src}/. card/
         cd card
         if [ -e tsugumi_adapter.go ]; then
           echo "goCard: tsugumi_adapter.go is reserved for the generated SDK" >&2
           exit 1
         fi
-        # Replace any development copy or symlink with the SDK for this contract.
+        # Replace any development copy or symlink with the SDK for these schemas.
         rm -rf tsugumi
         ln -s ${generatedSdk} tsugumi
         cp ${sdk}/adapter.go.in tsugumi_adapter.go
