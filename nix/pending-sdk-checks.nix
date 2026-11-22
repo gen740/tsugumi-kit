@@ -2,11 +2,9 @@
 # schemas, and its ABI check exposes the built Cards in passthru.apiCards.
 [
   "csharp"
-  "go"
   "java"
   "js"
   "julia"
   "r"
   "ruby"
-  "rust"
 ]

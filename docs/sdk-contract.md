@@ -47,9 +47,9 @@ absence value. The table gives the conventions for this revision's SDK ports.
 | SDK | Needed | Optional |
 | --- | --- | --- |
 | C++ | `T` | `std::optional<T>` |
-| Rust | `T` | `Option<T>` |
+| Rust | `T` via `require_input(name, option)?` | `Option<T>` |
 | Python | `input.require(name)` returns `T` | `input.get(name)` or a generated attribute returns `T \| None` |
-| Go | `T` | `*T` |
+| Go | `T` via `RequireInput[T](input, name)` | `*T` via a generated accessor or `OptionalInput[T](input, name)` |
 | C# | `T` | `T?` |
 | Java | `T` | `Optional<T>` |
 | Ruby | Required lookup yielding a value | Optional lookup yielding a value or `nil` |
