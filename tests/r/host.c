@@ -45,7 +45,7 @@ int main(int argc, char** argv) {
   check_versions(current, legacy);
   CHECK(dlclose(legacy) == 0);
   tsugumi_main_fn entry = get_entry(current);
-  tsugumi_effects effects = {display, capture_owner, remaining_ms};
+  tsugumi_effects effects = {send_display, capture_owner, remaining_ms};
   tsugumi_call call = {.abi_version = TSUGUMI_ABI_VERSION,
                        .host = &queries,
                        .effects = &effects};
@@ -76,7 +76,7 @@ int main(int argc, char** argv) {
   CHECK(queries == 4 && atomic_load(&displays) == 10);
   CHECK(!pthread_equal(r_owner, pthread_self()));
 
-  // Release the Card's native thread after its host context expires.
+  // Release the Card's native thread after the call returns.
   call.host = NULL;
   call.effects = NULL;
   CHECK(write(start[1], "!", 1) == 1);

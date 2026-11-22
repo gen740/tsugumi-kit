@@ -31,7 +31,7 @@
       }:
       {
         checks.pythonAbi9 = pkgs.callPackage ../tests/python {
-          pythonCard = self.lib.${system}.pythonCard;
+          inherit (self.lib.${system}) pythonSdk;
           runtime = config.packages.cppRuntime;
         };
       };

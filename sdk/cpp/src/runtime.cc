@@ -1,6 +1,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <limits>
 #include <nlohmann/json.hpp>
 #include <source_location>
 #include <stdexcept>
@@ -23,73 +24,59 @@ Failure::Failure(Tsugumi::Data::FailureKind kind, const std::string& message,
 
 }  // namespace tsugumi
 
-namespace card {
+namespace card::display {
 namespace {
 
-using nlohmann::json;
-
-// The bundled views read their settings from a "config" blob of UTF-8 JSON.
-auto display_config(std::string_view view, const json& config, bool record,
-                    std::span<const Blob> data = {}) -> int {
+auto SendJson(const char* view, const nlohmann::json& config) -> int {
   const auto text = config.dump();
-  std::vector<Blob> blobs{{"config", text_bytes(text)}};
-  blobs.insert(blobs.end(), data.begin(), data.end());
-  return display(View{view, blobs}, record);
+  return tsugumi::abi9::SendDisplay(view,
+                                    {text_bytes(text).data(), text.size()});
 }
 
 }  // namespace
 
-auto display(View view, bool record) -> int {
-  using Tsugumi::Card::CardDisplayBlob;
-  using Tsugumi::Card::CreateCardDisplay;
-  using Tsugumi::Card::CreateCardDisplayBlob;
-  flatbuffers::FlatBufferBuilder builder;
-  std::vector<flatbuffers::Offset<CardDisplayBlob>> blobs;
-  blobs.reserve(view.blobs.size());
-  for (const auto& blob : view.blobs) {
-    const auto name = builder.CreateString(blob.name);
-    const auto bytes =
-        builder.CreateVector(blob.bytes.data(), blob.bytes.size());
-    blobs.push_back(CreateCardDisplayBlob(builder, name, bytes));
-  }
-  const auto name = builder.CreateString(view.view);
-  builder.Finish(CreateCardDisplay(builder, name, builder.CreateVector(blobs)));
-  return tsugumi::abi9::SendDisplay(
-      {builder.GetBufferPointer(), builder.GetSize()}, record);
+auto send(std::string_view view, std::span<const uint8_t> bytes) -> int {
+  if (view.find('\0') != std::string_view::npos) return 1;
+  return tsugumi::abi9::SendDisplay(std::string(view).c_str(),
+                                    {bytes.data(), bytes.size()});
 }
 
-auto display(std::string_view text, bool record) -> int {
-  return display_config("text", {{"text", text}}, record);
+auto send(std::string_view text) -> int {
+  return SendJson("text", {{"text", text}});
 }
 
-auto display(Markdown markdown, bool record) -> int {
-  return display_config("markdown", {{"text", markdown.text}}, record);
+auto send(Markdown markdown) -> int {
+  return SendJson("markdown", {{"text", markdown.text}});
 }
 
-auto display(double value, bool record) -> int {
-  return display(Scalar{value}, record);
-}
+auto send(double value) -> int { return send(Scalar{value}); }
 
-auto display(Scalar scalar, bool record) -> int {
+auto send(Scalar scalar) -> int {
   char number[32] = "\xe2\x80\x94";
   if (std::isfinite(scalar.value))
     std::snprintf(number, sizeof number, "%.6g", scalar.value);
   auto text = std::string{};
   if (!scalar.label.empty()) text = "**" + std::string{scalar.label} + "**: ";
   text += number;
-  return display(Markdown{text}, record);
+  return send(Markdown{text});
 }
 
-auto display(Table table, bool record) -> int {
-  return display_config(
-      "table", {{"columns", table.columns}, {"rows", table.rows}}, record);
+auto send(Table table) -> int {
+  return SendJson("table", {{"columns", table.columns}, {"rows", table.rows}});
 }
 
-auto display(Image image, bool record) -> int {
-  const Blob blobs[] = {{"image", image.bytes}};
-  return display_config("image",
-                        {{"media_type", image.media_type}, {"alt", image.alt}},
-                        record, blobs);
+auto send(Image image) -> int {
+  const auto text = nlohmann::json{
+      {"media_type", image.media_type},
+      {"alt",
+       image.alt}}.dump();
+  if (text.size() > std::numeric_limits<uint32_t>::max()) return 1;
+  std::vector<uint8_t> bytes(sizeof(uint32_t));
+  flatbuffers::WriteScalar(bytes.data(), static_cast<uint32_t>(text.size()));
+  const auto metadata = text_bytes(text);
+  bytes.insert(bytes.end(), metadata.begin(), metadata.end());
+  bytes.insert(bytes.end(), image.bytes.begin(), image.bytes.end());
+  return send("image", bytes);
 }
 
-}  // namespace card
+}  // namespace card::display

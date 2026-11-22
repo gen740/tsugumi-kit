@@ -1,6 +1,5 @@
-// ABI 9. Source: gen740/Tsugumi e9f12cd36c262cf230209003de9aee8fcca30c56 (protocol/card.fbs),
-// with the CardDisplay of 2026-11-22: a view name and named blobs.
-// FlatBuffer payloads of the ABI 9 Card entry point and display effect.
+// ABI 9. Source: gen740/Tsugumi e9f12cd36c262cf230209003de9aee8fcca30c56 (protocol/card.fbs).
+// FlatBuffer payloads of the ABI 9 Card entry point.
 include "tsugumi_enums.fbs";
 
 namespace Tsugumi.Card;
@@ -30,16 +29,4 @@ table CardFailure {
 table CardResult {
   outputs:[CardPort] (id: 0);
   failure:CardFailure (id: 1);
-}
-
-table CardDisplayBlob {
-  name:string (id: 0, required);
-  bytes:[ubyte] (id: 1);
-}
-
-table CardDisplay {
-  // The name of a view in the Card's views map.
-  view:string (id: 0, required);
-  // The view module defines the names and bytes of its blobs.
-  blobs:[CardDisplayBlob] (id: 1);
 }

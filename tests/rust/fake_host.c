@@ -13,8 +13,9 @@ static int64_t no_deadline(void* host) {
   return -1;
 }
 
-static int reject_display(tsugumi_bytes bytes, int record) {
-  CHECK(bytes.data && bytes.size && record == 0);
+static int reject_display(void* host, const char* view, const uint8_t* bytes,
+                          size_t size) {
+  CHECK(host && strcmp(view, "undeclared") == 0 && bytes && size == 3);
   return 73;
 }
 

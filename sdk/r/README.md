@@ -20,7 +20,7 @@ main <- function(input) {
   if (cancelled()) stop("Cancelled before reading the input")
   result <- "result.txt"
   writeLines(readLines(input$source$value), result)
-  display("Wrote result.txt")
+  send("Wrote result.txt")
   list(result = list(value = result))
 }
 ```
@@ -54,14 +54,19 @@ running the Card again. Keep files needed across calls under `HOME`.
 
 ## Effects
 
-Call `display(value, record = FALSE)` for text, a number, a data frame or a
-matrix. The constructors `markdown(text)`, `scalar(value, label)`,
+`send(view, bytes)` takes a declared view name and a raw vector.
+`send(value)` encodes text, a number, a data frame or a matrix.
+The constructors `markdown(text)`, `scalar(value, label)`,
 `image(bytes, media_type, alt)`, `points(x, y, z, colors)`,
-`line_chart(series)`, `plotly(spec)` and `vega_lite(spec)` select other views.
-`view_module(view, blobs)` selects the entry named `view` in the Card's `views`
-with a named list of raw vectors as its blobs. The view module defines the blob
-names and bytes, for example a `config` blob. Pass `record = TRUE` to keep an
-individual display in history.
+`line_chart(series)`, `plotly(spec)` and `vega_lite(spec)` select other
+views. A rejected send raises an R error.
+
+The SDK at `lib.${system}.rSdk` exposes an empty `views` list.
+Declare the matching views in your Card's `default.nix` with
+`views = sdk.views ++ [ ... ];`.
+The example above uses the `text` view, which you can include from
+`lib.${system}.cppSdk.views`.
+See the [view protocol](../../docs/cpp-sdk.md#display-a-value).
 
 Use `cancelled()` to poll the host and `remaining_ms()` to read its deadline
 budget in milliseconds. If the host's query fails, these return `TRUE` and
@@ -74,10 +79,9 @@ pointers from their own threads:
 
 | Name | C signature |
 | --- | --- |
-| `display` | `int (tsugumi_bytes, int record)` |
+| `send` | `int (const char* view, const uint8_t* bytes, size_t size)` |
 | `cancelled` | `bool (void)` |
 | `remaining_ms` | `double (void)` |
 
-The native display function accepts a serialized ABI 9 `CardDisplay` and returns
-zero on success. Keep its bytes alive until it returns. It can display after
-`main` returns. Outside an invocation the queries return `true` and `0`.
+The native send function returns zero on success. Keep the view name and
+bytes alive until it returns. Native threads can send after `main` returns. Outside an invocation the queries return `true` and `0`.

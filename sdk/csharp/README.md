@@ -1,17 +1,18 @@
 # C# Card SDK
 
-Use the kit flake's `lib.${system}.csharpCard` builder in your Card definition.
+Use the kit flake's `lib.${system}.csharpSdk` as `sdk` in your Card definition.
 Pass the directory containing your C# source as `src` and the core-generated
 directory containing `_contract.json`, `_inputs.fbs`, `_outputs.fbs`, and
 `_params.fbs` as `contract`.
 
 ```nix
-{ csharpCard, contract, ... }:
+{ sdk, cppSdk, contract, ... }:
 {
-  run = csharpCard {
+  run = sdk.csharpCard {
     src = ./src;
     inherit contract;
   };
+  views = sdk.views ++ builtins.filter (view: view.name == "markdown") cppSdk.views;
 }
 ```
 
@@ -27,7 +28,7 @@ public static class Card
     public static Output Run(Input input)
     {
         var value = input.Number.Value + 1;
-        Display((double)value);
+        Send((double)value);
         return new Output { Number = new() { Value = value } };
     }
 }
@@ -46,13 +47,19 @@ the working directory and finish writing them before returning. A Directory
 output contains regular files. A File or Directory input may be forwarded
 by returning its path unchanged.
 
-`Effects.Display` supports text, scalar values, markdown, tables, images,
-points, line charts, Plotly, Vega-Lite, and custom views.
-`new Module(view, blobs)` selects the entry named `view` in the Card's views
-with named blobs that its module defines. The other types send a `config` blob
-of UTF-8 JSON, followed by any data blobs. Pass
-`record: true` to record the display. The return value is zero when the host
-accepts it. A background thread can keep displaying between calls.
+`Effects.Send(view, bytes)` takes a declared view name and a
+`ReadOnlySpan<byte>`. The `Effects.Send(value)` overloads support text,
+scalar values, markdown, tables, images, points, line charts, Plotly and
+Vega-Lite. The return value is zero when the host accepts the update.
+
+The SDK at `lib.${system}.csharpSdk` exposes an empty `views` list.
+Declare the matching views in your Card's `default.nix` with
+`views = sdk.views ++ [ ... ];`.
+The example above includes the `markdown` view from
+`lib.${system}.cppSdk.views`.
+See the [view protocol](../../docs/cpp-sdk.md#display-a-value).
+
+A background thread can send live updates between calls.
 `Effects.Cancelled()` and `Effects.RemainingMilliseconds()` can be queried
 from any thread. Between calls they return `true` and `0`, respectively.
 An active call with no deadline can report `-1`.

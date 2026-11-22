@@ -18,7 +18,7 @@ function main(input)
     cancelled() && throw(CardFailure(:cancelled, "Stopped"))
     file = "copy.txt"
     cp(path(input, "source"), file; force=true)
-    display("Created " * file; record=true)
+    send("Created " * file)
     return (; copy=(; value=file))
 end
 ```
@@ -38,12 +38,19 @@ nonfinite floats. You can also return Julia's nonfinite float values.
 A `[ubyte]` field uses standard padded base64, with `base64encode` and
 `base64decode` available from Julia's `Base64` standard library.
 
-`display(value; record=false)` accepts strings, real scalars, and the SDK types
-`Markdown`, `Scalar`, `Table`, `Image`, `Points`, `LineChart`, `Plotly`,
-`VegaLite`, and `View`. `View(view; blobs)` selects the entry named `view` in
-the Card's views with a `Dict{String,Vector{UInt8}}` of blobs that its module
-defines. The other types send a `config` blob of UTF-8 JSON, followed by any
-data blobs. Tasks scheduled on a separate Julia thread can keep
+`send(view, bytes)` takes a declared view name and an
+`AbstractVector{UInt8}`. `send(value)` supports strings, real scalars,
+`Markdown`, `Scalar`, `Table`, `Image`, `Points`, `LineChart`,
+`Plotly`, and `VegaLite`. A rejected send throws an error.
+
+The SDK at `lib.${system}.juliaSdk` exposes an empty `views` list.
+Declare the matching views in your Card's `default.nix` with
+`views = sdk.views ++ [ ... ];`.
+The example above uses the `text` view, which you can include from
+`lib.${system}.cppSdk.views`.
+See the [view protocol](../../docs/cpp-sdk.md#display-a-value).
+
+Tasks scheduled on a separate Julia thread can keep
 sending displays after `main` returns. Outside a call, `cancelled()` returns true and
 `remaining_ms()` returns 0. Throw `CardFailure(:kind, "message"; cell="name")` to
 set the failure kind and optional cell. Returning a `CardFailure` reports the

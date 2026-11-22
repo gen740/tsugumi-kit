@@ -3,7 +3,7 @@
   stdenv,
   runCommandCC,
   flatbuffers,
-  pythonCard,
+  pythonSdk,
   runtime,
 }:
 let
@@ -30,12 +30,7 @@ let
       })
     ];
   };
-  card = pythonCard args;
-  overrides = {
-    text = card.views.markdown;
-    custom = card.views.image;
-  };
-  custom = pythonCard (args // { views = overrides; });
+  card = pythonSdk.pythonCard args;
   host = lib.fileset.toSource {
     root = ../.;
     fileset = lib.fileset.unions [
@@ -46,23 +41,16 @@ let
   };
   inherit (stdenv.hostPlatform) isDarwin;
 in
+assert !(card ? views);
 assert
-  builtins.attrNames card.views == [
-    "image"
-    "markdown"
-    "plotly"
-    "table"
+  map (view: view.name) pythonSdk.views == [
     "text"
+    "markdown"
+    "table"
+    "image"
+    "plotly"
   ];
-assert custom.views == card.views // overrides;
-assert lib.all (
-  view:
-  view.tsugumiView == {
-    kind = "js";
-    entry = "index.js";
-  }
-) (builtins.attrValues card.views);
-assert !(builtins.tryEval (pythonCard (args // { views.bad = card; })).views.bad).success;
+assert lib.all (view: view.type == "html" && view ? blob) pythonSdk.views;
 runCommandCC "tsugumi-python-abi9-check"
   {
     nativeBuildInputs = [ flatbuffers ];
@@ -72,9 +60,7 @@ runCommandCC "tsugumi-python-abi9-check"
     card=${card}/lib/main.so
     tests=${host}
     include=${runtime}/include
-    for view in ${
-      lib.escapeShellArgs (lib.mapAttrsToList (_: view: "${view}/${view.tsugumiView.entry}") card.views)
-    }; do
+    for view in ${lib.escapeShellArgs (map (view: "${view.blob}") pythonSdk.views)}; do
       test -s "$view"
     done
 

@@ -4,6 +4,7 @@
 #include <array>
 #include <filesystem>
 #include <fstream>
+#include <vector>
 
 #include "_inputs_generated.h"
 #include "_outputs_generated.h"
@@ -67,21 +68,6 @@ auto InputPath() -> std::string {
 
 auto DirectoryPath() -> std::string {
   return std::filesystem::absolute("../input dir").lexically_normal().string();
-}
-
-auto ConfigText(const CardDisplay& display) -> std::string_view {
-  CHECK(display.blobs() && display.blobs()->size());
-  const auto* blob = display.blobs()->Get(0);
-  CHECK(blob->name()->string_view() == "config" && blob->bytes());
-  return {reinterpret_cast<const char*>(blob->bytes()->data()),
-          blob->bytes()->size()};
-}
-
-auto CheckBlob(const CardDisplay& display, size_t i, std::string_view name,
-               std::initializer_list<uint8_t> expected) -> void {
-  const auto* blob = display.blobs()->Get(i);
-  CHECK(blob->name()->string_view() == name);
-  CHECK(blob->bytes() && std::ranges::equal(*blob->bytes(), expected));
 }
 
 }  // namespace
@@ -232,36 +218,35 @@ extern "C" auto check_card_failure(tsugumi_bytes bytes, int mode) -> void {
   }
 }
 
-extern "C" auto check_display(tsugumi_bytes bytes, int record, unsigned index)
-    -> void {
+extern "C" auto check_display(const char* view, tsugumi_bytes bytes,
+                              unsigned index) -> void {
   struct Sample {
     std::string_view view;
     std::string_view config;
-    size_t blobs;
-    int record = 0;
+    std::vector<uint8_t> data = {};
   };
-  constexpr std::array samples{
-      Sample{"text", R"({"text":"résumé\n\""})", 0},
-      Sample{"markdown", R"({"text":"**text**"})", 0, 1},
-      Sample{"markdown", R"({"text":"2.5"})", 0},
-      Sample{"table", R"({"columns":["n"],"rows":[["1"]]})", 0},
-      Sample{"image", R"({"alt":"sample","media_type":"image/png"})", 1},
-      Sample{"plotly", R"({"data":[]})", 0},
+  const std::array samples{
+      Sample{"text", R"({"text":"résumé\n\""})"},
+      Sample{"markdown", R"({"text":"**text**"})"},
+      Sample{"markdown", R"({"text":"2.5"})"},
+      Sample{"table", R"({"columns":["n"],"rows":[["1"]]})"},
+      Sample{"image",
+             R"({"alt":"sample","media_type":"image/png"})",
+             {0, 13, 255}},
+      Sample{"plotly", R"({"data":[]})"},
       Sample{
           "plotly",
-          R"({"data":[{"type":"scatter","x":["2026-11-22"],"y":[2]}],"layout":{}})",
-          0, 1},
-      Sample{"custom", R"({"key":1})", 1, 1},
-      Sample{"text", R"({"text":"outside"})", 0},
+          R"({"data":[{"type":"scatter","x":["2026-11-22"],"y":[2]}],"layout":{}})"},
+      Sample{"custom", {}, {0, 13, 255}},
+      Sample{"text", R"({"text":"outside"})"},
   };
-  const Buffer buffer(bytes);
-  const auto* display = buffer.Verify<CardDisplay>();
-  CHECK(display && index < samples.size());
+  CHECK(index < samples.size());
   const auto& sample = samples[index];
-  CHECK(display->view()->string_view() == sample.view);
-  CHECK(ConfigText(*display) == sample.config);
-  CHECK(display->blobs() && display->blobs()->size() == sample.blobs + 1);
-  CHECK(record == sample.record);
-  if (index == 4) CheckBlob(*display, 1, "image", {0, 13, 255});
-  if (index == 7) CheckBlob(*display, 1, "sample", {0, 13, 255});
+  CHECK(view == sample.view);
+  auto payload = std::span(bytes.data, bytes.size);
+  if (sample.view != "custom") {
+    const auto config = ReadDisplayConfig(payload, sample.data.size() != 0);
+    CHECK(config == sample.config);
+  }
+  CHECK(std::ranges::equal(payload, sample.data));
 }

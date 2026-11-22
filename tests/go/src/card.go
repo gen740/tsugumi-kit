@@ -16,36 +16,26 @@ var background chan error
 
 func displaySamples() error {
 	bytes := []byte{0, 13, 255}
-	samples := []struct {
-		value  any
-		record bool
-	}{
-		{value: "résumé\n\""},
-		{tsugumi.Markdown("**text**"), true},
-		{value: 2.5},
-		{value: tsugumi.Table{Columns: []string{"n"}, Rows: [][]string{{"1"}}}},
-		{value: tsugumi.Image{MediaType: "image/png", Bytes: bytes, Alt: "sample"}},
-		{value: tsugumi.Points{X: []float32{1, -2}, Y: []float32{3, 4}, Z: []float32{5, 6}, Colors: []uint32{0x123456, 0xaabbccdd}}},
-		{value: tsugumi.LineChart{Series: []tsugumi.Series{
+	samples := []any{
+		"résumé\n\"",
+		tsugumi.Markdown("**text**"),
+		2.5,
+		tsugumi.Table{Columns: []string{"n"}, Rows: [][]string{{"1"}}},
+		tsugumi.Image{MediaType: "image/png", Bytes: bytes, Alt: "sample"},
+		tsugumi.Points{X: []float32{1, -2}, Y: []float32{3, 4}, Z: []float32{5, 6}, Colors: []uint32{0x123456, 0xaabbccdd}},
+		tsugumi.LineChart{Series: []tsugumi.Series{
 			{ID: "a", Label: "first", X: []float64{2, -4}, Y: []float64{3, 5}},
 			{ID: "b", Label: "second", X: []float64{6}, Y: []float64{-7}},
-		}}},
-		{value: tsugumi.Plotly(`{"data":[]}`)},
-		{value: tsugumi.VegaLite(`{"mark":"point"}`)},
-		{tsugumi.Module{View: "custom", Blobs: []tsugumi.Blob{{Name: "config", Bytes: []byte(`{"key":1}`)}, {Name: "sample", Bytes: bytes}}}, true},
+		}},
+		tsugumi.Plotly(`{"data":[]}`),
+		tsugumi.VegaLite(`{"mark":"point"}`),
 	}
 	for _, sample := range samples {
-		var err error
-		if sample.record {
-			err = tsugumi.Display(sample.value, true)
-		} else {
-			err = tsugumi.Display(sample.value)
-		}
-		if err != nil {
+		if err := tsugumi.SendValue(sample); err != nil {
 			return err
 		}
 	}
-	return nil
+	return tsugumi.Send("custom", bytes)
 }
 
 func run(in tsugumi.Inputs) (tsugumi.Output, error) {
@@ -71,7 +61,7 @@ func run(in tsugumi.Inputs) (tsugumi.Output, error) {
 				if err != nil || n != 1 || !tsugumi.Cancelled() || tsugumi.RemainingMS() != 0 {
 					return errors.New("inactive effects failed")
 				}
-				return tsugumi.Display("outside")
+				return tsugumi.SendValue("outside")
 			})
 		}(int(in.Params().Fd), background)
 	case 2:

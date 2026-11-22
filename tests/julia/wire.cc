@@ -16,6 +16,7 @@
 #include <limits>
 #include <stdexcept>
 #include <string_view>
+#include <vector>
 
 #include "_inputs_generated.h"
 #include "_outputs_generated.h"
@@ -271,37 +272,41 @@ extern "C" auto check_card_failure(tsugumi_bytes result, int mode) -> void {
   }
 }
 
-extern "C" auto check_display(tsugumi_bytes bytes, int record, unsigned index)
-    -> void {
-  constexpr std::array<std::string_view, 11> views{
-      "tsugumi:text",       "tsugumi:markdown",
-      "tsugumi:markdown",   "tsugumi:table",
-      "tsugumi:image",      "tsugumi:points",
-      "tsugumi:line-chart", "tsugumi:plotly",
-      "tsugumi:vega-lite",  "custom",
-      "tsugumi:text"};
-  const auto& display = Wire<CardDisplay>(bytes);
-  CHECK(index < views.size());
-  CHECK(display.view()->string_view() == views[index]);
-  CHECK(record == (index == 1 || index == 9));
-  // Every display starts with its "config" blob.
-  const auto blob = [&](unsigned i, std::string_view name) {
-    CHECK(display.blobs() && i < display.blobs()->size());
-    const auto* entry = display.blobs()->Get(i);
-    CHECK(entry->name()->string_view() == name && entry->bytes());
-    return std::string_view{
-        reinterpret_cast<const char*>(entry->bytes()->data()),
-        entry->bytes()->size()};
+extern "C" auto check_display(const char* view, tsugumi_bytes bytes,
+                              unsigned index) -> void {
+  struct Sample {
+    std::string_view view;
+    std::string_view config;
+    std::vector<uint8_t> data = {};
   };
-  const auto config = blob(0, "config");
-  if (index == 0) CHECK(config == R"({"text":"résumé\n\""})");
-  if (index == 3) CHECK(config == R"({"columns":["n"],"rows":[["1"]]})");
-  if (index == 9) {
-    CHECK(config == R"({"key":1})");
-    CHECK(display.blobs()->size() == 2);
-    CHECK(blob(1, "sample") == std::string_view("\x00\x0d\xff", 3));
+  const std::array samples{
+      Sample{"text", R"({"text":"résumé\n\""})"},
+      Sample{"markdown", R"({"text":"**text**"})"},
+      Sample{"markdown", R"({"text":"2.5"})"},
+      Sample{"table", R"({"columns":["n"],"rows":[["1"]]})"},
+      Sample{"image",
+             R"({"alt":"sample","media_type":"image/png"})",
+             {0, 13, 255}},
+      Sample{"points",
+             R"({"count":1})",
+             {0, 0, 128, 63, 0, 0, 128, 63, 0, 0, 128, 63, 86, 52, 18, 0}},
+      Sample{"line-chart",
+             R"({"series":[{"count":1,"id":"id","label":"line","offset":0}]})",
+             {0, 0, 0, 0, 0, 0, 0, 64, 0, 0, 0, 0, 0, 0, 0, 64}},
+      Sample{"plotly", R"({"data":[]})"},
+      Sample{"vega-lite", R"({"mark":"point"})"},
+      Sample{"custom", {}, {0, 13, 255}},
+      Sample{"text", R"({"text":"outside"})"},
+  };
+  CHECK(index < samples.size());
+  const auto& sample = samples[index];
+  CHECK(view == sample.view);
+  auto payload = std::span(bytes.data, bytes.size);
+  if (sample.view != "custom") {
+    const auto config = ReadDisplayConfig(payload, sample.data.size() != 0);
+    CHECK(config == sample.config);
   }
-  if (index == 10) CHECK(config == R"({"text":"outside"})");
+  CHECK(std::ranges::equal(payload, sample.data));
 }
 
 namespace {
@@ -359,8 +364,6 @@ auto Wait(int fd) -> void {
   CHECK(read(fd, &signal, 1) == 1 && signal == '!');
 }
 
-// Display has process lifetime and does not take the call's host context.
-int gc_display_fd = -1;
 std::promise<void>* returning = nullptr;
 
 auto ExchangeWithCard(int fd) -> void {
@@ -368,8 +371,8 @@ auto ExchangeWithCard(int fd) -> void {
   Wait(fd);
 }
 
-auto GcDisplay(tsugumi_bytes, int) -> int {
-  ExchangeWithCard(gc_display_fd);
+auto GcDisplay(void* host, const char*, const uint8_t*, size_t) -> int {
+  ExchangeWithCard(static_cast<SocketPair*>(host)->host());
   return 0;
 }
 
@@ -383,7 +386,7 @@ auto GcRemainingMs(void* host) -> int64_t {
   return -1;
 }
 
-auto RaceDisplay(tsugumi_bytes, int) -> int {
+auto RaceDisplay(void*, const char*, const uint8_t*, size_t) -> int {
   returning->set_value();
   return 0;
 }
@@ -436,7 +439,9 @@ auto main(int argc, char** argv) -> int {
   }
 
   const tsugumi_effects throwing{
-      [](tsugumi_bytes, int) -> int { throw std::runtime_error("display"); },
+      [](void*, const char*, const uint8_t*, size_t) -> int {
+        throw std::runtime_error("display");
+      },
       [](void*) -> int { throw std::runtime_error("cancelled"); },
       [](void*) -> int64_t { throw std::runtime_error("remaining_ms"); },
   };
@@ -446,7 +451,6 @@ auto main(int argc, char** argv) -> int {
 
   for (const auto mode : {12, 13, 14}) {
     SocketPair sockets;
-    gc_display_fd = sockets.host();
     const tsugumi_effects effects{GcDisplay, GcCancelled, GcRemainingMs};
     check_success(Call(entry, {TSUGUMI_ABI_VERSION,
                                make_input(VALID, mode, sockets.card()),

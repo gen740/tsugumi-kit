@@ -25,6 +25,7 @@ struct Failure : std::runtime_error {
 }  // namespace tsugumi
 
 namespace card {
+namespace display {
 
 struct Markdown {
   std::string_view text;
@@ -46,30 +47,20 @@ struct Image {
   std::string_view alt = {};
 };
 
-struct Blob {
-  std::string_view name;
-  std::span<const uint8_t> bytes;
-};
-
-// A display for the view named view in the Card's views map. The view module
-// defines its blob names and bytes.
-struct View {
-  std::string_view view;
-  std::span<const Blob> blobs = {};
-};
-
-// The bytes of text, for example a view's config blob.
+// The bytes of text, borrowed from the string.
 inline auto text_bytes(std::string_view text) -> std::span<const uint8_t> {
   return {reinterpret_cast<const uint8_t*>(text.data()), text.size()};
 }
 
-auto display(std::string_view text, bool record = false) -> int;
-auto display(Markdown markdown, bool record = false) -> int;
-auto display(double value, bool record = false) -> int;
-auto display(Scalar scalar, bool record = false) -> int;
-auto display(Table table, bool record = false) -> int;
-auto display(Image image, bool record = false) -> int;
-auto display(View view, bool record = false) -> int;
+auto send(std::string_view view, std::span<const uint8_t> bytes) -> int;
+auto send(std::string_view text) -> int;
+auto send(Markdown markdown) -> int;
+auto send(double value) -> int;
+auto send(Scalar scalar) -> int;
+auto send(Table table) -> int;
+auto send(Image image) -> int;
+
+}  // namespace display
 
 auto cancelled() -> bool;
 auto remaining_ms() -> int64_t;

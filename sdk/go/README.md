@@ -19,7 +19,7 @@ func run(input tsugumi.Inputs) (tsugumi.Output, error) {
         return tsugumi.Output{}, tsugumi.Fail("cancelled", "Card cancelled")
     }
     value := input.Number().Value * 2
-    if err := tsugumi.Display(value); err != nil {
+    if err := tsugumi.SendValue(value); err != nil {
         return tsugumi.Output{}, err
     }
     return tsugumi.Output{Number: &tsugumi.OutputNumber{Value: value}}, nil
@@ -32,14 +32,20 @@ struct, enum and union types generated for the contract are importable
 under `tsugumi/inputs/...` and `tsugumi/outputs/...`. The builder
 validates input and output FlatBuffers with typed verifiers.
 
-`tsugumi.Display(value, true)` requests recording. Omitting the flag
-sends a live-only display. Display accepts strings, numbers, and the SDK's
-`Markdown`, `Scalar`, `Table`, `Image`, `Points`, `LineChart`,
-`Plotly`, `VegaLite` and `Module` types. `Module{View, Blobs}` selects the
-entry named `View` in the Card's views with named blobs that its module
-defines. The other types send a `config` blob of UTF-8 JSON, followed by any
-data blobs. A goroutine may send displays
-between calls. Run background work inside `tsugumi.Guard(func() error { ... })`
+`tsugumi.Send(view, bytes)` takes a declared view name and a byte slice.
+`tsugumi.SendValue(value)` encodes strings, numbers, `Markdown`, `Scalar`,
+`Table`, `Image`, `Points`, `LineChart`, `Plotly`, and `VegaLite` for
+their corresponding views. Both functions return an error if the host rejects
+the update.
+
+The SDK at `lib.${system}.goSdk` exposes an empty `views` list.
+Declare the matching views in your Card's `default.nix` with
+`views = sdk.views ++ [ ... ];`.
+The example above uses the `markdown` view, which you can include from
+`lib.${system}.cppSdk.views`.
+See the [view protocol](../../docs/cpp-sdk.md#display-a-value).
+
+A goroutine may send live updates between calls. Run background work inside `tsugumi.Guard(func() error { ... })`
 in that goroutine to turn a panic into an error. Handle the error there or
 send it back to `run` over a channel. An unhandled goroutine panic terminates
 the worker. `Cancelled()` and `RemainingMS()` query the current

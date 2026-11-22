@@ -13,7 +13,7 @@
 #include <thread>
 #include <vector>
 
-#include "legacy-display.hh"
+#include "display.hh"
 
 namespace tsugumi::julia {
 namespace {
@@ -39,29 +39,27 @@ auto Field(const Json& value, const char* name) -> T {
   return value.at(name).get<T>();
 }
 
-auto Emit(std::string_view kind, const Json& value, bool record) -> int {
+auto Emit(std::string_view kind, const Json& value) -> int {
   if (kind == "text" || kind == "markdown")
-    return legacy_display::Emit(kind, {{"text", value.get<std::string>()}},
-                                record);
+    return display::Emit(kind, {{"text", value.get<std::string>()}});
   if (kind == "table") {
     const auto columns = Field<std::vector<std::string>>(value, "columns");
     const auto rows =
         Field<std::vector<std::vector<std::string>>>(value, "rows");
-    return legacy_display::Emit(kind, {{"columns", columns}, {"rows", rows}},
-                                record);
+    return display::Emit(kind, {{"columns", columns}, {"rows", rows}});
   }
   if (kind == "image") {
     const auto bytes = Field<std::vector<uint8_t>>(value, "bytes");
-    return legacy_display::EmitImage(Field<std::string>(value, "media_type"),
-                                     Field<std::string>(value, "alt"), bytes,
-                                     record);
+    return card::display::send(
+        card::display::Image{Field<std::string>(value, "media_type"), bytes,
+                             Field<std::string>(value, "alt")});
   }
   if (kind == "points") {
     const auto x = Field<std::vector<float>>(value, "x");
     const auto y = Field<std::vector<float>>(value, "y");
     const auto z = Field<std::vector<float>>(value, "z");
     const auto colors = Field<std::vector<uint32_t>>(value, "colors");
-    return legacy_display::EmitPoints(x, y, z, colors, record);
+    return display::EmitPoints(x, y, z, colors);
   }
   if (kind == "line-chart") {
     struct Row {
@@ -78,35 +76,31 @@ auto Emit(std::string_view kind, const Json& value, bool record) -> int {
                       Field<std::vector<double>>(row, "x"),
                       Field<std::vector<double>>(row, "y")});
     }
-    std::vector<legacy_display::LineSeries> series;
+    std::vector<display::LineSeries> series;
     series.reserve(rows.size());
     for (const auto& row : rows) {
       series.push_back({row.id, row.label, row.x, row.y});
     }
-    return legacy_display::EmitLineChart(series, record);
+    return display::EmitLineChart(series);
   }
   if (kind == "plotly" || kind == "vega-lite")
-    return legacy_display::Emit(kind, value, record);
-  if (kind == "module") {
-    const auto& members = value.at("blobs");
-    std::vector<std::vector<uint8_t>> storage;
-    std::vector<card::Blob> blobs;
-    storage.reserve(members.size());
-    blobs.reserve(members.size());
-    for (const auto& [name, bytes] : members.items()) {
-      storage.push_back(bytes.get<std::vector<uint8_t>>());
-      blobs.push_back({name, storage.back()});
-    }
-    const auto view = Field<std::string>(value, "view");
-    return card::display(card::View{view, blobs}, record);
-  }
+    return display::Emit(kind, value);
   return 1;
 }
 
-extern "C" auto Display(const char* kind, const char* payload,
-                        int record) noexcept -> int {
+extern "C" auto EmitDisplay(const char* kind, const char* payload) noexcept
+    -> int {
   try {
-    return Emit(kind, Json::parse(payload), record != 0);
+    return Emit(kind, Json::parse(payload));
+  } catch (...) {
+    return 1;
+  }
+}
+
+extern "C" auto Send(const char* view, const uint8_t* bytes,
+                     size_t size) noexcept -> int {
+  try {
+    return abi9::SendDisplay(view, {bytes, size});
   } catch (...) {
     return 1;
   }
@@ -147,7 +141,7 @@ class Interpreter {
     // Julia and Card tasks can still use this library after the caller releases
     // its handle. Keep the library and interpreter alive until process exit.
     Dl_info info{};
-    if (!dladdr(reinterpret_cast<void*>(Display), &info) ||
+    if (!dladdr(reinterpret_cast<void*>(EmitDisplay), &info) ||
         !dlopen(info.dli_fname, RTLD_NOW | RTLD_LOCAL)) {
       throw std::runtime_error("Could not retain the Julia Card library");
     }
@@ -229,9 +223,10 @@ class Interpreter {
     char bridge[256];
     const int length = std::snprintf(
         bridge, sizeof(bridge),
-        "const TSUGUMI_JULIA_HOST = (display=Ptr{Cvoid}(%p), "
+        "const TSUGUMI_JULIA_HOST = (emit=Ptr{Cvoid}(%p), send=Ptr{Cvoid}(%p), "
         "cancelled=Ptr{Cvoid}(%p), remaining_ms=Ptr{Cvoid}(%p))",
-        reinterpret_cast<void*>(Display), reinterpret_cast<void*>(IsCancelled),
+        reinterpret_cast<void*>(EmitDisplay), reinterpret_cast<void*>(Send),
+        reinterpret_cast<void*>(IsCancelled),
         reinterpret_cast<void*>(RemainingMs));
     if (length < 0 || static_cast<size_t>(length) >= sizeof(bridge))
       throw std::runtime_error("Could not initialize the Julia bridge");

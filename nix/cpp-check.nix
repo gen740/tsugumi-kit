@@ -4,11 +4,11 @@
   runCommandCC,
   flatbuffers,
   zlib,
-  cppCard,
-  view,
+  cppSdk,
   runtime,
 }:
 let
+  inherit (cppSdk) cppCard;
   contract = ../tests/cpp/contract;
   tests = lib.fileset.toSource {
     root = ../tests;
@@ -26,7 +26,9 @@ let
   bound = cppCard { inherit contract definitionDir; };
   definition = import definitionDir {
     pkgs = { inherit zlib; };
-    inputs.tsugumi.cppCard = bound;
+    inputs.tsugumi.cppSdk = cppSdk // {
+      cppCard = bound;
+    };
   };
   card = definition.run;
   direct = cppCard {
@@ -42,23 +44,12 @@ let
     template:
     let
       definition = import template {
-        inputs.tsugumi.cppCard = args: {
-          inherit (args) src;
-          inherit (card) views;
+        inputs.tsugumi.cppSdk = cppSdk // {
+          cppCard = args: { inherit (args) src; };
         };
       };
     in
-    definition.run.src == template + "/src" && definition.views == card.views;
-  overrides = {
-    text = card.views.markdown;
-    custom = card.views.image;
-  };
-  custom = bound {
-    src = ../tests/card/src;
-    views = overrides;
-  };
-  routes = lib.mapAttrsToList (_: view: view.tsugumiView) definition.views;
-  fails = value: !(builtins.tryEval value).success;
+    definition.run.src == template + "/src" && definition.views == cppSdk.views;
   inherit (stdenv.hostPlatform) isDarwin;
 in
 assert
@@ -66,49 +57,18 @@ assert
     src = false;
     buildInputs = true;
     cxxflags = true;
-    views = true;
   };
 assert card.drvPath == direct.drvPath;
-assert definition.views == direct.views;
+assert definition.views == cppSdk.views;
+assert !(card ? views);
 assert
-  builtins.attrNames definition.views == [
-    "image"
+  map (view: view.name) definition.views == [
+    "text"
     "markdown"
     "table"
-    "text"
+    "image"
   ];
-assert custom.views == card.views // overrides;
-assert lib.all (
-  route:
-  route == {
-    kind = "js";
-    entry = "index.js";
-  }
-) routes;
-assert
-  (view {
-    kind = "wasm";
-    src = ../tests/card/src;
-    entry = "main.cc";
-  }).tsugumiView == {
-    kind = "wasm";
-    entry = "main.cc";
-  };
-assert fails (view {
-  kind = "html";
-  src = ../tests/card/src;
-  entry = "main.cc";
-});
-assert fails (view {
-  kind = "js";
-  src = ../tests/card/src;
-  entry = "../default.nix";
-});
-assert fails
-  (bound {
-    src = ../tests/card/src;
-    views.bad = card;
-  }).views.bad;
+assert lib.all (view: view.type == "html" && view ? blob) definition.views;
 assert checkTemplate ../templates/filter-counts/filter;
 assert checkTemplate ../templates/temperature-conversion/convert;
 runCommandCC "tsugumi-cpp-abi9-check"
@@ -119,11 +79,7 @@ runCommandCC "tsugumi-cpp-abi9-check"
     card=${card}/lib/main.so
     tests=${tests}
     include=${runtime}/include
-    for view in ${
-      lib.escapeShellArgs (
-        lib.mapAttrsToList (_: view: "${view}/${view.tsugumiView.entry}") definition.views
-      )
-    }; do
+    for view in ${lib.escapeShellArgs (map (view: "${view.blob}") definition.views)}; do
       test -s "$view"
     done
 

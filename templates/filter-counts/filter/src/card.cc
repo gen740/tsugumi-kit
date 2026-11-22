@@ -85,7 +85,7 @@ auto run(const Card::Inputs& input) -> Card::Output {
                            "Cannot write filtered.csv");
   }
 
-  card::display(card::Table{columns, preview}, true);
+  card::display::send(card::display::Table{columns, preview});
   Card::Output output;
   output.filtered.emplace().value = path.string();
   output.original.emplace().value = input.counts.value;

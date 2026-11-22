@@ -2,7 +2,7 @@
 let
   legacyHeaders = pkgs.lib.fileset.toSource {
     root = ../.;
-    fileset = ../legacy-display.hh;
+    fileset = ../display.hh;
   };
   inherit (pkgs)
     lib

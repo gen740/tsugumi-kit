@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <fstream>
 #include <initializer_list>
+#include <vector>
 
 #include "_inputs_generated.h"
 #include "_outputs_generated.h"
@@ -101,21 +102,6 @@ auto LargeSample(bool malformed) -> std::vector<uint8_t> {
   flatbuffers::Verifier verifier(bytes.data(), bytes.size());
   CHECK(verifier.VerifyBuffer<Sample>() == !malformed);
   return bytes;
-}
-
-auto ConfigText(const CardDisplay& display) -> std::string_view {
-  CHECK(display.blobs() && display.blobs()->size());
-  const auto* blob = display.blobs()->Get(0);
-  CHECK(blob->name()->string_view() == "config" && blob->bytes());
-  return {reinterpret_cast<const char*>(blob->bytes()->data()),
-          blob->bytes()->size()};
-}
-
-auto CheckBlob(const CardDisplay& display, size_t index, std::string_view name,
-               std::initializer_list<uint8_t> expected) -> void {
-  const auto* blob = display.blobs()->Get(index);
-  CHECK(blob->name()->string_view() == name);
-  CHECK(std::ranges::equal(*blob->bytes(), expected));
 }
 
 }  // namespace
@@ -254,49 +240,41 @@ extern "C" auto check_card_failure(tsugumi_bytes result, int mode) -> void {
   }
 }
 
-extern "C" auto check_display(tsugumi_bytes bytes, int record, unsigned index)
-    -> void {
+extern "C" auto check_display(const char* view, tsugumi_bytes bytes,
+                              unsigned index) -> void {
   struct Sample {
     std::string_view view;
     std::string_view config;
-    size_t blobs;
-    int record = 0;
+    std::vector<uint8_t> data = {};
   };
-  constexpr std::array samples{
-      Sample{"tsugumi:text", R"({"text":"résumé\n\""})", 0},
-      Sample{"tsugumi:markdown", R"({"text":"**text**"})", 0, 1},
-      Sample{"tsugumi:markdown", R"({"text":"2.5"})", 0},
-      Sample{"tsugumi:table", R"({"columns":["n"],"rows":[["1"]]})", 0},
-      Sample{"tsugumi:image", R"({"alt":"sample","media_type":"image/png"})",
-             1},
-      Sample{"tsugumi:points", R"({"count":1})", 4},
-      Sample{"tsugumi:line-chart",
+  const std::array samples{
+      Sample{"text", R"({"text":"résumé\n\""})"},
+      Sample{"markdown", R"({"text":"**text**"})"},
+      Sample{"markdown", R"({"text":"2.5"})"},
+      Sample{"table", R"({"columns":["n"],"rows":[["1"]]})"},
+      Sample{"image",
+             R"({"alt":"sample","media_type":"image/png"})",
+             {0, 13, 255}},
+      Sample{"points",
+             R"({"count":1})",
+             {0, 0, 128, 63, 0, 0, 0, 64, 0, 0, 0, 191, 86, 52, 18, 0}},
+      Sample{"line-chart",
              R"({"series":[{"count":1,"id":"id","label":"line","offset":0}]})",
-             2},
-      Sample{"tsugumi:plotly", R"({"data":[]})", 0},
-      Sample{"tsugumi:vega-lite", R"({"mark":"point"})", 0},
-      Sample{"custom", R"({"key":1})", 1, 1},
-      Sample{"tsugumi:text", R"({"text":"outside"})", 0},
+             {0, 0, 0, 0, 0, 0, 0, 64, 0, 0, 0, 0, 0, 0, 224, 191}},
+      Sample{"plotly", R"({"data":[]})"},
+      Sample{"vega-lite", R"({"mark":"point"})"},
+      Sample{"custom", {}, {0, 13, 255}},
+      Sample{"text", R"({"text":"outside"})"},
   };
   CHECK(index < samples.size());
-  const auto& display = Decode<CardDisplay>(bytes);
   const auto& sample = samples[index];
-  CHECK(display.view()->string_view() == sample.view);
-  CHECK(ConfigText(display) == sample.config);
-  CHECK(display.blobs() && display.blobs()->size() == sample.blobs + 1);
-  CHECK(record == sample.record);
-  if (index == 4) CheckBlob(display, 1, "image", {0, 13, 255});
-  if (index == 5) {
-    CheckBlob(display, 1, "x", {0, 0, 128, 63});
-    CheckBlob(display, 2, "y", {0, 0, 0, 64});
-    CheckBlob(display, 3, "z", {0, 0, 0, 191});
-    CheckBlob(display, 4, "colors", {86, 52, 18, 0});
+  CHECK(view == sample.view);
+  auto payload = std::span(bytes.data, bytes.size);
+  if (sample.view != "custom") {
+    const auto config = ReadDisplayConfig(payload, sample.data.size() != 0);
+    CHECK(config == sample.config);
   }
-  if (index == 6) {
-    CheckBlob(display, 1, "x", {0, 0, 0, 0, 0, 0, 0, 64});
-    CheckBlob(display, 2, "y", {0, 0, 0, 0, 0, 0, 224, 191});
-  }
-  if (index == 9) CheckBlob(display, 1, "sample", {0, 13, 255});
+  CHECK(std::ranges::equal(payload, sample.data));
 }
 
 auto main(int argc, char** argv) -> int {

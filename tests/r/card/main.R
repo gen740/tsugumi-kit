@@ -9,16 +9,16 @@ fail <- function() stop("R card failure")
 effects <- dyn.load("@native_effects@")[["name"]]
 
 display_samples <- function(bytes) {
-  display("r\u00e9sum\u00e9\n\"")
-  display(markdown("**text**"), record = TRUE)
-  display(scalar(2.5))
-  display(data.frame(n = "1"))
-  display(image(bytes, alt = "sample"))
-  display(points(1, 1, 1, colors = 0x123456))
-  display(line_chart(list(list(id = "id", label = "line", x = 2, y = 2))))
-  display(plotly(list(data = list())))
-  display(vega_lite(list(mark = "point")))
-  display(view_module("custom", list(config = charToRaw('{"key":1}'), sample = bytes)), record = TRUE)
+  send("r\u00e9sum\u00e9\n\"")
+  send(markdown("**text**"))
+  send(scalar(2.5))
+  send(data.frame(n = "1"))
+  send(image(bytes, alt = "sample"))
+  send(points(1, 1, 1, colors = 0x123456))
+  send(line_chart(list(list(id = "id", label = "line", x = 2, y = 2))))
+  send(plotly(list(data = list())))
+  send(vega_lite(list(mark = "point")))
+  send("custom", bytes)
 }
 
 main <- function(input) {

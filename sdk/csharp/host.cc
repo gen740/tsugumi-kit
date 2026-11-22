@@ -11,9 +11,9 @@ using namespace tsugumi::abi9;
 using Tsugumi::Card::CardResult;
 using Tsugumi::Card::CardResultT;
 
-auto Display(const uint8_t* data, size_t size, int record) noexcept -> int {
+auto Send(const char* view, const uint8_t* data, size_t size) noexcept -> int {
   try {
-    return SendDisplay({data, size}, record != 0);
+    return SendDisplay(view, {data, size});
   } catch (...) {
     return 1;
   }
@@ -26,7 +26,7 @@ auto RemainingMs() noexcept -> int64_t { return card::remaining_ms(); }
 // No worker structs cross into managed code. The sink copies while the
 // managed result is pinned, and no callback can unwind through the CLR.
 using Sink = int (*)(void*, const uint8_t*, size_t);
-using Entry = int (*)(const uint8_t*, size_t, decltype(&Display),
+using Entry = int (*)(const uint8_t*, size_t, decltype(&Send),
                       decltype(&Cancelled), decltype(&RemainingMs), void*,
                       Sink);
 
@@ -85,7 +85,7 @@ auto Run(tsugumi_bytes bytes) -> CardResultT {
     Reject(FailureKind::worker_failed, "Could not load the .NET Card");
 
   CardResultT result;
-  if (entry(bytes.data, bytes.size, Display, Cancelled, RemainingMs, &result,
+  if (entry(bytes.data, bytes.size, Send, Cancelled, RemainingMs, &result,
             ReceiveResult) != 0)
     Reject(FailureKind::worker_failed,
            "Could not build the managed CardResult");

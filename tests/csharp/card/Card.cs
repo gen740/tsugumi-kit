@@ -31,7 +31,7 @@ public static class Card
                 {
                     using var pipe = new FileStream(new SafeFileHandle(fd, ownsHandle: false), FileAccess.Read);
                     if (pipe.ReadByte() != '!' || !Cancelled() || RemainingMilliseconds() != 0 ||
-                        Display("outside") != 0)
+                        Send("outside") != 0)
                         throw new InvalidOperationException("Between-call effects failed");
                 });
                 break;
@@ -116,16 +116,16 @@ public static class Card
     private static void DisplaySamples()
     {
         byte[] bytes = [0, 13, 255];
-        if (Display("résumé\n\"") != 0 ||
-            Display(new Markdown("**text**"), record: true) != 0 ||
-            Display(2.5) != 0 ||
-            Display(new Table(["n"], [["1"]])) != 0 ||
-            Display(new Image("image/png", bytes, "sample")) != 0 ||
-            Display(new Points([1], [2], [-0.5f], [0x123456])) != 0 ||
-            Display(new LineChart([new("id", "line", [2], [-0.5])])) != 0 ||
-            Display(new Plotly("""{"data":[]}""")) != 0 ||
-            Display(new VegaLite("""{"mark":"point"}""")) != 0 ||
-            Display(new Module("custom", [new("config", Encoding.UTF8.GetBytes("""{"key":1}""")), new("sample", bytes)]), record: true) != 0)
+        if (Send("résumé\n\"") != 0 ||
+            Send(new Markdown("**text**")) != 0 ||
+            Send(2.5) != 0 ||
+            Send(new Table(["n"], [["1"]])) != 0 ||
+            Send(new Image("image/png", bytes, "sample")) != 0 ||
+            Send(new Points([1], [2], [-0.5f], [0x123456])) != 0 ||
+            Send(new LineChart([new("id", "line", [2], [-0.5])])) != 0 ||
+            Send(new Plotly("""{"data":[]}""")) != 0 ||
+            Send(new VegaLite("""{"mark":"point"}""")) != 0 ||
+            Send("custom", bytes) != 0)
             throw new InvalidOperationException("Display failed");
     }
 }

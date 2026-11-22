@@ -1,6 +1,7 @@
 package tsugumi
 
 /*
+#include <stdlib.h>
 #include "host.h"
 */
 import "C"
@@ -12,9 +13,8 @@ import (
 	"math"
 	"slices"
 	"strconv"
-
-	wire "tsugumi/Tsugumi/Card"
-	"tsugumi/flatbuffers"
+	"strings"
+	"unsafe"
 )
 
 type Markdown string
@@ -52,56 +52,50 @@ type LineChart struct {
 type Plotly json.RawMessage
 type VegaLite json.RawMessage
 
-type Blob struct {
-	Name  string
-	Bytes []byte
+type displayMessage struct {
+	view  string
+	bytes []byte
 }
 
-// Module is a display for the entry View in the Card's views. The view module
-// defines the blob names and bytes, such as a "config" blob.
-type Module struct {
-	View  string
-	Blobs []Blob
-}
-
-// Display sends a value to a view, including between run calls.
-// Omit record or pass false for a live-only display.
-func Display(value any, record ...bool) error {
-	if len(record) > 1 {
-		return fmt.Errorf("display accepts a single record flag")
+// Send sends opaque bytes to a declared view, including between run calls.
+func Send(view string, bytes []byte) error {
+	if strings.IndexByte(view, 0) >= 0 {
+		return fmt.Errorf("view name contains a NUL byte")
 	}
-	module, err := displayModule(value)
-	if err != nil {
-		return err
-	}
-
-	builder := flatbuffers.NewBuilder(256)
-	blobs := make([]*wire.CardDisplayBlobT, 0, len(module.Blobs))
-	for _, blob := range module.Blobs {
-		blobs = append(blobs, &wire.CardDisplayBlobT{Name: blob.Name, Bytes: blob.Bytes})
-	}
-	display := wire.CardDisplayT{View: module.View, Blobs: blobs}
-	builder.Finish(display.Pack(builder))
-	bytes := builder.FinishedBytes()
-	recordFlag := C.int(0)
-	if len(record) == 1 && record[0] {
-		recordFlag = 1
-	}
-	if C.tsugumi_go_display(bytesPointer(bytes), C.size_t(len(bytes)), recordFlag) != 0 {
+	name := C.CString(view)
+	defer C.free(unsafe.Pointer(name))
+	if C.tsugumi_go_send(name, bytesPointer(bytes), C.size_t(len(bytes))) != 0 {
 		return fmt.Errorf("the host rejected the display")
 	}
 	return nil
 }
 
-// configuredModule selects a tsugumi: view, with its config as UTF-8 JSON in a
-// "config" blob ahead of the data blobs.
-func configuredModule(name string, config any, blobs ...Blob) (Module, error) {
-	bytes, err := json.Marshal(config)
-	return rawModule(name, bytes, blobs...), err
+// SendValue encodes a typed value for its corresponding view.
+func SendValue(value any) error {
+	message, err := encodeDisplay(value)
+	if err != nil {
+		return err
+	}
+	return Send(message.view, message.bytes)
 }
 
-func rawModule(name string, config []byte, blobs ...Blob) Module {
-	return Module{View: "tsugumi:" + name, Blobs: append([]Blob{{"config", config}}, blobs...)}
+func configuredMessage(name string, config any, binaryData ...[]byte) (displayMessage, error) {
+	bytes, err := json.Marshal(config)
+	if err != nil {
+		return displayMessage{}, err
+	}
+	if len(binaryData) != 0 {
+		if uint64(len(bytes)) > math.MaxUint32 {
+			return displayMessage{}, fmt.Errorf("display metadata is too large")
+		}
+		payload := binary.LittleEndian.AppendUint32(nil, uint32(len(bytes)))
+		payload = append(payload, bytes...)
+		for _, part := range binaryData {
+			payload = append(payload, part...)
+		}
+		bytes = payload
+	}
+	return displayMessage{name, bytes}, nil
 }
 
 func scalarValue(value float64) string {
@@ -119,52 +113,49 @@ func scalarText(label, number string) string {
 	return "**" + label + "**: " + number
 }
 
-func displayModule(value any) (Module, error) {
+func encodeDisplay(value any) (displayMessage, error) {
 	switch value := value.(type) {
 	case string:
-		return configuredModule("text", map[string]string{"text": value})
+		return configuredMessage("text", map[string]string{"text": value})
 	case Markdown:
-		return configuredModule("markdown", map[string]Markdown{"text": value})
+		return configuredMessage("markdown", map[string]Markdown{"text": value})
 	case Scalar:
-		return configuredModule("markdown", map[string]string{"text": scalarText(value.Label, scalarValue(value.Value))})
+		return configuredMessage("markdown", map[string]string{"text": scalarText(value.Label, scalarValue(value.Value))})
 	case float32:
-		return displayModule(Scalar{Value: float64(value)})
+		return encodeDisplay(Scalar{Value: float64(value)})
 	case float64:
-		return displayModule(Scalar{Value: value})
+		return encodeDisplay(Scalar{Value: value})
 	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
-		return configuredModule("markdown", map[string]string{"text": scalarText("", fmt.Sprint(value))})
+		return configuredMessage("markdown", map[string]string{"text": scalarText("", fmt.Sprint(value))})
 	case Table:
 		rows := make([][]string, 0, len(value.Rows))
 		for _, row := range value.Rows {
 			if len(row) != len(value.Columns) {
-				return Module{}, fmt.Errorf("display table rows must match the columns")
+				return displayMessage{}, fmt.Errorf("display table rows must match the columns")
 			}
 			rows = append(rows, append([]string{}, row...))
 		}
-		return configuredModule("table", map[string]any{
+		return configuredMessage("table", map[string]any{
 			"columns": append([]string{}, value.Columns...), "rows": rows,
 		})
 	case Image:
-		return configuredModule("image", map[string]string{"media_type": value.MediaType, "alt": value.Alt},
-			Blob{"image", value.Bytes})
+		return configuredMessage("image", map[string]string{"media_type": value.MediaType, "alt": value.Alt},
+			value.Bytes)
 	case Points:
 		count := len(value.X)
 		if len(value.Y) != count || len(value.Z) != count || (len(value.Colors) != 0 && len(value.Colors) != count) {
-			return Module{}, fmt.Errorf("display point coordinates and colors must have equal lengths")
+			return displayMessage{}, fmt.Errorf("display point coordinates and colors must have equal lengths")
 		}
-		return configuredModule("points", map[string]int{"count": count},
-			Blob{"x", pointBytes(value.X)}, Blob{"y", pointBytes(value.Y)},
-			Blob{"z", pointBytes(value.Z)}, Blob{"colors", pointBytes(value.Colors)})
+		return configuredMessage("points", map[string]int{"count": count},
+			pointBytes(value.X), pointBytes(value.Y), pointBytes(value.Z), pointBytes(value.Colors))
 	case LineChart:
-		return lineChartModule(value)
+		return lineChartMessage(value)
 	case Plotly:
-		return rawModule("plotly", value), nil
+		return displayMessage{"plotly", value}, nil
 	case VegaLite:
-		return rawModule("vega-lite", value), nil
-	case Module:
-		return value, nil
+		return displayMessage{"vega-lite", value}, nil
 	default:
-		return Module{}, fmt.Errorf("unsupported display value %T", value)
+		return displayMessage{}, fmt.Errorf("unsupported display value %T", value)
 	}
 }
 
@@ -173,13 +164,13 @@ func pointBytes[T float32 | uint32](values []T) []byte {
 	return encoded
 }
 
-func lineChartModule(chart LineChart) (Module, error) {
+func lineChartMessage(chart LineChart) (displayMessage, error) {
 	isNonFinite := func(value float64) bool { return math.IsNaN(value) || math.IsInf(value, 0) }
 	series := make([]map[string]any, 0, len(chart.Series))
 	var x, y []byte
 	for _, row := range chart.Series {
 		if len(row.X) != len(row.Y) || slices.ContainsFunc(row.X, isNonFinite) || slices.ContainsFunc(row.Y, isNonFinite) {
-			return Module{}, fmt.Errorf("display line coordinates must be finite and have equal lengths")
+			return displayMessage{}, fmt.Errorf("display line coordinates must be finite and have equal lengths")
 		}
 		series = append(series, map[string]any{
 			"count": len(row.X), "id": row.ID, "label": row.Label, "offset": len(x) / 8,
@@ -187,5 +178,5 @@ func lineChartModule(chart LineChart) (Module, error) {
 		x, _ = binary.Append(x, binary.LittleEndian, row.X)
 		y, _ = binary.Append(y, binary.LittleEndian, row.Y)
 	}
-	return configuredModule("line-chart", map[string]any{"series": series}, Blob{"x", x}, Blob{"y", y})
+	return configuredMessage("line-chart", map[string]any{"series": series}, x, y)
 }

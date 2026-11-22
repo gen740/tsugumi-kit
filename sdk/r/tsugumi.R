@@ -5,36 +5,43 @@
                    na = "string", raw = "base64", dataframe = "rows")
 }
 
-.tsugumi_display <- function(kind, value, record) {
-  if (!is.logical(record) || length(record) != 1L || is.na(record)) {
-    stop("record must be TRUE or FALSE")
+send <- function(value, bytes) {
+  if (!missing(bytes)) {
+    if (!is.character(value) || length(value) != 1L || is.na(value) ||
+        !is.raw(bytes)) {
+      stop("send expects a view name and a raw vector")
+    }
+    .Call("tsugumi_r_send", value, bytes)
+    return(invisible(NULL))
   }
-  .Call("tsugumi_r_display", .tsugumi_json(list(kind = kind, value = value)),
-        record)
+  UseMethod("send")
+}
+
+.tsugumi_display <- function(kind, value) {
+  .Call("tsugumi_r_emit", .tsugumi_json(list(kind = kind, value = value)))
   invisible(NULL)
 }
 
-display <- function(value, record = FALSE) UseMethod("display")
-display.character <- function(value, record = FALSE) {
-  .tsugumi_display("text", paste(value, collapse = "\n"), record)
+send.character <- function(value) {
+  .tsugumi_display("text", paste(value, collapse = "\n"))
 }
-display.numeric <- function(value, record = FALSE) {
-  display(scalar(value), record)
+send.numeric <- function(value) {
+  send(scalar(value))
 }
-display.integer <- display.numeric
-display.double <- display.numeric
-display.data.frame <- function(value, record = FALSE) {
+send.integer <- send.numeric
+send.double <- send.numeric
+send.data.frame <- function(value) {
   columns <- lapply(value, format, trim = TRUE)
   rows <- lapply(seq_len(nrow(value)), function(index) {
     I(vapply(columns, `[[`, character(1), index, USE.NAMES = FALSE))
   })
-  .tsugumi_display("table", list(columns = I(names(value)), rows = rows), record)
+  .tsugumi_display("table", list(columns = I(names(value)), rows = rows))
 }
-display.matrix <- function(value, record = FALSE) {
-  display(as.data.frame(value), record)
+send.matrix <- function(value) {
+  send(as.data.frame(value))
 }
-display.tsugumi_view <- function(value, record = FALSE) {
-  .tsugumi_display(value$kind, value$value, record)
+send.tsugumi_view <- function(value) {
+  .tsugumi_display(value$kind, value$value)
 }
 
 .tsugumi_view <- function(kind, value) {
@@ -63,16 +70,6 @@ line_chart <- function(series) {
 }
 plotly <- function(spec) .tsugumi_view("plotly", spec)
 vega_lite <- function(spec) .tsugumi_view("vega-lite", spec)
-# The view module defines the blob names and bytes, such as a "config" blob.
-view_module <- function(view, blobs = list()) {
-  if (length(blobs) && (is.null(names(blobs)) || any(!nzchar(names(blobs))))) {
-    stop("blobs must be named")
-  }
-  encoded <- lapply(blobs, jsonlite::base64_enc)
-  if (!length(encoded)) encoded <- setNames(list(), character())
-  .tsugumi_view("module", list(view = view, blobs = encoded))
-}
-
 cancelled <- function() .Call("tsugumi_r_cancelled")
 remaining_ms <- function() .Call("tsugumi_r_remaining_ms")
 

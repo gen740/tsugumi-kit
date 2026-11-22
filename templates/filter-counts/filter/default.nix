@@ -1,5 +1,8 @@
 { inputs, ... }:
-rec {
-  run = inputs.tsugumi.cppCard { src = ./src; };
-  inherit (run) views;
+let
+  sdk = inputs.tsugumi.cppSdk;
+in
+{
+  run = sdk.cppCard { src = ./src; };
+  views = sdk.views;
 }

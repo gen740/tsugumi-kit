@@ -90,14 +90,14 @@ internal static class Entry
     [UnmanagedCallersOnly]
     public static unsafe int Execute(
         byte* data, nuint length,
-        delegate* unmanaged[Cdecl]<byte*, nuint, int, int> display,
+        delegate* unmanaged[Cdecl]<byte*, byte*, nuint, int> send,
         delegate* unmanaged[Cdecl]<int> cancelled,
         delegate* unmanaged[Cdecl]<long> remaining,
         void* context, delegate* unmanaged[Cdecl]<void*, byte*, nuint, int> sink)
     {
         try
         {
-            Effects.Initialize(display, cancelled, remaining);
+            Effects.Initialize(send, cancelled, remaining);
             var result = Invoke(new ReadOnlySpan<byte>(data, checked((int)length)));
             var builder = new FlatBufferBuilder(256);
             builder.Finish(Wire.CardResult.Pack(builder, result).Value);

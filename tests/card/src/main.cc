@@ -24,15 +24,14 @@ auto DisplaySamples() -> bool {
   const std::vector<std::string> columns{"n"};
   const std::vector<std::vector<std::string>> rows{{"1"}};
   const uint8_t bytes[] = {0, 13, 255};
-  const card::Blob blobs[] = {{"config", card::text_bytes("mode=fast")},
-                              {"sample", bytes}};
 
-  return card::display("résumé\n\"") == 0 &&
-         card::display(card::Markdown{"**text**"}, true) == 0 &&
-         card::display(2.5) == 0 &&
-         card::display(card::Table{columns, rows}) == 0 &&
-         card::display(card::Image{"image/png", bytes, "sample"}) == 0 &&
-         card::display(card::View{"custom", blobs}, true) == 0;
+  return card::display::send("résumé\n\"") == 0 &&
+         card::display::send(card::display::Markdown{"**text**"}) == 0 &&
+         card::display::send(2.5) == 0 &&
+         card::display::send(card::display::Table{columns, rows}) == 0 &&
+         card::display::send(
+             card::display::Image{"image/png", bytes, "sample"}) == 0 &&
+         card::display::send("custom", bytes) == 0;
 }
 
 }  // namespace
@@ -54,7 +53,7 @@ auto run(const Card::Inputs& input) -> Card::Output {
       background = std::thread([fd = input.params.fd] {
         char signal;
         if (read(fd, &signal, 1) != 1 || !card::cancelled() ||
-            card::remaining_ms() != 0 || card::display("outside") != 0)
+            card::remaining_ms() != 0 || card::display::send("outside") != 0)
           std::terminate();
       });
       break;

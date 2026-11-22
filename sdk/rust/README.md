@@ -17,13 +17,13 @@ The builder uses Cargo and rustc's native link requirements when linking
 `main.so`.
 
 ```rust
-use tsugumi::{Failure, FailureKind, Inputs, Output, cancelled, display};
+use tsugumi::{Failure, FailureKind, Inputs, Output, cancelled, send_value};
 
 fn run(input: Inputs<'_>) -> Result<Output, Failure> {
     if cancelled() {
         return Err(Failure::new(FailureKind::cancelled, "Processing stopped"));
     }
-    display!(input.measurement.value())?;
+    send_value(input.measurement.value())?;
     let mut measurement = tsugumi::outputs::Measurement::default();
     measurement.value = input.measurement.value() * 2.0;
     Ok(Output { measurement })
@@ -39,14 +39,18 @@ owned objects, including native union enums. Required outputs are fields of
 their object type, and optional outputs are `Option`. Invalid output objects
 produce `output_invalid`.
 
-`display!(value)` shows live output. Use `display!(value, true)` or
-`display(value, true)` to record that particular display. These accept text,
-`f64`, and the SDK's
-`Scalar`, `Markdown`, `Table`, `Image`, `Points`, `LineChart`, `Plotly`,
-`VegaLite`, and `Module` types, and return `tsugumi::Result<()>`.
-`Module { view, blobs }` selects the entry named `view` in the Card's views with
-named blobs that its module defines. The other types send a `config` blob of
-UTF-8 JSON, followed by any data blobs.
+`tsugumi::send(view, bytes)` takes a declared view name and a byte slice.
+`tsugumi::send_value(value)` supports text, `f64`, `Scalar`, `Markdown`,
+`Table`, `Image`, `Points`, `LineChart`, `Plotly`, and `VegaLite` values.
+Both functions return `tsugumi::Result<()>`.
+
+The SDK at `lib.${system}.rustSdk` exposes an empty `views` list.
+Declare the matching views in your Card's `default.nix` with
+`views = sdk.views ++ [ ... ];`.
+The example above uses the `markdown` view, which you can include from
+`lib.${system}.cppSdk.views`.
+See the [view protocol](../../docs/cpp-sdk.md#display-a-value).
+
 A Card-owned thread can send displays after `run` returns. Between calls
 `cancelled()` returns `true` and `remaining_ms()` returns `0`.
 

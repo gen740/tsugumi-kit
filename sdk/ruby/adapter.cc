@@ -2,32 +2,14 @@
 
 #include <cstdlib>
 #include <memory>
-#include <span>
-#include <string_view>
-#include <vector>
 
 #include "bridge.h"
 #include "json_codec.hh"
 
-namespace {
-
-auto AsString(ruby_bytes bytes) -> std::string_view {
-  return {bytes.data, bytes.size};
-}
-
-}  // namespace
-
-extern "C" auto tsugumi_ruby_display(ruby_bytes view, const ruby_blob* blobs,
-                                     size_t count, int record) -> int {
+extern "C" auto tsugumi_ruby_send(const char* view, ruby_bytes bytes) -> int {
   try {
-    std::vector<card::Blob> data;
-    data.reserve(count);
-    for (const auto& blob : std::span(blobs, count)) {
-      data.push_back({AsString(blob.name),
-                      {reinterpret_cast<const uint8_t*>(blob.bytes.data),
-                       blob.bytes.size}});
-    }
-    return card::display(card::View{AsString(view), data}, record != 0);
+    return tsugumi::abi9::SendDisplay(
+        view, {reinterpret_cast<const uint8_t*>(bytes.data), bytes.size});
   } catch (...) {
     // Never unwind through MRI's C callback.
     return 1;

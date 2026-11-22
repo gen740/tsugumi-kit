@@ -28,7 +28,7 @@
 let
   legacyHeaders = lib.fileset.toSource {
     root = ../.;
-    fileset = ../legacy-display.hh;
+    fileset = ../display.hh;
   };
   generated =
     runCommand "tsugumi-r-card-codecs"

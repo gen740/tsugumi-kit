@@ -1,4 +1,5 @@
 {
+  self,
   config,
   lib,
   withSystem,
@@ -9,9 +10,44 @@
     system:
     withSystem system (
       { pkgs, config, ... }:
+      let
+        kit = self.lib.${system};
+        bundled = pkgs.callPackage ../sdk/views { };
+      in
       {
         inherit (pkgs.callPackage ./cpp-card.nix { runtime = config.packages.cppRuntime; }) cppCard;
-        inherit (import ./view.nix { inherit (pkgs) lib runCommand; }) view;
+        cppSdk = {
+          inherit (kit) cppCard;
+          views = bundled.cpp;
+        };
+        pythonSdk = {
+          inherit (kit) pythonCard;
+          views = bundled.python;
+        };
+        goSdk = {
+          inherit (kit) goCard goCardSdk;
+          views = [ ];
+        };
+        rustSdk = {
+          inherit (kit) rustCard;
+          views = [ ];
+        };
+        csharpSdk = {
+          inherit (kit) csharpCard;
+          views = [ ];
+        };
+        juliaSdk = {
+          inherit (kit) juliaCard;
+          views = [ ];
+        };
+        rSdk = {
+          inherit (kit) rCard;
+          views = [ ];
+        };
+        rubySdk = {
+          inherit (kit) rubyCard;
+          views = [ ];
+        };
       }
     )
   );

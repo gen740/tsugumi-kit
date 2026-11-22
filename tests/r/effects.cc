@@ -5,14 +5,12 @@
 
 #include <string_view>
 #include <thread>
-#include <vector>
 
-#include "tsugumi/protocol/card_generated.h"
 #include "wire.h"
 
 namespace {
 
-using Display = int (*)(tsugumi_bytes, int);
+using Send = int (*)(const char*, const uint8_t*, size_t);
 using Cancelled = bool (*)();
 using RemainingMs = double (*)();
 
@@ -39,7 +37,7 @@ auto GetEffect(const char* name) -> Effect {
 }  // namespace
 
 extern "C" auto start_effects(SEXP input_fd) -> SEXP {
-  const auto display = GetEffect<Display>("display");
+  const auto send = GetEffect<Send>("send");
   const auto cancelled = GetEffect<Cancelled>("cancelled");
   const auto remaining_ms = GetEffect<RemainingMs>("remaining_ms");
   const int fd = Rf_asInteger(input_fd);
@@ -54,16 +52,9 @@ extern "C" auto start_effects(SEXP input_fd) -> SEXP {
     CHECK(cancelled());
     CHECK(remaining_ms() == 0);
 
-    using namespace Tsugumi::Card;
-    flatbuffers::FlatBufferBuilder buffer;
-    const auto view = buffer.CreateString("tsugumi:text");
     const std::string_view config = R"({"text":"outside"})";
-    const std::vector blobs{CreateCardDisplayBlob(
-        buffer, buffer.CreateString("config"),
-        buffer.CreateVector(reinterpret_cast<const uint8_t*>(config.data()),
-                            config.size()))};
-    buffer.Finish(CreateCardDisplay(buffer, view, buffer.CreateVector(blobs)));
-    CHECK(display({buffer.GetBufferPointer(), buffer.GetSize()}, 0) == 0);
+    CHECK(send("text", reinterpret_cast<const uint8_t*>(config.data()),
+               config.size()) == 0);
   });
   return R_NilValue;
 }

@@ -24,7 +24,7 @@ using CardBody = auto (*)(tsugumi_bytes) -> Tsugumi::Card::CardResultT;
 auto Invoke(const tsugumi_call* call, tsugumi_bytes* result,
             CardBody body) noexcept -> int;
 
-auto SendDisplay(tsugumi_bytes bytes, bool record) -> int;
+auto SendDisplay(const char* view, tsugumi_bytes bytes) -> int;
 
 // A byte span, especially a nested ubyte vector, can start at an address
 // that cannot hold the alignment of the types in the FlatBuffer.

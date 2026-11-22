@@ -11,7 +11,7 @@ def main(input)
   end
 
   value = input.fetch(:celsius).fetch('value') * 1.8 + 32
-  Tsugumi.display(Tsugumi::Scalar.new(value, '°F'), record: true)
+  Tsugumi.send(Tsugumi::Scalar.new(value, '°F'))
   {fahrenheit: {value: value}}
 end
 ```
@@ -23,7 +23,16 @@ end
 
 ## Effects
 
-`Tsugumi.display(value, record: false)` chooses a view from the value's type. The flag applies to the individual display. Use `record: true` to keep it in history.
+`Tsugumi.send(view, bytes)` takes a declared view name and a binary
+String. `Tsugumi.send(value)` encodes the typed values below. A rejected
+send raises an error.
+
+The SDK at `lib.${system}.rubySdk` exposes an empty `views` list.
+Declare the matching views in your Card's `default.nix` with
+`views = sdk.views ++ [ ... ];`.
+The example above uses the `markdown` view, which you can include from
+`lib.${system}.cppSdk.views`.
+See the [view protocol](../../docs/cpp-sdk.md#display-a-value).
 
 | Value | Constructor |
 | --- | --- |
@@ -34,9 +43,6 @@ end
 | Point cloud | `Tsugumi::Points.new(x, y, z, colors)`, with optional packed RGB integers |
 | Line chart | `Tsugumi::LineChart.new([{id:, label:, x:, y:}, ...])` |
 | Plotly and Vega-Lite | `Tsugumi::Plotly.new(config)`, `Tsugumi::VegaLite.new(config)` |
-| Custom view | `Tsugumi::View.new(view, blobs)`, with named binary Strings whose names and bytes the view module defines |
-
-The other values send a `config` blob of UTF-8 JSON, followed by any data blobs.
 
 Ruby threads can send displays after `main` returns. `Tsugumi.cancelled` and `Tsugumi.remaining_ms` read the active call's state from any Ruby thread. Between calls they return `true` and `0`.
 

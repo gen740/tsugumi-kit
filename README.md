@@ -12,8 +12,8 @@ one you write yourself.
 
 | Term | Meaning |
 | --- | --- |
-| **Card ABI** | The contract between Tsugumi's core and an SDK: `tsugumi_main` and the fixed `CardInput` / `CardResult` FlatBuffers. |
-| **_language_ SDK** (C++ SDK, Python SDK, …) | One swappable part for one language: the Nix builder that turns a Card's source and contract into `lib/main.so`, the code generator for the typed entry (`card.hh` and `tsugumi_main`), the runtime library (`card::display`, `cancelled()`, `remaining_ms()`, an embedded interpreter where needed) and its documentation. |
+| **Card ABI** | The contract between Tsugumi's core and an SDK: `tsugumi_main` and the fixed `CardInput` / `CardResult` FlatBuffers and the host effects table. |
+| **_language_ SDK** (C++ SDK, Python SDK, …) | One swappable part for one language: the Nix builder that turns a Card's source and contract into `lib/main.so`, the code generator for the typed entry (`card.hh` and `tsugumi_main`), the runtime library (`card::display::send`, `cancelled()`, `remaining_ms()`, an embedded interpreter where needed) and its documentation. |
 | **tsugumi-kit** | This repository: the default SDKs and the example templates. |
 
 "SDK" always means one language's part. It never refers to this repository as a
@@ -31,11 +31,27 @@ whole or to Tsugumi's worker, which belongs to the core.
 | `nix/` | Flake outputs, including the C++ Card builder and runtime package. |
 | `tests/` | Example ABI 9 Card, fake host and compatibility checks. |
 
+## Views
+
+Each language SDK exposes a builder and a `views` list under
+`lib.${system}`. The SDK attributes are `cppSdk`, `pythonSdk`, `goSdk`,
+`rustSdk`, `csharpSdk`, `juliaSdk`, `rSdk`, and `rubySdk`. The C++ and
+Python lists contain the bundled HTML views. The other lists are empty.
+
+Declare `views = sdk.views ++ [ ... ];` alongside `run` in your Card's
+`default.nix`. A view entry has a `name`, a `type` of `"html"` or
+`"dawn"`, and a `blob` pointing to a single self-contained HTML file or
+Wasm binary, respectively. The ABI's `send` effect delivers opaque bytes
+to a declared view during or between calls. Display messages are live
+and do not enter history. See the [view protocol](docs/cpp-sdk.md#display-a-value).
+
+The typed text, markdown, table, and image encoders in the other SDKs can
+use the corresponding C++ HTML files. For example, a Go Card that sends a
+number can append the `markdown` view from `lib.${system}.cppSdk.views`.
+
 ## Status
 
-The guides and examples target **Card ABI 9 (unreleased)**. The C++ reference
-SDK is being developed in Tsugumi. The default SDKs move here after they are
-self-contained. The upstream decisions cover the
+The guides and examples target **Card ABI 9 (unreleased)**. The upstream decisions cover the
 [core and SDK boundary](https://github.com/gen740/Tsugumi/blob/1610f0f934edbcc627babcfb6df59829e62d7c51/docs/CoreAndSDK.md),
 [Card ABI](https://github.com/gen740/Tsugumi/blob/1610f0f934edbcc627babcfb6df59829e62d7c51/docs/CardABI.md)
 and [sandbox contract](https://github.com/gen740/Tsugumi/blob/1610f0f934edbcc627babcfb6df59829e62d7c51/docs/SandboxContract.md).

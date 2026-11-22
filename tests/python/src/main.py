@@ -34,7 +34,7 @@ def _display_later(fd):
     assert os.read(fd, 1) == b"!"
     assert tsugumi.cancelled()
     assert tsugumi.remaining_ms() == 0
-    tsugumi.display("outside")
+    tsugumi.send("outside")
 
 
 def _check_active_queries():
@@ -74,17 +74,17 @@ def _check_throwing_queries():
 
 
 def _show():
-    tsugumi.display('résumé\n"')
-    tsugumi.display(tsugumi.Markdown("**text**"), record=True)
-    tsugumi.display(2.5)
-    tsugumi.display(tsugumi.Table(["n"], [[1]]))
+    tsugumi.send('résumé\n"')
+    tsugumi.send(tsugumi.Markdown("**text**"))
+    tsugumi.send(2.5)
+    tsugumi.send(tsugumi.Table(["n"], [[1]]))
     data = bytes([0, 13, 255])
-    tsugumi.display(tsugumi.Image(data, alt="sample"))
-    tsugumi.display(tsugumi.Plotly({"data": []}))
+    tsugumi.send(tsugumi.Image(data, alt="sample"))
+    tsugumi.send(tsugumi.Plotly({"data": []}))
     figure = go.Figure(go.Scatter(x=[date(2026, 11, 22)], y=[2]))
     figure.layout.template = None
-    tsugumi.display(tsugumi.Plotly(figure), record=True)
-    tsugumi.display(tsugumi.Module("custom", {"config": b'{"key":1}', "sample": data}), record=True)
+    tsugumi.send(tsugumi.Plotly(figure))
+    tsugumi.send("custom", data)
 
 
 def run(input: Input) -> Output:

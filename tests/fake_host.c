@@ -14,9 +14,11 @@ static unsigned int queries;
 static _Atomic unsigned int displays;
 static int displayed[2];
 
-static int display(tsugumi_bytes data, int record) {
+static int send_display(void* host, const char* view, const uint8_t* data,
+                        size_t size) {
+  CHECK(host == &queries);
   unsigned int index = atomic_fetch_add(&displays, 1);
-  check_display(data, record, index);
+  check_display(view, (tsugumi_bytes){data, size}, index);
   if (index == IN_CALL_DISPLAY_COUNT) CHECK(write(displayed[1], "!", 1) == 1);
   return 0;
 }
@@ -89,7 +91,7 @@ int main(int argc, char** argv) {
   tsugumi_main_fn entry = get_entry(current);
   tsugumi_call call = {.abi_version = TSUGUMI_ABI_VERSION};
   tsugumi_bytes result;
-  const tsugumi_effects effects = {display, cancelled, remaining_ms};
+  const tsugumi_effects effects = {send_display, cancelled, remaining_ms};
   call.host = &queries;
   call.effects = &effects;
   for (enum input_case scenario = VALID; scenario <= DUPLICATE_PORT;
@@ -121,8 +123,8 @@ int main(int argc, char** argv) {
   check_success(result, 0);
   CHECK(queries == 2 && atomic_load(&displays) == IN_CALL_DISPLAY_COUNT);
 
-  // Release the Card thread after the call and discard the previous host
-  // context.
+  // Release the Card thread after return. It must still send using the
+  // original process-lifetime host context.
   call.host = NULL;
   call.effects = NULL;
   CHECK(write(start[1], "!", 1) == 1);

@@ -2,22 +2,22 @@ def show_values(fd)
   raise 'cancelled during the call' if Thread.new { Tsugumi.cancelled }.value
   raise 'missing deadline' unless Tsugumi.remaining_ms == 500
 
-  Tsugumi.display("résumé\n\"")
-  Tsugumi.display(Tsugumi::Markdown.new('**text**'), record: true)
-  Tsugumi.display(2.5)
-  Tsugumi.display(Tsugumi::Table.new(['n'], [[1]]))
+  Tsugumi.send("résumé\n\"")
+  Tsugumi.send(Tsugumi::Markdown.new('**text**'))
+  Tsugumi.send(2.5)
+  Tsugumi.send(Tsugumi::Table.new(['n'], [[1]]))
   binary = "\x00\x0d\xff".b
-  Tsugumi.display(Tsugumi::Image.new(binary, 'image/png', 'sample'))
-  Tsugumi.display(Tsugumi::Points.new([1.0], [-2.0], [3.5], [0x123456]))
-  Tsugumi.display(Tsugumi::LineChart.new([{id: 'id', x: [2.0], y: [-3.5], label: 'line'}]))
-  Tsugumi.display(Tsugumi::Plotly.new({data: []}))
-  Tsugumi.display(Tsugumi::VegaLite.new({mark: 'point'}))
-  Tsugumi.display(Tsugumi::View.new('custom', {'config' => '{"key":1}'.b, 'sample' => binary}), record: true)
+  Tsugumi.send(Tsugumi::Image.new(binary, 'image/png', 'sample'))
+  Tsugumi.send(Tsugumi::Points.new([1.0], [-2.0], [3.5], [0x123456]))
+  Tsugumi.send(Tsugumi::LineChart.new([{id: 'id', x: [2.0], y: [-3.5], label: 'line'}]))
+  Tsugumi.send(Tsugumi::Plotly.new({data: []}))
+  Tsugumi.send(Tsugumi::VegaLite.new({mark: 'point'}))
+  Tsugumi.send('custom', binary)
 
   Thread.new do
     IO.for_fd(fd, autoclose: false).read(1)
     raise 'expected cancelled and zero time outside the call' unless Tsugumi.cancelled && Tsugumi.remaining_ms.zero?
-    Tsugumi.display('outside')
+    Tsugumi.send('outside')
   end
 end
 

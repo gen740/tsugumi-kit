@@ -6,33 +6,33 @@ use std::thread::{self, JoinHandle};
 
 use tsugumi::output_types::rust_outputs::summary::{ChoiceT, LabelT};
 use tsugumi::{
-    Blob, Failure, FailureKind, Image, Inputs, LineChart, Markdown, Module, Output, Plotly, Points,
-    Result, Series, Table, VegaLite, cancelled, display, outputs, remaining_ms,
+    Failure, FailureKind, Image, Inputs, LineChart, Markdown, Output, Plotly, Points, Result,
+    Series, Table, VegaLite, cancelled, outputs, remaining_ms, send, send_value,
 };
 
 static BACKGROUND: Mutex<Option<JoinHandle<()>>> = Mutex::new(None);
 
 fn display_samples() -> Result<()> {
     let image = [0, 13, 255];
-    display!("résumé\n\"")?;
-    display!(Markdown("**text**"), true)?;
-    display(2.5, false)?;
-    display!(Table {
+    send_value("résumé\n\"")?;
+    send_value(Markdown("**text**"))?;
+    send_value(2.5)?;
+    send_value(Table {
         columns: &["n"],
         rows: &[vec!["1"]],
     })?;
-    display!(Image {
+    send_value(Image {
         media_type: "image/png",
         bytes: &image,
         alt: "sample",
     })?;
-    display!(Points {
+    send_value(Points {
         x: &[1.0],
         y: &[1.0],
         z: &[1.0],
         colors: &[0x123456],
     })?;
-    display!(LineChart {
+    send_value(LineChart {
         series: &[Series {
             id: "id",
             label: "line",
@@ -40,22 +40,9 @@ fn display_samples() -> Result<()> {
             y: &[2.0],
         }],
     })?;
-    display!(Plotly(r#"{"data":[]}"#))?;
-    display!(VegaLite(r#"{"mark":"point"}"#))?;
-    let module = Module {
-        view: "custom",
-        blobs: &[
-            Blob {
-                name: "config",
-                bytes: br#"{"key":1}"#,
-            },
-            Blob {
-                name: "sample",
-                bytes: &image,
-            },
-        ],
-    };
-    display(module, true)
+    send_value(Plotly(r#"{"data":[]}"#))?;
+    send_value(VegaLite(r#"{"mark":"point"}"#))?;
+    send("custom", &image)
 }
 
 struct PanicsOnDrop;
@@ -83,7 +70,7 @@ fn run(input: Inputs<'_>) -> Result<Output> {
                 file.read_exact(&mut [0]).unwrap();
                 assert!(cancelled());
                 assert_eq!(remaining_ms(), 0);
-                display!("outside").unwrap();
+                send_value("outside").unwrap();
             }));
         }
         2 => BACKGROUND.lock().unwrap().take().unwrap().join().unwrap(),
@@ -106,7 +93,7 @@ fn run(input: Inputs<'_>) -> Result<Output> {
             ));
         }
         12 => std::panic::panic_any(PanicsOnDrop),
-        13 => display!("rejected")?,
+        13 => send("undeclared", &[0, 13, 255])?,
         _ => {}
     }
 

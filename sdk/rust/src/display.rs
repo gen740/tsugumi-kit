@@ -1,22 +1,28 @@
 use std::ffi::c_int;
 
-use flatbuffers::FlatBufferBuilder;
 use serde_json::{Value, json};
 
 use crate::runtime::{Failure, FailureKind, Result, send_display};
-use crate::wire::tsugumi::card::{
-    CardDisplay, CardDisplayArgs, CardDisplayBlob, CardDisplayBlobArgs,
-};
 
 /// A value that can be sent to a view.
 pub trait DisplayValue {
-    fn send(self, record: bool) -> c_int;
+    fn send(self) -> c_int;
 }
 
-/// Show a value and choose whether to record it. A rejected display is a Card failure.
+/// Send opaque bytes to a declared view.
 #[track_caller]
-pub fn display(value: impl DisplayValue, record: bool) -> Result<()> {
-    let status = value.send(record);
+pub fn send(view: &str, bytes: &[u8]) -> Result<()> {
+    check_status(send_display(view, bytes))
+}
+
+/// Encode a typed value and send it to its corresponding view.
+#[track_caller]
+pub fn send_value(value: impl DisplayValue) -> Result<()> {
+    check_status(value.send())
+}
+
+#[track_caller]
+fn check_status(status: c_int) -> Result<()> {
     if status == 0 {
         Ok(())
     } else {
@@ -27,97 +33,40 @@ pub fn display(value: impl DisplayValue, record: bool) -> Result<()> {
     }
 }
 
-/// Show a value. Recording defaults to false when the second argument is omitted.
-#[macro_export]
-macro_rules! display {
-    ($value:expr $(,)?) => {
-        $crate::display($value, false)
+fn builtin(view: &str, config: Value) -> c_int {
+    send_display(view, config.to_string().as_bytes())
+}
+
+fn with_binary(view: &str, config: Value, parts: &[&[u8]]) -> c_int {
+    let config = config.to_string();
+    let Ok(size) = u32::try_from(config.len()) else {
+        return 1;
     };
-    ($value:expr, $record:expr $(,)?) => {
-        $crate::display($value, $record)
-    };
-}
-
-pub struct Blob<'a> {
-    pub name: &'a str,
-    pub bytes: &'a [u8],
-}
-
-/// A display for the entry `view` in the Card's views. The view module defines
-/// the blob names and bytes, such as a `config` blob.
-pub struct Module<'a> {
-    pub view: &'a str,
-    pub blobs: &'a [Blob<'a>],
-}
-
-impl DisplayValue for Module<'_> {
-    fn send(self, record: bool) -> c_int {
-        let mut builder = FlatBufferBuilder::new();
-        let view = builder.create_string(self.view);
-        let blobs: Vec<_> = self
-            .blobs
-            .iter()
-            .map(|blob| {
-                let name = builder.create_string(blob.name);
-                let bytes = builder.create_vector(blob.bytes);
-                CardDisplayBlob::create(
-                    &mut builder,
-                    &CardDisplayBlobArgs {
-                        name: Some(name),
-                        bytes: Some(bytes),
-                    },
-                )
-            })
-            .collect();
-        let blobs = builder.create_vector(&blobs);
-        let display = CardDisplay::create(
-            &mut builder,
-            &CardDisplayArgs {
-                view: Some(view),
-                blobs: Some(blobs),
-            },
-        );
-        builder.finish(display, None);
-        send_display(builder.finished_data(), record)
+    let mut payload = size.to_le_bytes().to_vec();
+    payload.extend(config.as_bytes());
+    for part in parts {
+        payload.extend_from_slice(part);
     }
-}
-
-/// Send a tsugumi: view its config as UTF-8 JSON in a "config" blob, ahead of
-/// the data blobs.
-fn with_config(view: &str, config: &str, blobs: &[Blob<'_>], record: bool) -> c_int {
-    let mut all = Vec::with_capacity(blobs.len() + 1);
-    all.push(Blob {
-        name: "config",
-        bytes: config.as_bytes(),
-    });
-    all.extend(blobs.iter().map(|blob| Blob {
-        name: blob.name,
-        bytes: blob.bytes,
-    }));
-    Module { view, blobs: &all }.send(record)
-}
-
-fn builtin(view: &str, config: Value, blobs: &[Blob<'_>], record: bool) -> c_int {
-    with_config(view, &config.to_string(), blobs, record)
+    send_display(view, &payload)
 }
 
 impl DisplayValue for &str {
-    fn send(self, record: bool) -> c_int {
-        builtin("tsugumi:text", json!({"text": self}), &[], record)
+    fn send(self) -> c_int {
+        builtin("text", json!({"text": self}))
     }
 }
 
 impl DisplayValue for String {
-    fn send(self, record: bool) -> c_int {
-        self.as_str().send(record)
+    fn send(self) -> c_int {
+        self.as_str().send()
     }
 }
 
 pub struct Markdown<'a>(pub &'a str);
 
 impl DisplayValue for Markdown<'_> {
-    fn send(self, record: bool) -> c_int {
-        builtin("tsugumi:markdown", json!({"text": self.0}), &[], record)
+    fn send(self) -> c_int {
+        builtin("markdown", json!({"text": self.0}))
     }
 }
 
@@ -152,17 +101,17 @@ pub struct Scalar<'a> {
 }
 
 impl DisplayValue for f64 {
-    fn send(self, record: bool) -> c_int {
+    fn send(self) -> c_int {
         Scalar {
             value: self,
             label: "",
         }
-        .send(record)
+        .send()
     }
 }
 
 impl DisplayValue for Scalar<'_> {
-    fn send(self, record: bool) -> c_int {
+    fn send(self) -> c_int {
         let number = if self.value.is_finite() {
             format_g6(self.value)
         } else {
@@ -173,7 +122,7 @@ impl DisplayValue for Scalar<'_> {
         } else {
             format!("**{}**: {number}", self.label)
         };
-        Markdown(&text).send(record)
+        Markdown(&text).send()
     }
 }
 
@@ -183,19 +132,14 @@ pub struct Table<'a, S = &'a str> {
 }
 
 impl<S: AsRef<str>> DisplayValue for Table<'_, S> {
-    fn send(self, record: bool) -> c_int {
+    fn send(self) -> c_int {
         let columns: Vec<_> = self.columns.iter().map(AsRef::as_ref).collect();
         let rows: Vec<Vec<_>> = self
             .rows
             .iter()
             .map(|row| row.iter().map(AsRef::as_ref).collect())
             .collect();
-        builtin(
-            "tsugumi:table",
-            json!({"columns": columns, "rows": rows}),
-            &[],
-            record,
-        )
+        builtin("table", json!({"columns": columns, "rows": rows}))
     }
 }
 
@@ -206,16 +150,11 @@ pub struct Image<'a> {
 }
 
 impl DisplayValue for Image<'_> {
-    fn send(self, record: bool) -> c_int {
-        let blobs = [Blob {
-            name: "image",
-            bytes: self.bytes,
-        }];
-        builtin(
-            "tsugumi:image",
+    fn send(self) -> c_int {
+        with_binary(
+            "image",
             json!({"media_type": self.media_type, "alt": self.alt}),
-            &blobs,
-            record,
+            &[self.bytes],
         )
     }
 }
@@ -228,7 +167,7 @@ pub struct Points<'a> {
 }
 
 impl DisplayValue for Points<'_> {
-    fn send(self, record: bool) -> c_int {
+    fn send(self) -> c_int {
         let count = self.x.len();
         if self.y.len() != count
             || self.z.len() != count
@@ -241,25 +180,7 @@ impl DisplayValue for Points<'_> {
         let y: Vec<u8> = self.y.iter().flat_map(|v| v.to_le_bytes()).collect();
         let z: Vec<u8> = self.z.iter().flat_map(|v| v.to_le_bytes()).collect();
         let colors: Vec<u8> = self.colors.iter().flat_map(|v| v.to_le_bytes()).collect();
-        let blobs = [
-            Blob {
-                name: "x",
-                bytes: &x,
-            },
-            Blob {
-                name: "y",
-                bytes: &y,
-            },
-            Blob {
-                name: "z",
-                bytes: &z,
-            },
-            Blob {
-                name: "colors",
-                bytes: &colors,
-            },
-        ];
-        builtin("tsugumi:points", json!({"count": count}), &blobs, record)
+        with_binary("points", json!({"count": count}), &[&x, &y, &z, &colors])
     }
 }
 
@@ -275,7 +196,7 @@ pub struct LineChart<'a> {
 }
 
 impl DisplayValue for LineChart<'_> {
-    fn send(self, record: bool) -> c_int {
+    fn send(self) -> c_int {
         let mut x = Vec::new();
         let mut y = Vec::new();
         let mut offset = 0;
@@ -291,22 +212,7 @@ impl DisplayValue for LineChart<'_> {
             x.extend(row.x.iter().flat_map(|value| value.to_le_bytes()));
             y.extend(row.y.iter().flat_map(|value| value.to_le_bytes()));
         }
-        let blobs = [
-            Blob {
-                name: "x",
-                bytes: &x,
-            },
-            Blob {
-                name: "y",
-                bytes: &y,
-            },
-        ];
-        builtin(
-            "tsugumi:line-chart",
-            json!({"series": series}),
-            &blobs,
-            record,
-        )
+        with_binary("line-chart", json!({"series": series}), &[&x, &y])
     }
 }
 
@@ -314,13 +220,13 @@ pub struct Plotly<'a>(pub &'a str);
 pub struct VegaLite<'a>(pub &'a str);
 
 impl DisplayValue for Plotly<'_> {
-    fn send(self, record: bool) -> c_int {
-        with_config("tsugumi:plotly", self.0, &[], record)
+    fn send(self) -> c_int {
+        send_display("plotly", self.0.as_bytes())
     }
 }
 
 impl DisplayValue for VegaLite<'_> {
-    fn send(self, record: bool) -> c_int {
-        with_config("tsugumi:vega-lite", self.0, &[], record)
+    fn send(self) -> c_int {
+        send_display("vega-lite", self.0.as_bytes())
     }
 }

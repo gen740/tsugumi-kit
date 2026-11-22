@@ -41,36 +41,20 @@ class ReleaseGil {
   PyThreadState* state_;
 };
 
-auto Display(PyObject*, PyObject* args) -> PyObject* {
+auto Send(PyObject*, PyObject* args) -> PyObject* {
   const char* view;
-  PyObject* entries;
-  int record;
-  if (!PyArg_ParseTuple(args, "sO!p", &view, &PyTuple_Type, &entries, &record))
-    return nullptr;
-  int status = 1;
+  const char* data;
+  Py_ssize_t size;
+  if (!PyArg_ParseTuple(args, "sy#", &view, &data, &size)) return nullptr;
+  int status;
   try {
-    std::vector<card::Blob> blobs;
-    const auto count = PyTuple_GET_SIZE(entries);
-    blobs.reserve(count);
-    for (Py_ssize_t i = 0; i < count; ++i) {
-      const char* name;
-      PyObject* data;
-      if (!PyArg_ParseTuple(PyTuple_GET_ITEM(entries, i), "sO!", &name,
-                            &PyBytes_Type, &data))
-        return nullptr;
-      blobs.push_back(
-          {name,
-           {reinterpret_cast<const uint8_t*>(PyBytes_AS_STRING(data)),
-            static_cast<size_t>(PyBytes_GET_SIZE(data))}});
-    }
     // The callback can block while a different Card thread needs the GIL.
     const ReleaseGil release;
-    status = card::display(card::View{view, blobs}, record);
-  } catch (const std::bad_alloc&) {
-    return PyErr_NoMemory();
+    status = tsugumi::abi9::SendDisplay(
+        view,
+        {reinterpret_cast<const uint8_t*>(data), static_cast<size_t>(size)});
   } catch (...) {
-    PyErr_SetString(PyExc_RuntimeError, "Cannot encode the display");
-    return nullptr;
+    status = 1;
   }
   if (status) {
     PyErr_SetString(PyExc_RuntimeError, "The host rejected the display");
@@ -107,7 +91,7 @@ auto RemainingMs(PyObject*, PyObject*) -> PyObject* {
 }
 
 PyMethodDef methods[] = {
-    {"display", Display, METH_VARARGS, nullptr},
+    {"send", Send, METH_VARARGS, nullptr},
     {"cancelled", Cancelled, METH_NOARGS, nullptr},
     {"remaining_ms", RemainingMs, METH_NOARGS, nullptr},
     {},

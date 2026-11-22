@@ -1,6 +1,6 @@
 # Writing a C++ Card
 
-This guide targets **Card ABI 9 (unreleased)**. The C++ interface below follows the reference implementation in Tsugumi's `sdk/abi9` at `b7778919e`. The released worker cannot run these Cards yet.
+This guide targets **Card ABI 9 (unreleased)**. The released worker cannot run these Cards yet.
 
 ## Return a value from `run`
 
@@ -11,7 +11,7 @@ A Card has the shape `(input) -> output`. Include the generated `card.hh` and de
 
 auto run(const Card::Inputs& input) -> Card::Output {
   const double fahrenheit = input.celsius.value * 1.8 + 32.0;
-  card::display(card::Scalar{fahrenheit, "°F"});
+  card::display::send(card::display::Scalar{fahrenheit, "°F"});
   Card::Output output;
   output.fahrenheit.emplace().value = fahrenheit;
   return output;
@@ -34,60 +34,72 @@ The core prepares `_inputs.fbs`, `_outputs.fbs`, `_params.fbs` and `_contract.js
 - Every member of `Card::Output` is a `std::optional` of its port's object type. Use `emplace()` to produce a port and fill its required fields. Leave an optional port disengaged to omit it. Missing required ports or children, null table elements in vectors, and union tags without values fail the call with `output_invalid`.
 - The C++ generator renames reserved schema identifiers as needed. The port names on the wire stay as declared in the contract.
 
-The core injects the builder as `inputs.tsugumi.cppCard` with the contract and Card definition directory already bound. Use it in the Card's `default.nix`.
+Use the SDK in the Card's `default.nix` with the contract and Card definition directory bound to its builder.
 
 ```nix
 { inputs, ... }:
-rec {
-  run = inputs.tsugumi.cppCard { src = ./src; };
-  inherit (run) views;
+let
+  sdk = inputs.tsugumi.cppSdk;
+in
+{
+  run = sdk.cppCard { src = ./src; };
+  views = sdk.views;
 }
 ```
 
 The builder also accepts optional `buildInputs` and `cxxflags` lists. SDK selection belongs in `default.nix`. Omit `language` from `_card.json`.
 
-To construct the injected builder, use `tsugumi-kit.lib.${system}.cppCard { inherit contract definitionDir; }`. Here `contract` is the directory with the four generated contract files and `definitionDir` is the directory with `default.nix`. Standalone builds can pass `src`, `contract`, `definitionDir` and the optional lists in one call. If that form omits `definitionDir`, it defaults to `src`.
+The kit exports `tsugumi-kit.lib.${system}.cppSdk`. To bind the builder while retaining the SDK views, use `cppSdk // { cppCard = cppSdk.cppCard { inherit contract definitionDir; }; }`. Here `contract` is the directory with the four generated contract files and `definitionDir` is the directory with `default.nix`. Standalone builds can pass `src`, `contract`, `definitionDir` and the optional lists in one call. If that form omits `definitionDir`, it defaults to `src`.
 
 ## Display a value
 
-`card::display(value)` selects the view by C++ type and shows it live. To keep that particular display in history, pass `true` as the second argument. The flag defaults to `false` on **every call**. For example, `card::display("Reading input")` is live only and `card::display(card::Scalar{42, "rows"}, true)` records the number as markdown. Each recorded display appends a row with its view name, blobs, arrival time, run and Card.
+Use `card::display::send(value)` to publish a live update. The value's C++
+type selects a bundled view.
 
-| Value accepted by the SDK | View name | Display |
+| Value accepted by `card::display::send` | View name | Display |
 | --- | --- | --- |
-| `std::string_view` (including a string literal) | `text` | Plain text |
-| `card::Markdown` | `markdown` | Markdown |
-| `double`, `card::Scalar` | `markdown` | A number with 6 significant digits, shown as `**label**: value` when it has a label |
-| `card::Table` | `table` | Column names and rows of strings |
-| `card::Image` | `image` | Media type, image bytes and optional alt text |
-| `card::View` | The supplied name | The supplied named blobs, whose names and bytes the view module defines |
+| `std::string_view` (including string literals) | `text` | Plain text |
+| `card::display::Markdown` | `markdown` | Markdown |
+| `double`, `card::display::Scalar` | `markdown` | A number with 6 significant digits and an optional bold label |
+| `card::display::Table` | `table` | Column names and rows of strings |
+| `card::display::Image` | `image` | Media type, image bytes and optional alt text |
 
-A display carries only a view name and named blobs. The name selects an entry in the top-level Card `views` map, and the module behind that entry defines what its blobs mean. The four SDK views read a blob named `config` that holds UTF-8 JSON, and `image` also reads its bytes from a blob named `image`. For a custom view, build the blobs yourself. `card::text_bytes(text)` returns a string's bytes without copying them, for example for a `config` blob:
-
-```cpp
-const card::Blob blobs[] = {{"config", card::text_bytes("mode=fast")},
-                            {"sample", bytes}};
-card::display(card::View{"custom", blobs});
-```
-
-`cppCard` bundles the four basic views as JavaScript modules pending the Wasm implementations. Pass `views = { ... };` to `cppCard` to add or override entries in `run.views`, or set `views = run.views // { ... };` in the Card definition.
-
-Every view derivation declares how the core loads it in `passthru.tsugumiView = { kind = "js" | "wasm"; entry = "<file in $out>"; }`. The core routes by `kind` and does not inspect the module. `tsugumi-kit.lib.${system}.view { kind; src; entry; }` copies the directory `src` to `$out`, checks that `entry` is a file there and sets that attribute. `cppCard` rejects a view without it.
+Declare the bundled views and any custom views at the top level of the Card's
+`default.nix`, alongside `run` and `exports`.
 
 ```nix
-views = run.views // {
-  custom = tsugumi-kit.lib.${system}.view {
-    kind = "js";
-    src = ./views/custom;
-    entry = "index.js";
-  };
-};
+{
+  run = sdk.cppCard { src = ./src; };
+  views = sdk.views ++ [
+    { name = "notes"; type = "html"; blob = ./notes.html; }
+  ];
+}
 ```
 
-A JS module's default export is `mount(root, blobs)`, where `blobs` maps each blob name to a `Uint8Array`. The host dispatches `CustomEvent('tsugumi:data', { detail: blobs })` on `root` with each replacement display.
+Each `blob` points to a single file. Use `type = "html"` for self-contained
+HTML with any JavaScript and Wasm embedded, or `type = "dawn"` for a Wasm
+binary targeting the Dawn host. The SDK currently bundles HTML views.
 
-Keep backing strings and arrays alive until `display` returns. A zero status indicates success.
+Use `card::display::send(view, bytes)` for a custom view. The view defines the
+meaning of the bytes. The host routes them by the declared view name.
 
-A Card-owned thread may keep displaying after `run` returns while the process lives. Give the thread its own data. The display callback lasts for the process lifetime. Tsugumi associates a recorded late display with its run and Card at arrival and leaves the invocation unspecified.
+```cpp
+const int status = card::display::send(
+    "notes", card::display::text_bytes("Reading input"));
+```
+
+Keep the backing storage alive until `send` returns. A zero status means the
+host accepted the update. An undeclared view name returns a nonzero status.
+The callback and its host context last for the process lifetime, so a
+Card-owned thread can send its own data after `run` returns. Display
+messages do not enter history.
+
+An HTML view draws its empty state on load. It then receives a window
+message with `{tsugumi: 1, port}`, where `port` is a transferred
+`MessagePort`. Set `port.onmessage` to handle
+`{type: "data", bytes: ArrayBuffer}` and
+`{type: "run", state: "started" | "ended"}`. The view manages its own layout
+and runs in an isolated frame without network access.
 
 ## Cancellation, deadlines and failures
 

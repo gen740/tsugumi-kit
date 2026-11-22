@@ -23,32 +23,13 @@ static ruby_bytes bytes(VALUE value) {
   return (ruby_bytes){RSTRING_PTR(value), (size_t)RSTRING_LEN(value)};
 }
 
-static VALUE display(VALUE self, VALUE view, VALUE pairs, VALUE record) {
+static VALUE send_bytes(VALUE self, VALUE view, VALUE payload) {
   (void)self;
   Check_Type(view, T_STRING);
-  Check_Type(pairs, T_ARRAY);
-  long count = RARRAY_LEN(pairs);
-  if (count < 0 || (size_t)count > PTRDIFF_MAX / sizeof(ruby_blob))
-    rb_raise(rb_eArgError, "too many display blobs");
-  for (long i = 0; i < count; ++i) {
-    VALUE pair = rb_ary_entry(pairs, i);
-    Check_Type(pair, T_ARRAY);
-    if (RARRAY_LEN(pair) != 2)
-      rb_raise(rb_eArgError, "expected a display blob name and bytes");
-    Check_Type(rb_ary_entry(pair, 0), T_STRING);
-    Check_Type(rb_ary_entry(pair, 1), T_STRING);
-  }
-  ruby_blob* blobs = count ? calloc((size_t)count, sizeof(*blobs)) : NULL;
-  if (count && !blobs) rb_memerror();
-  for (long i = 0; i < count; ++i) {
-    VALUE pair = rb_ary_entry(pairs, i);
-    blobs[i] =
-        (ruby_blob){bytes(rb_ary_entry(pair, 0)), bytes(rb_ary_entry(pair, 1))};
-  }
-  const int status =
-      tsugumi_ruby_display(bytes(view), blobs, (size_t)count, RTEST(record));
-  free(blobs);
-  if (status) rb_raise(rb_eRuntimeError, "display was rejected");
+  Check_Type(payload, T_STRING);
+  const char* name = StringValueCStr(view);
+  if (tsugumi_ruby_send(name, bytes(payload)))
+    rb_raise(rb_eRuntimeError, "display was rejected");
   return Qnil;
 }
 
@@ -71,7 +52,7 @@ static VALUE remaining_ms(VALUE self) {
 static VALUE initialize(VALUE unused) {
   (void)unused;
   VALUE host = rb_define_module("TsugumiHost");
-  rb_define_singleton_method(host, "display", display, 3);
+  rb_define_singleton_method(host, "send_bytes", send_bytes, 2);
   rb_define_singleton_method(host, "cancelled", cancelled, 0);
   rb_define_singleton_method(host, "remaining_ms", remaining_ms, 0);
   rb_enc_set_default_external(rb_enc_from_encoding(rb_utf8_encoding()));

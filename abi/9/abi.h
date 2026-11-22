@@ -1,5 +1,5 @@
-/* ABI 9. Source: gen740/Tsugumi c935f278d9471105785c08e2cce820ac22ad3c89
- * (sdk/abi9/include/tsugumi/abi9/abi.h). */
+/* ABI 9. Based on gen740/Tsugumi c935f278d9471105785c08e2cce820ac22ad3c89
+ * (sdk/abi9/include/tsugumi/abi9/abi.h), with the 2026-11-22 send effect. */
 #ifndef TSUGUMI_ABI9_ABI_H
 #define TSUGUMI_ABI9_ABI_H
 
@@ -19,10 +19,12 @@ typedef struct tsugumi_bytes {
 
 typedef struct tsugumi_effects {
   /* Process-lifetime callback, callable from Card threads between calls.
-   * The host must consume or copy the CardDisplay bytes before returning.
-   * Returns zero on success. A nonzero record flag requests recording.
+   * The host context for send is valid for the process lifetime. The host
+   * must consume or copy view and bytes before returning. Returns zero on
+   * success and a nonzero status for undeclared views or other failures.
+   * The host does not record messages.
    */
-  int (*display)(tsugumi_bytes display, int record);
+  int (*send)(void* host, const char* view, const uint8_t* bytes, size_t size);
   /* These callbacks and their context are valid only during the call.
    * They must not reenter the SDK's cancellation or deadline queries.
    */

@@ -39,7 +39,7 @@ function main(input)
     if mode == 11
         cancelled() && remaining_ms() == 0 || error("wrong fallbacks for throwing host")
         try
-            display("throwing host")
+            send("throwing host")
             error("expected display rejection")
         catch err
             err isa ErrorException && err.msg == "display was rejected" || rethrow()
@@ -51,30 +51,30 @@ function main(input)
             mode == 15 ? cancelled() : remaining_ms() == -1
         end
         read_signal(input.params["fd"])
-        display("returning")
+        send("returning")
     elseif mode == 17
         fetch(effect_task[]) || error("wrong value from overlapping host callback")
     end
 
     if mode == 1
         !cancelled() && remaining_ms() == 500 || error("wrong active effects")
-        display("résumé\n\"")
-        display(Markdown("**text**"); record=true)
-        display(2.5)
-        display(Table(["n"], [[1]]))
-        display(Image(UInt8[0, 13, 255]; media_type="image/png", alt="sample"))
-        display(Points([1], [1], [1]; colors=[0x123456]))
-        display(LineChart([(id="id", label="line", x=[2], y=[2])]))
-        display(Plotly((; data=[])))
-        display(VegaLite((; mark="point")))
-        display(View("custom"; blobs=Dict("config"=>Vector{UInt8}("{\"key\":1}"), "sample"=>UInt8[0, 13, 255])); record=true)
+        send("résumé\n\"")
+        send(Markdown("**text**"))
+        send(2.5)
+        send(Table(["n"], [[1]]))
+        send(Image(UInt8[0, 13, 255]; media_type="image/png", alt="sample"))
+        send(Points([1], [1], [1]; colors=[0x123456]))
+        send(LineChart([(id="id", label="line", x=[2], y=[2])]))
+        send(Plotly((; data=[])))
+        send(VegaLite((; mark="point")))
+        send("custom", UInt8[0, 13, 255])
         fd = input.params["fd"]
         # The embedding thread owns the interactive pool in this fixture.
         Threads.@spawn :default begin
             read_signal(fd)
             GC.gc()
             cancelled() && remaining_ms() == 0 || error("host still active outside the call")
-            display("outside")
+            send("outside")
         end
     end
 
@@ -106,7 +106,7 @@ function check_gc_during_effect(mode, fd)
         sent == 1 || error("write failed")
     end
     if mode == 12
-        display("waiting for GC")
+        send("waiting for GC")
     elseif mode == 13
         !cancelled() || error("wrong cancellation status")
     else

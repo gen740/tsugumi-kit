@@ -6,6 +6,8 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <initializer_list>
+#include <limits>
 #include <nlohmann/json.hpp>
 #include <span>
 #include <string>
@@ -14,24 +16,25 @@
 
 #include "tsugumi/abi9/card_runtime.hh"
 
-namespace tsugumi::legacy_display {
+namespace tsugumi::display {
 
-// R and Julia emit the tsugumi: view names. Their config is UTF-8 JSON in a
-// "config" blob ahead of the data blobs.
-inline auto Emit(std::string_view kind, const nlohmann::json& config,
-                 bool record, std::span<const card::Blob> data = {}) -> int {
-  const auto view = "tsugumi:" + std::string(kind);
+// Binary views read a little-endian metadata length, UTF-8 JSON, and
+// then the view-specific binary sections in order.
+inline auto Emit(std::string_view view, const nlohmann::json& config,
+                 std::initializer_list<std::span<const uint8_t>> parts = {})
+    -> int {
   const auto text = config.dump();
-  std::vector<card::Blob> blobs{{"config", card::text_bytes(text)}};
-  blobs.insert(blobs.end(), data.begin(), data.end());
-  return card::display(card::View{view, blobs}, record);
-}
-
-inline auto EmitImage(std::string_view media_type, std::string_view alt,
-                      std::span<const uint8_t> bytes, bool record) -> int {
-  const card::Blob blobs[] = {{"image", bytes}};
-  return Emit("image", {{"media_type", media_type}, {"alt", alt}}, record,
-              blobs);
+  const auto metadata = card::display::text_bytes(text);
+  if (parts.size() == 0) return card::display::send(view, metadata);
+  if (metadata.size() > std::numeric_limits<uint32_t>::max()) return 1;
+  std::vector<uint8_t> bytes(sizeof(uint32_t));
+  flatbuffers::WriteScalar(bytes.data(),
+                           static_cast<uint32_t>(metadata.size()));
+  bytes.insert(bytes.end(), metadata.begin(), metadata.end());
+  for (const auto part : parts) {
+    bytes.insert(bytes.end(), part.begin(), part.end());
+  }
+  return card::display::send(view, bytes);
 }
 
 template <class T>
@@ -54,7 +57,7 @@ auto LittleEndianBytes(std::span<const T> values) -> std::vector<uint8_t> {
 
 inline auto EmitPoints(std::span<const float> x, std::span<const float> y,
                        std::span<const float> z,
-                       std::span<const uint32_t> colors, bool record) -> int {
+                       std::span<const uint32_t> colors) -> int {
   const size_t count = x.size();
   if (y.size() != count || z.size() != count ||
       (!colors.empty() && colors.size() != count)) {
@@ -64,9 +67,8 @@ inline auto EmitPoints(std::span<const float> x, std::span<const float> y,
   const auto y_bytes = LittleEndianBytes(y);
   const auto z_bytes = LittleEndianBytes(z);
   const auto color_bytes = LittleEndianBytes(colors);
-  const card::Blob blobs[] = {
-      {"x", x_bytes}, {"y", y_bytes}, {"z", z_bytes}, {"colors", color_bytes}};
-  return Emit("points", {{"count", count}}, record, blobs);
+  return Emit("points", {{"count", count}},
+              {x_bytes, y_bytes, z_bytes, color_bytes});
 }
 
 struct LineSeries {
@@ -76,8 +78,7 @@ struct LineSeries {
   std::span<const double> y;
 };
 
-inline auto EmitLineChart(std::span<const LineSeries> rows, bool record)
-    -> int {
+inline auto EmitLineChart(std::span<const LineSeries> rows) -> int {
   const auto finite = [](double value) { return std::isfinite(value); };
   auto series = nlohmann::json::array();
   std::vector<uint8_t> x;
@@ -96,8 +97,7 @@ inline auto EmitLineChart(std::span<const LineSeries> rows, bool record)
     AppendBytes(y, row.y);
     offset += row.x.size();
   }
-  const card::Blob blobs[] = {{"x", x}, {"y", y}};
-  return Emit("line-chart", {{"series", series}}, record, blobs);
+  return Emit("line-chart", {{"series", series}}, {x, y});
 }
 
-}  // namespace tsugumi::legacy_display
+}  // namespace tsugumi::display

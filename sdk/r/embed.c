@@ -24,8 +24,8 @@
 
 extern bool tsugumi_r_cancelled(void);
 extern double tsugumi_r_remaining_ms(void);
-extern bool tsugumi_r_display(const char* request, bool record);
-extern int tsugumi_r_send_display(tsugumi_bytes bytes, int record);
+extern bool tsugumi_r_display(const char* request);
+extern int tsugumi_r_send(const char* view, const uint8_t* bytes, size_t size);
 
 static SEXP sdk;
 
@@ -48,9 +48,18 @@ static SEXP remaining_ms(void) {
   return Rf_ScalarReal(tsugumi_r_remaining_ms());
 }
 
-static SEXP display(SEXP request, SEXP record) {
+static SEXP emit(SEXP request) {
   const char* json = Rf_translateCharUTF8(STRING_ELT(request, 0));
-  if (!tsugumi_r_display(json, LOGICAL_ELT(record, 0) == TRUE))
+  if (!tsugumi_r_display(json)) Rf_error("display rejected");
+  return R_NilValue;
+}
+
+static SEXP send_bytes(SEXP view, SEXP bytes) {
+  if (TYPEOF(view) != STRSXP || XLENGTH(view) != 1 ||
+      STRING_ELT(view, 0) == NA_STRING || TYPEOF(bytes) != RAWSXP)
+    Rf_error("send expects a view name and a raw vector");
+  const char* name = Rf_translateCharUTF8(STRING_ELT(view, 0));
+  if (tsugumi_r_send(name, RAW(bytes), (size_t)XLENGTH(bytes)))
     Rf_error("display rejected");
   return R_NilValue;
 }
@@ -66,12 +75,13 @@ static SEXP display(SEXP request, SEXP record) {
 static const R_CallMethodDef methods[] = {
     {"tsugumi_r_cancelled", (DL_FUNC)&cancelled, 0},
     {"tsugumi_r_remaining_ms", (DL_FUNC)&remaining_ms, 0},
-    {"tsugumi_r_display", (DL_FUNC)&display, 2},
+    {"tsugumi_r_emit", (DL_FUNC)&emit, 1},
+    {"tsugumi_r_send", (DL_FUNC)&send_bytes, 2},
     {NULL, NULL, 0},
 };
 
 static void register_effects(void) {
-  R_RegisterCCallable("tsugumi", "display", (DL_FUNC)&tsugumi_r_send_display);
+  R_RegisterCCallable("tsugumi", "send", (DL_FUNC)&tsugumi_r_send);
   R_RegisterCCallable("tsugumi", "cancelled", (DL_FUNC)&tsugumi_r_cancelled);
   R_RegisterCCallable("tsugumi", "remaining_ms",
                       (DL_FUNC)&tsugumi_r_remaining_ms);

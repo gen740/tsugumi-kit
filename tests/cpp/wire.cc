@@ -88,30 +88,31 @@ extern "C" auto check_cpp_failure(tsugumi_bytes result, int mode) -> void {
   }
 }
 
-extern "C" auto check_display(tsugumi_bytes bytes, int record, unsigned index)
-    -> void {
+extern "C" auto check_display(const char* view, tsugumi_bytes bytes,
+                              unsigned index) -> void {
   struct Sample {
     std::string_view view;
     std::string_view config;
-    size_t blobs;
-    int record = 0;
+    std::vector<uint8_t> data = {};
   };
-  constexpr std::array samples{
-      Sample{"text", R"({"text":"résumé\n\""})", 0},
-      Sample{"markdown", R"({"text":"**text**"})", 0, 1},
-      Sample{"markdown", R"({"text":"2.5"})", 0},
-      Sample{"table", R"({"columns":["n"],"rows":[["1"]]})", 0},
-      Sample{"image", R"({"alt":"sample","media_type":"image/png"})", 1},
-      Sample{"custom", "mode=fast", 1, 1},
-      Sample{"text", R"({"text":"outside"})", 0},
+  const std::array samples{
+      Sample{"text", R"({"text":"résumé\n\""})"},
+      Sample{"markdown", R"({"text":"**text**"})"},
+      Sample{"markdown", R"({"text":"2.5"})"},
+      Sample{"table", R"({"columns":["n"],"rows":[["1"]]})"},
+      Sample{"image",
+             R"({"alt":"sample","media_type":"image/png"})",
+             {0, 13, 255}},
+      Sample{"custom", {}, {0, 13, 255}},
+      Sample{"text", R"({"text":"outside"})"},
   };
   CHECK(index < samples.size());
-  const auto& display = Decode<CardDisplay>(bytes);
   const auto& sample = samples[index];
-  CHECK(display.view()->string_view() == sample.view);
-  CHECK(ConfigText(display) == sample.config);
-  CHECK(display.blobs() && display.blobs()->size() == sample.blobs + 1);
-  CHECK(record == sample.record);
-  if (index == 4) CheckBlob(display, 1, "image", {0, 13, 255});
-  if (index == 5) CheckBlob(display, 1, "sample", {0, 13, 255});
+  CHECK(view == sample.view);
+  auto payload = std::span(bytes.data, bytes.size);
+  if (sample.view != "custom") {
+    const auto config = ReadDisplayConfig(payload, sample.data.size() != 0);
+    CHECK(config == sample.config);
+  }
+  CHECK(std::ranges::equal(payload, sample.data));
 }

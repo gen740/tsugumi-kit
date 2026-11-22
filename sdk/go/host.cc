@@ -28,8 +28,13 @@ auto tsugumi_go_failure(void* raw, uint16_t kind, const char* message,
   }
 }
 
-auto tsugumi_go_display(const uint8_t* data, size_t size, int record) -> int {
-  return tsugumi::abi9::SendDisplay({data, size}, record != 0);
+auto tsugumi_go_send(const char* view, const uint8_t* data, size_t size)
+    -> int {
+  try {
+    return tsugumi::abi9::SendDisplay(view, {data, size});
+  } catch (...) {
+    return 1;
+  }
 }
 
 auto tsugumi_go_cancelled() -> int { return card::cancelled(); }

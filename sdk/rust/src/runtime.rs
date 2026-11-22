@@ -242,7 +242,8 @@ impl Bytes {
     }
 }
 
-type DisplayEffect = unsafe extern "C" fn(Bytes, c_int) -> c_int;
+type DisplayEffect =
+    unsafe extern "C" fn(*mut c_void, *const std::ffi::c_char, *const u8, usize) -> c_int;
 type CancelEffect = unsafe extern "C" fn(*mut c_void) -> c_int;
 type DeadlineEffect = unsafe extern "C" fn(*mut c_void) -> i64;
 
@@ -250,7 +251,7 @@ type DeadlineEffect = unsafe extern "C" fn(*mut c_void) -> i64;
 #[derive(Clone, Copy)]
 #[repr(C)]
 pub struct Effects {
-    display: Option<DisplayEffect>,
+    send: Option<DisplayEffect>,
     cancelled: Option<CancelEffect>,
     remaining_ms: Option<DeadlineEffect>,
 }
@@ -265,7 +266,16 @@ struct ActiveCall {
 unsafe impl Send for ActiveCall {}
 
 static ACTIVE: Mutex<Option<ActiveCall>> = Mutex::new(None);
-static DISPLAY: Mutex<Option<DisplayEffect>> = Mutex::new(None);
+#[derive(Clone, Copy)]
+struct DisplayTarget {
+    host: *mut c_void,
+    send: DisplayEffect,
+}
+
+// The ABI permits sends from any Card thread for the process lifetime.
+unsafe impl Send for DisplayTarget {}
+
+static DISPLAY: Mutex<Option<DisplayTarget>> = Mutex::new(None);
 static RESULT: Mutex<Vec<u8>> = Mutex::new(Vec::new());
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -277,8 +287,8 @@ struct CallScope;
 impl CallScope {
     fn enter(host: *mut c_void, effects: Option<Effects>) -> Self {
         if let Some(effects) = effects {
-            if let Some(callback) = effects.display {
-                *lock(&DISPLAY) = Some(callback);
+            if let Some(send) = effects.send {
+                *lock(&DISPLAY) = Some(DisplayTarget { host, send });
             }
             *lock(&ACTIVE) = Some(ActiveCall { host, effects });
         }
@@ -309,11 +319,14 @@ pub fn remaining_ms() -> i64 {
     })
 }
 
-pub(crate) fn send_display(bytes: &[u8], record: bool) -> c_int {
+pub(crate) fn send_display(view: &str, bytes: &[u8]) -> c_int {
+    let Ok(view) = std::ffi::CString::new(view) else {
+        return 1;
+    };
     // Release the lock before invoking the process-lifetime callback.
-    let callback = *lock(&DISPLAY);
-    callback.map_or(1, |send| unsafe {
-        send(Bytes::from_slice(bytes), record.into())
+    let target = *lock(&DISPLAY);
+    target.map_or(1, |target| unsafe {
+        (target.send)(target.host, view.as_ptr(), bytes.as_ptr(), bytes.len())
     })
 }
 

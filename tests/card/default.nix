@@ -1,6 +1,9 @@
 { inputs, pkgs, ... }:
-rec {
-  run = inputs.tsugumi.cppCard {
+let
+  sdk = inputs.tsugumi.cppSdk;
+in
+{
+  run = sdk.cppCard {
     src = ./src;
     buildInputs = [ pkgs.zlib ];
     cxxflags = [
@@ -8,5 +11,5 @@ rec {
       "-lz"
     ];
   };
-  inherit (run) views;
+  views = sdk.views;
 }

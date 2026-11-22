@@ -1,6 +1,5 @@
 #include "adapter.hh"
 
-#include <atomic>
 #include <cstdint>
 #include <cstring>
 #include <exception>
@@ -20,17 +19,25 @@ using Tsugumi::Card::CardResultT;
 // Kept until the next call. The worker invokes one call at a time.
 flatbuffers::DetachedBuffer result_buffer;
 
-std::atomic<decltype(tsugumi_effects::display)> display_effect = nullptr;
+struct DisplayEffect {
+  decltype(tsugumi_effects::send) callback = nullptr;
+  void* host = nullptr;
+};
+
+// A deadline or cancellation query may block while another thread sends.
+DisplayEffect display_effect;
+std::mutex display_mutex;
 std::mutex effects_mutex;
 const tsugumi_call* active_call = nullptr;
 
 class CallEffects {
  public:
   explicit CallEffects(const tsugumi_call& call) {
-    const std::lock_guard lock(effects_mutex);
-    if (call.effects && call.effects->display) {
-      display_effect.store(call.effects->display);
+    if (call.effects && call.effects->send) {
+      const std::lock_guard lock(display_mutex);
+      display_effect = {call.effects->send, call.host};
     }
+    const std::lock_guard lock(effects_mutex);
     active_call = &call;
   }
 
@@ -84,9 +91,15 @@ auto Run(CardBody body, tsugumi_bytes input) -> CardResultT {
 
 }  // namespace
 
-auto SendDisplay(tsugumi_bytes bytes, bool record) -> int {
-  const auto callback = display_effect.load();
-  return callback ? callback(bytes, record) : 1;
+auto SendDisplay(const char* view, tsugumi_bytes bytes) -> int {
+  DisplayEffect effect;
+  {
+    const std::lock_guard lock(display_mutex);
+    effect = display_effect;
+  }
+  return effect.callback
+             ? effect.callback(effect.host, view, bytes.data, bytes.size)
+             : 1;
 }
 
 auto Invoke(const tsugumi_call* call, tsugumi_bytes* result,

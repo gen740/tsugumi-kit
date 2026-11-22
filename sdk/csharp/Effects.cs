@@ -6,8 +6,6 @@ using System.Linq;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
-using Google.FlatBuffers;
-using Wire = Tsugumi.Card;
 
 namespace Tsugumi;
 
@@ -20,48 +18,33 @@ public sealed record Series(string Id, string Label, double[] X, double[] Y);
 public sealed record LineChart(Series[] Series);
 public sealed record Plotly(string Config);
 public sealed record VegaLite(string Config);
-public sealed record Blob(string Name, byte[] Bytes);
-// A display for the entry View in the Card's views. The view module defines the
-// blob names and bytes, such as a "config" blob.
-public sealed record Module(string View, Blob[]? Blobs = null);
-
 public static class Effects
 {
-    private static unsafe delegate* unmanaged[Cdecl]<byte*, nuint, int, int> send;
+    private static unsafe delegate* unmanaged[Cdecl]<byte*, byte*, nuint, int> send;
     private static unsafe delegate* unmanaged[Cdecl]<int> queryCancelled;
     private static unsafe delegate* unmanaged[Cdecl]<long> queryRemaining;
 
     internal static unsafe void Initialize(
-        delegate* unmanaged[Cdecl]<byte*, nuint, int, int> display,
+        delegate* unmanaged[Cdecl]<byte*, byte*, nuint, int> sendDisplay,
         delegate* unmanaged[Cdecl]<int> cancelled,
         delegate* unmanaged[Cdecl]<long> remaining)
     {
         if (send != null) return;
         queryCancelled = cancelled;
         queryRemaining = remaining;
-        send = display;
+        send = sendDisplay;
     }
 
     public static unsafe bool Cancelled() => queryCancelled == null || queryCancelled() != 0;
     public static unsafe long RemainingMilliseconds() => queryRemaining == null ? 0 : queryRemaining();
 
-    public static unsafe int Display(Module module, bool record = false)
+    public static unsafe int Send(string view, ReadOnlySpan<byte> bytes)
     {
-        if (send == null) return 1;
-        var builder = new FlatBufferBuilder(256);
-        var blobs = (module.Blobs ?? []).Select(blob => new Wire.CardDisplayBlobT
-        {
-            Name = blob.Name,
-            Bytes = new List<byte>(blob.Bytes),
-        }).ToList();
-        builder.Finish(Wire.CardDisplay.Pack(builder, new()
-        {
-            View = module.View,
-            Blobs = blobs,
-        }).Value);
-        var bytes = builder.SizedByteArray();
-        fixed (byte* pointer = bytes)
-            return send(pointer, (nuint)bytes.Length, record ? 1 : 0);
+        if (send == null || view.Contains('\0')) return 1;
+        var name = Encoding.UTF8.GetBytes(view + "\0");
+        fixed (byte* viewPointer = name)
+        fixed (byte* data = bytes)
+            return send(viewPointer, data, (nuint)bytes.Length);
     }
 
     // JSON belongs only to the selected view module's config.
@@ -70,41 +53,54 @@ public static class Effects
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
 
-    // A tsugumi: view reads its config as UTF-8 JSON in a "config" blob, ahead of
-    // the data blobs.
-    private static Module Configured(string view, string config, Blob[]? blobs = null) =>
-        new(view, [new("config", Encoding.UTF8.GetBytes(config)), .. blobs ?? []]);
+    private static int SendJson(string view, string config) =>
+        Send(view, Encoding.UTF8.GetBytes(config));
 
-    public static int Display(string text, bool record = false) =>
-        Display(Configured("tsugumi:text", JsonSerializer.Serialize(new { text }, ViewJson)), record);
+    private static int SendBinary(string view, string config, params byte[][] parts)
+    {
+        var metadata = Encoding.UTF8.GetBytes(config);
+        var payload = new byte[checked(sizeof(uint) + metadata.Length + parts.Sum(part => part.Length))];
+        BinaryPrimitives.WriteUInt32LittleEndian(payload, (uint)metadata.Length);
+        metadata.CopyTo(payload, sizeof(uint));
+        var offset = sizeof(uint) + metadata.Length;
+        foreach (var part in parts)
+        {
+            part.CopyTo(payload, offset);
+            offset += part.Length;
+        }
+        return Send(view, payload);
+    }
 
-    public static int Display(Markdown markdown, bool record = false) =>
-        Display(Configured("tsugumi:markdown", JsonSerializer.Serialize(new { text = markdown.Text }, ViewJson)), record);
+    public static int Send(string text) =>
+        SendJson("text", JsonSerializer.Serialize(new { text }, ViewJson));
 
-    public static int Display(double value, bool record = false) => Display(new Scalar(value), record);
+    public static int Send(Markdown markdown) =>
+        SendJson("markdown", JsonSerializer.Serialize(new { text = markdown.Text }, ViewJson));
 
-    public static int Display(Scalar scalar, bool record = false) =>
-        Display(new Markdown(
+    public static int Send(double value) => Send(new Scalar(value));
+
+    public static int Send(Scalar scalar) =>
+        Send(new Markdown(
             (scalar.Label.Length == 0 ? "" : $"**{scalar.Label}**: ") +
             (double.IsFinite(scalar.Value)
                 ? scalar.Value.ToString("G6", System.Globalization.CultureInfo.InvariantCulture)
-                : "\u2014")), record);
+                : "\u2014")));
 
-    public static int Display(Table table, bool record = false) =>
-        Display(Configured("tsugumi:table", JsonSerializer.Serialize(new
+    public static int Send(Table table) =>
+        SendJson("table", JsonSerializer.Serialize(new
         {
             columns = table.Columns,
             rows = table.Rows,
-        }, ViewJson)), record);
+        }, ViewJson));
 
-    public static int Display(Image image, bool record = false) =>
-        Display(Configured("tsugumi:image", JsonSerializer.Serialize(new
+    public static int Send(Image image) =>
+        SendBinary("image", JsonSerializer.Serialize(new
         {
             alt = image.Alt,
             media_type = image.MediaType,
-        }, ViewJson), [new("image", image.Bytes)]), record);
+        }, ViewJson), image.Bytes);
 
-    public static int Display(Points points, bool record = false)
+    public static int Send(Points points)
     {
         var count = points.X.Length;
         var colors = points.Colors ?? [];
@@ -112,16 +108,14 @@ public static class Effects
             (colors.Length != 0 && colors.Length != count))
             return 1;
 
-        return Display(Configured("tsugumi:points", JsonSerializer.Serialize(new { count }, ViewJson),
-        [
-            new("x", LittleEndian(points.X, sizeof(float), BinaryPrimitives.WriteSingleLittleEndian)),
-            new("y", LittleEndian(points.Y, sizeof(float), BinaryPrimitives.WriteSingleLittleEndian)),
-            new("z", LittleEndian(points.Z, sizeof(float), BinaryPrimitives.WriteSingleLittleEndian)),
-            new("colors", LittleEndian(colors, sizeof(uint), BinaryPrimitives.WriteUInt32LittleEndian)),
-        ]), record);
+        return SendBinary("points", JsonSerializer.Serialize(new { count }, ViewJson),
+            LittleEndian(points.X, sizeof(float), BinaryPrimitives.WriteSingleLittleEndian),
+            LittleEndian(points.Y, sizeof(float), BinaryPrimitives.WriteSingleLittleEndian),
+            LittleEndian(points.Z, sizeof(float), BinaryPrimitives.WriteSingleLittleEndian),
+            LittleEndian(colors, sizeof(uint), BinaryPrimitives.WriteUInt32LittleEndian));
     }
 
-    public static int Display(LineChart chart, bool record = false)
+    public static int Send(LineChart chart)
     {
         var offset = 0;
         var series = new List<ChartSeries>();
@@ -135,18 +129,16 @@ public static class Effects
         }
         var x = chart.Series.SelectMany(row => row.X).ToArray();
         var y = chart.Series.SelectMany(row => row.Y).ToArray();
-        return Display(Configured("tsugumi:line-chart", JsonSerializer.Serialize(new { series }, ViewJson),
-        [
-            new("x", LittleEndian(x, sizeof(double), BinaryPrimitives.WriteDoubleLittleEndian)),
-            new("y", LittleEndian(y, sizeof(double), BinaryPrimitives.WriteDoubleLittleEndian)),
-        ]), record);
+        return SendBinary("line-chart", JsonSerializer.Serialize(new { series }, ViewJson),
+            LittleEndian(x, sizeof(double), BinaryPrimitives.WriteDoubleLittleEndian),
+            LittleEndian(y, sizeof(double), BinaryPrimitives.WriteDoubleLittleEndian));
     }
 
-    public static int Display(Plotly plot, bool record = false) =>
-        Display(Configured("tsugumi:plotly", plot.Config), record);
+    public static int Send(Plotly plot) =>
+        SendJson("plotly", plot.Config);
 
-    public static int Display(VegaLite plot, bool record = false) =>
-        Display(Configured("tsugumi:vega-lite", plot.Config), record);
+    public static int Send(VegaLite plot) =>
+        SendJson("vega-lite", plot.Config);
 
     private sealed record ChartSeries(int count, string id, string label, int offset);
     private delegate void WriteValue<T>(Span<byte> bytes, T value);

@@ -3,8 +3,8 @@ module Tsugumi
 import JSON
 import Printf
 
-export Inputs, path, display, cancelled, remaining_ms, CardFailure
-export Markdown, Scalar, Table, Image, Points, LineChart, Plotly, VegaLite, View
+export Inputs, path, send, cancelled, remaining_ms, CardFailure
+export Markdown, Scalar, Table, Image, Points, LineChart, Plotly, VegaLite
 
 struct Inputs
     ports::Dict{String,Any}
@@ -70,35 +70,33 @@ end
 struct VegaLite
     config::Any
 end
-# A display for a named entry in the Card's views. The view module defines the
-# blob names and bytes, such as a "config" blob.
-struct View
-    view::String
-    blobs::Dict{String,Vector{UInt8}}
-end
-View(view::AbstractString; blobs=Dict{String,Vector{UInt8}}()) = View(view, blobs)
-
-function emit(kind, value, record::Bool)
-    data = JSON.json(value)
-    code = @ccall gc_safe=true $(HOST.display)(kind::Cstring, data::Cstring, record::Cint)::Cint
+function send(view::AbstractString, bytes::AbstractVector{UInt8})
+    data = convert(Vector{UInt8}, bytes)
+    code = @ccall gc_safe=true $(HOST.send)(view::Cstring, data::Ptr{UInt8}, length(data)::Csize_t)::Cint
     code == 0 || error("display was rejected")
     return nothing
 end
 
-display(value::AbstractString; record::Bool=false) = emit("text", value, record)
-display(value::Markdown; record::Bool=false) = emit("markdown", value.text, record)
-display(value::Real; record::Bool=false) = display(Scalar(value); record)
-function display(value::Scalar; record::Bool=false)
-    number = isfinite(value.value) ? Printf.@sprintf("%.6g", value.value) : "\u2014"
-    display(Markdown(isempty(value.label) ? number : "**$(value.label)**: $number"); record)
+function emit(kind, value)
+    data = JSON.json(value)
+    code = @ccall gc_safe=true $(HOST.emit)(kind::Cstring, data::Cstring)::Cint
+    code == 0 || error("display was rejected")
+    return nothing
 end
-display(value::Table; record::Bool=false) = emit("table", value, record)
-display(value::Image; record::Bool=false) = emit("image", value, record)
-display(value::Points; record::Bool=false) = emit("points", value, record)
-display(value::LineChart; record::Bool=false) = emit("line-chart", value.series, record)
-display(value::Plotly; record::Bool=false) = emit("plotly", value.config, record)
-display(value::VegaLite; record::Bool=false) = emit("vega-lite", value.config, record)
-display(value::View; record::Bool=false) = emit("module", value, record)
+
+send(value::AbstractString) = emit("text", value)
+send(value::Markdown) = emit("markdown", value.text)
+send(value::Real) = send(Scalar(value))
+function send(value::Scalar)
+    number = isfinite(value.value) ? Printf.@sprintf("%.6g", value.value) : "\u2014"
+    send(Markdown(isempty(value.label) ? number : "**$(value.label)**: $number"))
+end
+send(value::Table) = emit("table", value)
+send(value::Image) = emit("image", value)
+send(value::Points) = emit("points", value)
+send(value::LineChart) = emit("line-chart", value.series)
+send(value::Plotly) = emit("plotly", value.config)
+send(value::VegaLite) = emit("vega-lite", value.config)
 
 # JSON.jl normally writes nonfinite values as null. Keep the three ABI-internal
 # tokens distinct from null and let the generated glue interpret float fields.
@@ -114,8 +112,8 @@ function JSON.show_json(io::JSON.Writer.StructuralContext, s::PortSerialization,
 end
 
 module CardCode
-using ..Tsugumi: Inputs, path, display, cancelled, remaining_ms, CardFailure
-using ..Tsugumi: Markdown, Scalar, Table, Image, Points, LineChart, Plotly, VegaLite, View
+using ..Tsugumi: Inputs, path, send, cancelled, remaining_ms, CardFailure
+using ..Tsugumi: Markdown, Scalar, Table, Image, Points, LineChart, Plotly, VegaLite
 end
 
 const source_root = Ref("")

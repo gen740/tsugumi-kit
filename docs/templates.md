@@ -16,7 +16,13 @@ filter-counts/
     src/card.cc
 ```
 
-A Card that displays values exposes `views` from its `default.nix`. Each display names one of those views and carries named blobs that the view's module defines. Each view is a derivation that declares how the core loads it, with `passthru.tsugumiView = { kind = "js" | "wasm"; entry = "<file in $out>"; }`. Both C++ templates forward the views bundled with the C++ SDK, which already declare it. To add a view of your own, build it with `tsugumi-kit.lib.${system}.view { kind; src; entry; }`. See [Display a value](cpp-sdk.md#display-a-value).
+A Card declares its views alongside `run` and `exports` in `default.nix`.
+Set `views = sdk.views;` for the bundled views, or append your own entries
+with `views = sdk.views ++ [ { name = "notes"; type = "html"; blob = ./notes.html; } ];`.
+Each `blob` is one self-contained HTML file for `"html"` or one Wasm binary
+for `"dawn"`. A Card sends opaque bytes to the view by name at runtime.
+Both C++ templates include the bundled HTML views.
+See [Display a value](cpp-sdk.md#display-a-value).
 
 A template may include a `layout.json` fragment with positions for its Cards. A graph's **connections** specify which output port feeds which input port. Layout coordinates only tell the UI where to draw the Cards. In the temperature example, both definition directories, the internal wire and the layout travel together.
 
