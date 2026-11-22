@@ -12,7 +12,7 @@
       checkTextTemplate =
         name: definitionDir: libraries:
         let
-          # Both starters connect a required Text input to a required File output.
+          # These starters connect a required Text input to a required File output.
           contract = ../tests/templates/text-to-file;
           definition = import definitionDir {
             inputs.tsugumi = self.lib.${system}.bind { inherit contract definitionDir; };
@@ -31,6 +31,7 @@
     in
     {
       checks.cppAbi9 = pkgs.callPackage ./cpp-check.nix { kit = self.lib.${system}; };
+      checks.javaAbi9 = pkgs.callPackage ./java-check.nix { kit = self.lib.${system}; };
       # The root entry builds with the caller's pkgs, not the kit's pin.
       checks.cppAbi9ProjectPkgs =
         assert projectKit.cppRuntime.drvPath != self.lib.${system}.cppRuntime.drvPath;
@@ -44,5 +45,11 @@
       checks.rustNumberLinesTemplate =
         checkTextTemplate "rust-number-lines" ../templates/rust-number-lines/number
           [ "main.so" ];
+      checks.javaWriteTextTemplate =
+        checkTextTemplate "java-write-text" ../templates/java-write-text/write
+          [
+            "main.so"
+            "card.jar"
+          ];
     };
 }

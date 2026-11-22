@@ -48,7 +48,7 @@ Under the v1 design, choose the destination store and supply three values. For t
 | Ref | `main` (use a commit ID to select an exact version) |
 | Subdirectory | `templates/filter-counts` |
 
-The subdirectory is the **template root**. Choosing its inner `filter/` directory would select one level too deep. To import a two-Card example, use `templates/temperature-conversion`, `templates/go-normalize-text` or `templates/rust-number-lines`. v1 supports public Git repositories only.
+The subdirectory is the **template root**. Choosing its inner `filter/` directory would select one level too deep. The [template index](../templates/README.md) lists the available examples, including `templates/java-write-text`. v1 supports public Git repositories only.
 
 | Destination store | Scope |
 | --- | --- |

@@ -13,6 +13,7 @@ let
   builders = {
     inherit (pkgs.callPackage ./nix/cpp-card.nix { inherit runtime; }) cppCard;
     pythonCard = pkgs.callPackage ./sdk/python { inherit runtime ipaexGothic; };
+    javaCard = pkgs.callPackage ./nix/java-card.nix { inherit runtime; };
     inherit (import ./nix/go-card.nix { inherit pkgs runtime; }) goCard goCardSdk;
     rustCard = import ./sdk/rust {
       inherit pkgs;
@@ -31,6 +32,10 @@ let
     pythonSdk = {
       inherit pythonCard;
       views = views.plotlyViews;
+    };
+    javaSdk = {
+      inherit javaCard;
+      views = views.common;
     };
     goSdk = {
       inherit goCard goCardSdk;

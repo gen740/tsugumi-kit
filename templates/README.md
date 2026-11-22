@@ -9,5 +9,6 @@ upcoming ABI 9 integration in Tsugumi.
 | [Convert a temperature](temperature-conversion/) | An Input Card wired to a C++ Card, with a layout fragment for the pair. |
 | [Normalize text with Go](go-normalize-text/) | An Input Card wired to a Go Card that collapses whitespace and returns a text File. |
 | [Number lines with Rust](rust-number-lines/) | An Input Card wired to a Rust Card that numbers the lines and returns a text File. |
+| [Write text with Java](java-write-text/) | An Input Card wired to a Java Card that displays the text and returns it as a File. |
 
 See the [template guide](../docs/templates.md) for the format and Git import fields.

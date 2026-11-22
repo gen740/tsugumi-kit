@@ -24,6 +24,7 @@ whole or to Tsugumi's worker, which belongs to the core.
 | Path | Contents |
 | --- | --- |
 | [C++ SDK guide](docs/cpp-sdk.md) | Write a typed Card for ABI 9, display results and work with files in the worker. |
+| [Java SDK guide](docs/java-sdk.md) | Build a typed Java Card with an embedded JVM. |
 | [Template guide](docs/templates.md) | Template format, Git import and the host and project stores. |
 | [Example templates](templates/README.md) | A [CSV filter](templates/filter-counts/) and a [two-Card temperature conversion](templates/temperature-conversion/). |
 | `abi/9/` | Vendored Card ABI 9 header and FlatBuffers schemas. |
@@ -74,8 +75,8 @@ explicitly, for example `bash -c …`.
 
 Each language SDK exposes a builder and a `views` list under
 `lib.${system}`. The SDK attributes are `cppSdk`, `pythonSdk`, `goSdk`,
-`rustSdk`, `csharpSdk`, `juliaSdk`, `rSdk`, and `rubySdk`. Every SDK
-bundles the `line-chart` and `points` HTML views. C++ and Python also
+`rustSdk`, `csharpSdk`, `juliaSdk`, `rSdk`, `rubySdk`, and `javaSdk`.
+Every SDK bundles the `line-chart` and `points` HTML views. C++, Python, and Java also
 bundle `text`, `markdown`, `table`, and `image`. Python bundles `plotly`.
 
 Declare `views = sdk.views ++ [ ... ];` alongside `run` in your Card's
