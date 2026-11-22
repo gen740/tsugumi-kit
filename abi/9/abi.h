@@ -20,9 +20,11 @@ typedef struct tsugumi_bytes {
 typedef struct tsugumi_effects {
   /* Process-lifetime callback, callable from Card threads between calls.
    * The host context for send is valid for the process lifetime. The host
-   * must consume or copy view and bytes before returning. Returns zero on
-   * success and a nonzero status for undeclared views or other failures.
-   * The host does not record messages.
+   * must consume or copy view and bytes before returning. Returns zero when
+   * the host accepted the message and nonzero otherwise. The core does not
+   * check the view name: the UI matches it against the Card's declared
+   * views and shows an error for an unknown name. The host does not record
+   * messages.
    */
   int (*send)(void* host, const char* view, const uint8_t* bytes, size_t size);
   /* These callbacks and their context are valid only during the call.

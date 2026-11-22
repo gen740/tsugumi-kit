@@ -81,7 +81,7 @@ HTML with any JavaScript and Wasm embedded, or `type = "dawn"` for a Wasm
 binary targeting the Dawn host. The SDK currently bundles HTML views.
 
 Use `card::display::send(view, bytes)` for a custom view. The view defines the
-meaning of the bytes. The host routes them by the declared view name.
+meaning of the bytes. The host passes them on with the view name.
 
 ```cpp
 const int status = card::display::send(
@@ -89,7 +89,9 @@ const int status = card::display::send(
 ```
 
 Keep the backing storage alive until `send` returns. A zero status means the
-host accepted the update. An undeclared view name returns a nonzero status.
+host accepted the update. The core does not check the view name. The UI
+matches it against the Card's declared views and shows an error for an
+unknown name, so a zero status does not mean the view exists.
 The callback and its host context last for the process lifetime, so a
 Card-owned thread can send its own data after `run` returns. Display
 messages do not enter history.

@@ -28,8 +28,21 @@ whole or to Tsugumi's worker, which belongs to the core.
 | [Example templates](templates/README.md) | A [CSV filter](templates/filter-counts/) and a [two-Card temperature conversion](templates/temperature-conversion/). |
 | `abi/9/` | Vendored Card ABI 9 header and FlatBuffers schemas. |
 | `sdk/cpp/` | C++ Card code generator, adapter and static runtime. |
+| `default.nix` | The SDK set for a given nixpkgs: `import ./. { inherit pkgs; }`. |
 | `nix/` | Flake outputs, including the C++ Card builder and runtime package. |
 | `tests/` | Example ABI 9 Card, fake host and compatibility checks. |
+
+## Entry
+
+`default.nix` takes `{ pkgs }` and returns the SDK set built with that
+nixpkgs. The Tsugumi core imports it with the project's `pkgs`, so a Card
+builds with the project's pin rather than the kit's. The set holds each
+builder (`cppCard`, `pythonCard`, …), each SDK attribute set with its
+`views`, the `cppRuntime` package and `bind { contract, definitionDir; }`,
+which returns the SDK attribute sets with every builder bound to that
+Card's contract. The core passes that result to the Card's `default.nix`
+as `inputs.tsugumi`. The flake's `lib.${system}` is the same set built with
+the kit's own nixpkgs.
 
 ## Views
 
@@ -42,7 +55,9 @@ Declare `views = sdk.views ++ [ ... ];` alongside `run` in your Card's
 `default.nix`. A view entry has a `name`, a `type` of `"html"` or
 `"dawn"`, and a `blob` pointing to a single self-contained HTML file or
 Wasm binary, respectively. The ABI's `send` effect delivers opaque bytes
-to a declared view during or between calls. Display messages are live
+to a view by name during or between calls. The core does not check the
+name; the UI matches it against the Card's declared views and shows an
+error for an unknown name. Display messages are live
 and do not enter history. See the [view protocol](docs/cpp-sdk.md#display-a-value).
 
 The typed text, markdown, table, and image encoders in the other SDKs can

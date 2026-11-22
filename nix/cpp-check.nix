@@ -4,11 +4,13 @@
   runCommandCC,
   flatbuffers,
   zlib,
-  cppSdk,
-  runtime,
+  # The kit's root entry, `import ./. { inherit pkgs; }`.
+  kit,
 }:
 let
+  inherit (kit) cppSdk;
   inherit (cppSdk) cppCard;
+  runtime = kit.cppRuntime;
   contract = ../tests/cpp/contract;
   tests = lib.fileset.toSource {
     root = ../tests;
@@ -23,12 +25,12 @@ let
     ];
   };
   definitionDir = ../tests/card;
-  bound = cppCard { inherit contract definitionDir; };
+  # Inject the SDKs the way the core does.
+  injected = kit.bind { inherit contract definitionDir; };
+  bound = injected.cppSdk.cppCard;
   definition = import definitionDir {
     pkgs = { inherit zlib; };
-    inputs.tsugumi.cppSdk = cppSdk // {
-      cppCard = bound;
-    };
+    inputs.tsugumi = injected;
   };
   card = definition.run;
   direct = cppCard {
