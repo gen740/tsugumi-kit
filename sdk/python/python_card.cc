@@ -173,26 +173,25 @@ auto LoadDispatch() -> PyObject* {
   return dispatch;
 }
 
-auto ToPythonBytes(const flatbuffers::Vector<uint8_t>* bytes) -> PyObject* {
-  if (!bytes) return PyBytes_FromStringAndSize("", 0);
-  return PyBytes_FromStringAndSize(reinterpret_cast<const char*>(bytes->data()),
-                                   bytes->size());
+auto ToPythonBytes(tsugumi_bytes bytes) -> PyObject* {
+  return PyBytes_FromStringAndSize(reinterpret_cast<const char*>(bytes.data),
+                                   bytes.size);
 }
 
-auto CallDispatch(PyObject* dispatch, const Tsugumi::Card::CardInput& input)
-    -> PyObject* {
-  const Object params(ToPythonBytes(input.params()));
+auto CallDispatch(PyObject* dispatch, const PythonInput& input) -> PyObject* {
+  const Object params(ToPythonBytes(input.Params()));
   const Object ports(PyDict_New());
   if (!params || !ports) return nullptr;
-  if (input.inputs()) {
-    for (const auto* port : *input.inputs()) {
-      const Object key(PyUnicode_DecodeUTF8(port->name()->data(),
-                                            port->name()->size(), nullptr));
-      const Object value(ToPythonBytes(port->bytes()));
-      if (!key || !value ||
-          PyDict_SetItem(ports.get(), key.get(), value.get()) < 0)
-        return nullptr;
-    }
+  for (const auto& [name, data] : input.Ports()) {
+    const Object key(PyUnicode_DecodeUTF8(name.data(), name.size(), nullptr));
+    const auto* path = std::get_if<std::filesystem::path>(&data);
+    const Object value(path ? ToPythonBytes({reinterpret_cast<const uint8_t*>(
+                                                 path->native().data()),
+                                             path->native().size()})
+                            : ToPythonBytes(std::get<tsugumi_bytes>(data)));
+    if (!key || !value ||
+        PyDict_SetItem(ports.get(), key.get(), value.get()) < 0)
+      return nullptr;
   }
   return PyObject_CallFunctionObjArgs(dispatch, params.get(), ports.get(),
                                       nullptr);
@@ -226,10 +225,21 @@ auto ReadResult(PyObject* value) -> Tsugumi::Card::CardResultT {
     }
     const auto* bytes =
         reinterpret_cast<const uint8_t*>(PyBytes_AS_STRING(data));
+    const size_t size = PyBytes_GET_SIZE(data);
+    if (kind == static_cast<unsigned char>(PortKind::Path)) {
+      WritePath(result, name,
+                std::filesystem::path(std::string_view(
+                    reinterpret_cast<const char*>(bytes), size)),
+                true);
+      continue;
+    }
+    if (kind != static_cast<unsigned char>(PortKind::FlatBuffer))
+      Reject(FailureKind::output_invalid,
+             "Unknown output kind for " + std::string(name));
     auto port = std::make_unique<Tsugumi::Card::CardPortT>();
     port->name = name;
-    port->kind = static_cast<PortKind>(kind);
-    port->bytes.assign(bytes, bytes + PyBytes_GET_SIZE(data));
+    port->kind = PortKind::FlatBuffer;
+    port->bytes.assign(bytes, bytes + size);
     result.outputs.push_back(std::move(port));
   }
   return result;
@@ -237,53 +247,7 @@ auto ReadResult(PyObject* value) -> Tsugumi::Card::CardResultT {
 
 }  // namespace
 
-PythonInput::PythonInput(tsugumi_bytes bytes)
-    : buffer_(bytes), input_(buffer_.Verify<Tsugumi::Card::CardInput>()) {
-  if (!input_) Reject(FailureKind::invalid_request, "Invalid CardInput");
-  if (!input_->inputs()) return;
-  for (const auto* port : *input_->inputs()) {
-    switch (port->kind()) {
-      case PortKind::FlatBuffer:
-      case PortKind::File:
-      case PortKind::Directory:
-        break;
-      default:
-        Reject(FailureKind::invalid_request, "Unknown input port kind");
-    }
-    const auto name = port->name()->string_view();
-    if (!ports_.emplace(name, port).second)
-      Reject(FailureKind::invalid_request,
-             "Duplicate input " + std::string(name));
-  }
-}
-
-auto PythonInput::TakePort(std::string_view name, PortKind kind, bool required)
-    -> const Tsugumi::Card::CardPort* {
-  const auto port = ports_.extract(name);
-  if (port.empty()) {
-    if (required)
-      Reject(FailureKind::input_missing, "Missing input " + std::string(name));
-    return nullptr;
-  }
-  if (port.mapped()->kind() != kind)
-    Reject(FailureKind::invalid_request,
-           "Wrong kind for input " + std::string(name));
-  return port.mapped();
-}
-
-auto PythonInput::Params() const -> tsugumi_bytes {
-  const auto* params = input_->params();
-  return params ? tsugumi_bytes{params->data(), params->size()}
-                : tsugumi_bytes{};
-}
-
-auto PythonInput::CheckConsumed() const -> void {
-  if (!ports_.empty())
-    Reject(FailureKind::invalid_request, "Unknown input port");
-}
-
-auto RunPython(const Tsugumi::Card::CardInput& input)
-    -> Tsugumi::Card::CardResultT {
+auto RunPython(const PythonInput& input) -> Tsugumi::Card::CardResultT {
   static const auto initialization_error = InitializePython();
   if (!initialization_error.empty())
     Reject(FailureKind::worker_failed, initialization_error);

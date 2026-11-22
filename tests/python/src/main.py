@@ -1,5 +1,6 @@
 import math
 import os
+import subprocess
 import threading
 import warnings
 from datetime import date
@@ -8,14 +9,16 @@ from pathlib import Path
 import tsugumi
 from card import Input, Output
 from inputs.table.Detail import Detail as InputDetail
-from outputs.file.File import FileT
+from inputs.arrival.tsugumi.merge.t0.Temperature import TemperatureT as InputTemperature
+from inputs.arrival.tsugumi.merge.t1.Reading import ReadingT as InputReading
+from outputs.arrival.tsugumi.merge.t0.Temperature import TemperatureT
+from outputs.arrival.tsugumi.merge.t1.Reading import ReadingT
 from outputs.number.Number import NumberT
 from outputs.number.Position import PositionT
 from outputs.table.Count import CountT
 from outputs.table.Data import DataT
 from outputs.table.Detail import Detail
 from outputs.table.Row import RowT
-from outputs.with_.Directory import DirectoryT
 from matplotlib.figure import Figure
 from packaging.version import Version
 from plotly import graph_objects as go
@@ -126,12 +129,40 @@ def run(input: Input) -> Output:
             return Output()
         case 7:
             # A generated type can pack an absent required field.
-            return Output(number=NumberT(position=PositionT()), table=DataT(), file=FileT())
+            return Output(number=NumberT(position=PositionT()), table=DataT(), file="result.txt")
         case 11:
             _check_blocking_queries(input.params.fd, input.params.ackFd)
         case 12:
             _check_throwing_queries()
 
+        case 13:
+            assert input.get("unwired") is None
+            input.require("unwired")
+        case 17:
+            assert subprocess.run(["tsugumi-python-probe"]).returncode == 42
+        case 18:
+            assert "PATH" not in os.environ
+            try:
+                subprocess.run(["tsugumi-python-probe"])
+            except FileNotFoundError:
+                pass
+            else:
+                raise AssertionError("Found an undeclared tool")
+        case 19:
+            try:
+                tsugumi.send(tsugumi.Points([1], [2], []))
+            except ValueError:
+                pass
+            else:
+                raise AssertionError("Accepted malformed points")
+            try:
+                tsugumi.send("arbitrary-view", b"test")
+            except RuntimeError as error:
+                assert str(error) == "The host rejected the display"
+            else:
+                raise AssertionError("Ignored transport rejection")
+
+    number_input = input.require("from")
     assert input.table.detailType == InputDetail.Note
     assert input.table.detail.text == b"sample"
     rows = []
@@ -148,24 +179,24 @@ def run(input: Input) -> Output:
     table.detail = CountT()
     table.detail.value = rows[0].count
 
-    position = input.from_.position
+    assert input.get("from") is number_input
+    position = number_input.position
     assert (position.x, position.y) == (39, -200)
     number = NumberT(
         value=position.x + input.from__.value + rows[0].count,
         position=PositionT(x=position.x, y=position.y),
     )
-    file = FileT()
     if input.file is None:
         path = Path("result.txt")
         path.write_text(str(number.value))
-        file.value = path
+        file = path
     else:
-        assert Path(input.file.value).read_text() == "sample input"
-        file.value = input.file.value
+        assert Path(input.file).read_text() == "sample input"
+        file = input.file
     directory = None
     if input.directory is not None:
-        assert (Path(input.directory.value) / "sample.txt").read_text() == "sample directory"
-        directory = DirectoryT(value=input.directory.value)
+        assert (Path(input.directory) / "sample.txt").read_text() == "sample directory"
+        directory = input.directory
 
     match input.params.mode:
         case 8:
@@ -175,4 +206,17 @@ def run(input: Input) -> Output:
         case 10:
             rows[0].rowDetail = NumberT(value=42)
 
-    return Output(number=number, table=table, file=file, with_=directory)
+    arrival = None
+    if isinstance(input.arrival, InputTemperature):
+        arrival = TemperatureT(value=input.arrival.value + 1)
+    elif isinstance(input.arrival, InputReading):
+        arrival = ReadingT(name=input.arrival.name)
+    else:
+        assert input.get("arrival") is None
+
+    if input.params.mode == 16:
+        file = "bad\0path"
+    if input.params.mode == 20:
+        arrival = number
+
+    return Output(number=number, table=table, file=file, with_=directory, arrival=arrival)

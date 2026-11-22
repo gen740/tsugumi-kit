@@ -4,7 +4,6 @@ import importlib
 import os
 import sys
 import traceback
-from copy import copy
 from functools import cache
 from pathlib import Path, PurePosixPath
 
@@ -16,7 +15,6 @@ from Tsugumi.Data.PortKind import PortKind
 from . import Failure
 
 _SOURCE_ROOT = Path(sys.path[1])
-_PATH_KINDS = (PortKind.File, PortKind.Directory)
 
 
 def _pack(value):
@@ -95,7 +93,7 @@ def _check_unions(value, cls, checks):
         variant = variants.get(tag)
         if variant is None or not isinstance(item, variant):
             raise ValueError(f"{cls.__name__}.{member} does not match its union tag")
-        _check_unions(item, variant, checks)
+        _check_unions(item, type(item), checks)
     for member, child, vector in children:
         item = getattr(value, member)
         if item is None:
@@ -107,26 +105,61 @@ def _check_unions(value, cls, checks):
             _check_unions(item, child, checks)
 
 
+def _unpack_port(data, cls, cases):
+    if cls is None:
+        return os.fsdecode(data)
+    item = cls.InitFromPackedBuf(data)
+    if not cases:
+        return item
+    case = cases.get(item.valueType)
+    if case is None or not isinstance(item.value, case[0]) or item.value.bytes is None:
+        raise ValueError("Invalid boxed Merge value")
+    _, member, nested = case
+    # The native verifier checks nested_flatbuffer fields before Python decodes them.
+    return _unpack_port(bytes(item.value.bytes), member, nested)
+
+
+def _pack_port(item, cls, cases, checks):
+    if cases:
+        encoded = _pack_merge(item, cls, cases, checks)
+        if encoded is None:
+            raise TypeError("Expected a member of the Merge union")
+        return encoded
+    if not isinstance(item, cls):
+        raise TypeError(f"Expected {cls.__name__}")
+    _check_unions(item, cls, checks)
+    return _pack(item)
+
+
+def _pack_merge(item, cls, cases, checks):
+    for tag, (box, member, nested) in cases.items():
+        if nested:
+            payload = _pack_merge(item, member, nested, checks)
+        elif isinstance(item, member):
+            payload = _pack_port(item, member, nested, checks)
+        else:
+            continue
+        if payload is not None:
+            return _pack(cls(valueType=tag, value=box(bytes=payload)))
+    return None
+
+
 def _outputs_to_ports(value, output_type, outputs, union_checks):
     if not isinstance(value, output_type):
         raise Failure("output_invalid", "run must return a card.Output")
-    for name, member, cls, kind, required in outputs:
+    for name, member, cls, cases, required in outputs:
         item = getattr(value, member)
         if item is None:
             if required:
                 raise Failure("output_invalid", f"Missing output {name}")
             continue
-        if not isinstance(item, cls):
-            raise Failure("output_invalid", f"Output {name} must be a {cls.__name__}")
         try:
-            _check_unions(item, cls, union_checks)
-            if kind in _PATH_KINDS and item.value is not None:
-                item = copy(item)
-                item.value = os.fsencode(item.value)
-            encoded = _pack(item)
+            if cls is None:
+                yield name, PortKind.Path, os.fsencode(item)
+            else:
+                yield name, PortKind.FlatBuffer, _pack_port(item, cls, cases, union_checks)
         except Exception as error:
             raise Failure("output_invalid", f"Invalid output {name}: {error}") from error
-        yield name, kind, encoded
 
 
 def invoke(params, ports):
@@ -134,15 +167,14 @@ def invoke(params, ports):
     if failure is not None:
         return failure
     run, Input, Output, Params, inputs, outputs, union_checks = card
-    try:
-        values = {}
-        for name, member, cls, kind, _ in inputs:
-            item = cls.InitFromPackedBuf(ports[name]) if name in ports else None
-            if item is not None and kind in _PATH_KINDS and item.value is not None:
-                item.value = os.fsdecode(item.value)
-            values[member] = item
-    except Exception as error:
-        return _failure(Failure("invalid_request", f"Cannot unpack inputs: {error}"))
+    values = {}
+    for name, member, cls, cases, _ in inputs:
+        if name not in ports:
+            continue
+        try:
+            values[member] = _unpack_port(ports[name], cls, cases)
+        except Exception as error:
+            return _failure(Failure("invalid_request", f"Invalid input {name}: {error}"))
     try:
         input = Input(params=Params.InitFromPackedBuf(params), **values)
         return list(_outputs_to_ports(run(input), Output, outputs, union_checks))

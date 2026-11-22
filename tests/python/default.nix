@@ -3,35 +3,28 @@
   stdenv,
   runCommandCC,
   flatbuffers,
-  pythonSdk,
-  runtime,
+  pkgs,
+  kit,
 }:
 let
-  args = {
-    src = ./src;
-    contract = ./contract;
-    packages = ps: [
-      ps.packaging
-      ps.plotly
-      ps.matplotlib
-      (ps.buildPythonPackage {
-        pname = "tsugumi-pth-probe";
-        version = "1";
-        pyproject = false;
-        dontUnpack = true;
-        installPhase = ''
-          site="$out/${ps.python.sitePackages}"
-          mkdir -p "$site/tsugumi-pth-modules"
-          cat > "$site/tsugumi-pth-probe.pth" <<'EOF'
-          tsugumi-pth-modules
-          import sys, tsugumi_pth_probe; sys.path.insert(0, ""); tsugumi_pth_probe.loaded = True
-          EOF
-          echo 'loaded = False' > "$site/tsugumi-pth-modules/tsugumi_pth_probe.py"
-        '';
-      })
-    ];
+  inherit (kit) pythonSdk;
+  runtime = kit.cppRuntime;
+  schemas = ./schemas;
+  definition =
+    withTools:
+    import ./card.nix {
+      inherit pkgs schemas;
+      inputs.tsugumi = kit;
+      params = { inherit withTools; };
+    };
+  card = (definition false).run;
+  starter = import ../../templates/python-write-text/write {
+    inherit pkgs;
+    inputs.tsugumi = kit;
+    params = { };
+    schemas = ../templates/text-to-path;
   };
-  card = pythonSdk.pythonCard args;
+  withTools = (definition true).run;
   host = lib.fileset.toSource {
     root = ../.;
     fileset = lib.fileset.unions [
@@ -42,6 +35,7 @@ let
   };
   inherit (stdenv.hostPlatform) isDarwin;
 in
+assert (definition false).views == pythonSdk.views && starter.views == pythonSdk.views;
 assert !(card ? views);
 assert
   map (view: view.name) pythonSdk.views == [
@@ -58,6 +52,11 @@ runCommandCC "tsugumi-python-abi9-check"
   {
     nativeBuildInputs = [ flatbuffers ];
     buildInputs = [ flatbuffers ];
+    passthru.apiCards = [
+      card
+      withTools
+      starter.run
+    ];
   }
   ''
     test ! -e "${card}/bin"
@@ -69,7 +68,7 @@ runCommandCC "tsugumi-python-abi9-check"
     done
 
     for schema in _inputs _outputs _params; do
-      flatc --cpp --gen-object-api --scoped-enums -o . "${./contract}/$schema.fbs"
+      flatc --cpp --gen-object-api --scoped-enums -o . "${schemas}/$schema.fbs"
     done
     $CC -std=c11 -D_DEFAULT_SOURCE -DIN_CALL_DISPLAY_COUNT=10 \
       -Wall -Wextra -Werror -I"$include" -c "$tests/fake_host.c"
@@ -80,11 +79,22 @@ runCommandCC "tsugumi-python-abi9-check"
     $CXX "''${cxx[@]}" fake_host.o wire.o "''${link[@]}" -o fake_host
     $CXX "''${cxx[@]}" "${./effects.cc}" wire.o "''${link[@]}" -o effects
 
-    mkdir work effects-work 'input dir'
+    mkdir work effects-work tools-work 'input dir'
     printf '%s' 'sample input' > input.txt
     printf '%s' 'sample directory' > 'input dir/sample.txt'
     (cd work && HOME="$PWD" ../fake_host "$card" "$PWD/../legacy.so")
     (cd effects-work && HOME="$PWD" ../effects "$card")
+    test -x "${withTools}/bin/tsugumi-python-probe"
+    (cd tools-work && env -i HOME="$PWD" ../effects --tools "${withTools}/lib/main.so")
+    mkdir no-tools-work
+    (cd no-tools-work && env -i HOME="$PWD" ../effects --no-tools "$card")
+
+    test -s "${starter.run}/share/tsugumi/api/card.pyi"
+    api=${card}/share/tsugumi/api
+    test -s "$api/card.pyi"
+    test -s "$api/inputs/arrival/tsugumi/merge/t0/Temperature.pyi"
+    test ! -e "$api/inputs/arrival/tsugumi/merge/TemperatureBox.pyi"
+    grep -F 'TemperatureT | inputs.arrival.tsugumi.merge.t1.ReadingT | None' "$api/README.md"
 
     ${
       if isDarwin then

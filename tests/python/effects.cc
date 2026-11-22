@@ -3,7 +3,9 @@
 
 #include <array>
 #include <cstdio>
+#include <cstdlib>
 #include <stdexcept>
+#include <string_view>
 
 #include "wire.h"
 
@@ -28,9 +30,9 @@ auto WaitForPython(void* host) -> void {
 }  // namespace
 
 auto main(int argc, char** argv) -> int {
-  CHECK(argc == 2);
+  CHECK(argc == 2 || argc == 3);
   alarm(30);
-  void* library = dlopen(argv[1], RTLD_NOW | RTLD_LOCAL);
+  void* library = dlopen(argv[argc - 1], RTLD_NOW | RTLD_LOCAL);
   if (!library) {
     std::fprintf(stderr, "%s\n", dlerror());
     return 1;
@@ -44,6 +46,42 @@ auto main(int argc, char** argv) -> int {
                        .host = nullptr,
                        .effects = nullptr};
   tsugumi_bytes result;
+  if (argc == 3) {
+    const bool tools = std::string_view(argv[1]) == "--tools";
+    const auto* path = std::getenv("PATH");
+    CHECK((path != nullptr) == tools);
+    call.input = make_input(VALID, tools ? 17 : 18, -1);
+    CHECK(entry(&call, &result) == 0);
+    check_success(result, 0);
+    return 0;
+  }
+
+  for (int mode : {13, 14, 16, 20, 21}) {
+    call.input = make_input(VALID, mode, -1);
+    CHECK(entry(&call, &result) == 0);
+    check_card_failure(result, mode);
+  }
+  call.input = make_input(VALID, 15, -1);
+  CHECK(entry(&call, &result) == 0);
+  check_success(result, 2);
+
+  int sends = 0;
+  const tsugumi_effects rejecting = {
+      [](void* host, const char* view, const uint8_t*, size_t) {
+        CHECK(std::string_view(view) == "arbitrary-view");
+        ++*static_cast<int*>(host);
+        return 1;
+      },
+      nullptr,
+      nullptr,
+  };
+  call.host = &sends;
+  call.effects = &rejecting;
+  call.input = make_input(VALID, 19, -1);
+  CHECK(entry(&call, &result) == 0);
+  check_success(result, 0);
+  CHECK(sends == 1);
+
   for (int mode = 8; mode <= 10; ++mode) {
     call.input = make_input(VALID, mode, -1);
     CHECK(entry(&call, &result) == 0);

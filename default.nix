@@ -12,7 +12,7 @@ let
   views = pkgs.callPackage ./sdk/views { };
   builders = {
     inherit (pkgs.callPackage ./nix/cpp-card.nix { inherit runtime portCodegen; }) cppCard;
-    pythonCard = pkgs.callPackage ./sdk/python { inherit runtime ipaexGothic; };
+    pythonCard = pkgs.callPackage ./sdk/python { inherit runtime ipaexGothic portCodegen; };
     javaCard = pkgs.callPackage ./nix/java-card.nix { inherit runtime; };
     inherit (import ./nix/go-card.nix { inherit pkgs runtime; }) goCard goCardSdk;
     rustCard = import ./sdk/rust {

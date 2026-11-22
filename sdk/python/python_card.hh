@@ -1,5 +1,7 @@
 #pragma once
 
+#include <variant>
+
 #include "adapter.hh"
 
 namespace tsugumi::abi9 {
@@ -12,36 +14,37 @@ auto VerifyValue(tsugumi_bytes bytes, std::string_view name) -> void {
            "Invalid FlatBuffer for " + std::string(name));
 }
 
-// Keep the verified envelope alive while Python copies its nested buffers.
+// Input owns the verified envelope while Python copies the selected values.
 class PythonInput {
  public:
-  explicit PythonInput(tsugumi_bytes bytes);
+  using Value = std::variant<tsugumi_bytes, std::filesystem::path>;
+  using Port = std::pair<std::string_view, Value>;
+
+  explicit PythonInput(tsugumi_bytes bytes) : input_(bytes) {}
 
   template <class Table>
-  auto VerifyPort(std::string_view name, PortKind kind, bool required) -> void {
-    if (const auto* port = TakePort(name, kind, required)) {
-      const auto* bytes = port->bytes();
-      VerifyValue<Table>(
-          bytes ? tsugumi_bytes{bytes->data(), bytes->size()} : tsugumi_bytes{},
-          name);
+  auto ReadPort(std::string_view name) -> void {
+    if (const auto bytes = input_.ReadPortBytes(name)) {
+      VerifyValue<Table>(*bytes, name);
+      ports_.emplace_back(name, *bytes);
     }
   }
 
-  auto Envelope() const -> const Tsugumi::Card::CardInput& { return *input_; }
-  auto Params() const -> tsugumi_bytes;
-  auto CheckConsumed() const -> void;
+  auto ReadPath(std::string_view name) -> void {
+    if (auto path = input_.ReadPath(name))
+      ports_.emplace_back(name, std::move(*path));
+  }
+
+  auto Params() const -> tsugumi_bytes { return input_.Params(); }
+  auto Ports() const -> const std::vector<Port>& { return ports_; }
+  auto CheckConsumed() const -> void { input_.CheckConsumed(); }
 
  private:
-  auto TakePort(std::string_view name, PortKind kind, bool required)
-      -> const Tsugumi::Card::CardPort*;
-
-  Buffer buffer_;
-  const Tsugumi::Card::CardInput* input_;
-  std::unordered_map<std::string_view, const Tsugumi::Card::CardPort*> ports_;
+  Input input_;
+  std::vector<Port> ports_;
 };
 
-auto RunPython(const Tsugumi::Card::CardInput& input)
-    -> Tsugumi::Card::CardResultT;
+auto RunPython(const PythonInput& input) -> Tsugumi::Card::CardResultT;
 
 template <class Table>
 auto VerifyOutput(const Tsugumi::Card::CardPortT& port) -> void {

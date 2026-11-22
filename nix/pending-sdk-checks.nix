@@ -6,7 +6,6 @@
   "java"
   "js"
   "julia"
-  "python"
   "r"
   "ruby"
   "rust"

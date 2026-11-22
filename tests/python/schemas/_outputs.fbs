@@ -1,0 +1,34 @@
+attribute "tsugumi";
+
+namespace outputs.number;
+struct Position (force_align: 32) { x:long; y:long; }
+table Number { value:long; position:Position (required); }
+
+namespace outputs.table;
+table Note { text:string (required); }
+table Count { value:long; }
+union Detail { Note, Count }
+table Row { name:string (required); count:long; row_detail:Detail; }
+table Data { rows:[Row] (required); detail:Detail; }
+
+namespace outputs.arrival.tsugumi.merge.t0;
+table Temperature { value:double (id: 0); }
+
+namespace outputs.arrival.tsugumi.merge.t1;
+table Reading { name:string (id: 0, required); }
+
+namespace outputs.arrival.tsugumi.merge;
+table TemperatureBox { bytes:[ubyte] (id: 0, nested_flatbuffer: "outputs.arrival.tsugumi.merge.t0.Temperature"); }
+table ReadingBox { bytes:[ubyte] (id: 0, nested_flatbuffer: "outputs.arrival.tsugumi.merge.t1.Reading"); }
+union Arrival { TemperatureBox, ReadingBox }
+table Merged { value:Arrival (id: 1); }
+
+namespace outputs;
+table Outputs {
+  number:outputs.number.Number (id: 0, required);
+  table:outputs.table.Data (id: 1, required);
+  file:string (id: 2, required, tsugumi: "path");
+  with:string (id: 3, tsugumi: "path");
+  arrival:outputs.arrival.tsugumi.merge.Merged (id: 4);
+}
+root_type Outputs;

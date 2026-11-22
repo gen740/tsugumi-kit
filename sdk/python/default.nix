@@ -6,11 +6,12 @@
   flatbuffers,
   python3,
   ipaexGothic,
+  portCodegen,
   runtime,
 }:
 {
   src,
-  contract,
+  schemas,
   python ? python3,
   packages ? (_: [ ]),
   tools ? [ ],
@@ -24,24 +25,15 @@ let
       {
         nativeBuildInputs = [
           flatbuffers
-          python3
+          (python3.withPackages (_: [ portCodegen ]))
         ];
       }
       ''
-        contract=${lib.escapeShellArg "${contract}"}
         abi=${../../abi/9}
-        mkdir -p "$out/include" "$out/python" "$out/wire"
-        python3 ${./generate.py} prepare "${../cpp}" "$contract"
-        for schema in _inputs _outputs _params; do
-          flatc --cpp --scoped-enums -I "$contract" -o "$out/include" "$schema.fbs"
-          flatc --python --gen-object-api -I "$contract" -o "$out/python" "$schema.fbs"
-        done
-        flatc --python --gen-object-api -o "$out/wire" "$abi/tsugumi_enums.fbs" "$abi/card.fbs"
-        # Use schema metadata only during generation of the Python union checks.
-        flatc --binary --schema -I "$contract" _outputs.fbs
-        flatc --json --strict-json --defaults-json --raw-binary \
-          ${flatbuffers.src}/reflection/reflection.fbs -- _outputs.bfbs
-        python3 ${./generate.py} generate "$out/python/card.py" "$out/card_adapter.cc"
+        PYTHONPATH="${../cpp}''${PYTHONPATH:+:$PYTHONPATH}" \
+          python3 ${./generate.py} ${lib.escapeShellArg "${schemas}"} "$out" \
+          ${flatbuffers.src}/reflection/reflection.fbs
+        flatc --python --gen-object-api -o "$out/wire" "$abi/card_enums.fbs" "$abi/card.fbs"
       '';
 in
 runCommandCC "tsugumi-python-card"
@@ -54,7 +46,15 @@ runCommandCC "tsugumi-python-card"
   ''
     src=${lib.escapeShellArg "${src}"}
     test -f "$src/main.py" || { echo "pythonCard: src must contain main.py" >&2; exit 1; }
-    mkdir -p "$out/lib/python/tsugumi" "$out/lib/python-wire"
+    api="$out/share/tsugumi/api"
+    mkdir -p "$out/lib/python/tsugumi" "$out/lib/python-wire" "$api"
+    cp "${bindings}/README.md" "$api/"
+    (
+      cd "${bindings}/python"
+      find . -name '*.pyi' -print0 | while IFS= read -r -d "" stub; do
+        install -Dm644 "$stub" "$api/$stub"
+      done
+    )
     cp -R --no-preserve=mode "${bindings}/python/." "$out/lib/python/"
     cp -R "${./tsugumi}/." "$out/lib/python/tsugumi/"
     if [ -d "${pythonEnv}/${python.sitePackages}/matplotlib" ]; then
