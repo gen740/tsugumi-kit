@@ -105,9 +105,10 @@ pkgs.runCommandCC "tsugumi-julia-card"
     }
 
     mkdir -p "$out/lib"
+    ${import ../../nix/prepare-tools.nix { inherit lib; } tools}
     $CXX -std=c++2c -O2 -DNDEBUG -fPIC -fvisibility=hidden -fvisibility-inlines-hidden \
       -Wall -Wextra -Werror -Wformat=2 -Wimplicit-fallthrough \
-      -shared "''${exports[@]}" \
+      -shared "''${toolPathObject[@]}" "''${exports[@]}" \
       -isystem generated/include -I${./.} -I${runtime}/include -I${../cpp/src} -I${legacyHeaders} \
       -isystem ${julia}/include/julia \
       -DTSUGUMI_LIBJULIA='"${juliaLib}"' \
@@ -119,5 +120,4 @@ pkgs.runCommandCC "tsugumi-julia-card"
       -DTSUGUMI_JULIA_SOURCE_PREFIX=${lib.escapeShellArg (builtins.toJSON sourcePrefix)} \
       card_adapter.cc ${./bridge.cc} ${runtime}/lib/libtsugumi_abi9.a \
       -L${julia}/lib -Wl,-rpath,${julia}/lib -ljulia -pthread -o "$out/lib/main.so"
-    ${import ../../nix/install-tools.nix { inherit lib; } tools}
   ''

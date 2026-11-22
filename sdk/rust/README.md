@@ -42,7 +42,10 @@ produce `output_invalid`.
 `tsugumi::send(view, bytes)` takes a declared view name and a byte slice.
 `tsugumi::send_value(value)` supports text, `f64`, `Scalar`, `Markdown`,
 `Table`, `Image`, `Points`, `LineChart`, `Plotly`, and `VegaLite` values.
-Both functions return `tsugumi::Result<()>`.
+Both functions return `tsugumi::Result<()>`. Local argument and encoding
+errors return a `Failure` with kind `invalid_request` before calling the host.
+A nonzero host status returns `worker_failed` and includes the transport status.
+The core forwards the view name and the UI looks up the corresponding declared view.
 
 The SDK at `lib.${system}.rustSdk` bundles the `line-chart` and `points` HTML views.
 Declare the matching views in your Card's `default.nix` with

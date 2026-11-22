@@ -249,6 +249,18 @@ extern "C" auto check_card_failure(tsugumi_bytes bytes, int mode) -> void {
                 .message()
                 ->string_view() == "Display failed (status 73)");
       break;
+    case 14:
+    case 15:
+    case 16: {
+      static constexpr const char* messages[] = {
+          "View names cannot contain a NUL byte",
+          "Point coordinates and colors must have matching lengths",
+          "Line coordinates must be finite and have matching lengths"};
+      CHECK(ReadFailure(bytes, FailureKind::invalid_request)
+                .message()
+                ->string_view() == messages[mode - 14]);
+      break;
+    }
     default:
       CHECK(false);
   }

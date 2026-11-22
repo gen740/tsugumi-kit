@@ -24,7 +24,7 @@
 
 extern bool tsugumi_r_cancelled(void);
 extern double tsugumi_r_remaining_ms(void);
-extern bool tsugumi_r_display(const char* request);
+extern bool tsugumi_r_display(const char* request, int* status);
 extern int tsugumi_r_send(const char* view, const uint8_t* bytes, size_t size);
 
 static SEXP sdk;
@@ -50,7 +50,10 @@ static SEXP remaining_ms(void) {
 
 static SEXP emit(SEXP request) {
   const char* json = Rf_translateCharUTF8(STRING_ELT(request, 0));
-  if (!tsugumi_r_display(json)) Rf_error("display rejected");
+  int status;
+  if (!tsugumi_r_display(json, &status))
+    Rf_error("could not encode the display value");
+  if (status) Rf_error("display rejected");
   return R_NilValue;
 }
 

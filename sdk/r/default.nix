@@ -91,11 +91,11 @@ runCommandCC name
           link=(-Wl,--version-script,"$TMPDIR/exports" -Wl,-z,defs -ldl)
         ''
     }
+    ${import ../../nix/prepare-tools.nix { inherit lib; } tools}
     $CXX -std=c++2c -O2 -DNDEBUG -fPIC -fvisibility=hidden -fvisibility-inlines-hidden \
       -Wall -Wextra -Werror -Wformat=2 -Wimplicit-fallthrough \
-      -shared "''${link[@]}" "''${includes[@]}" \
+      -shared "''${toolPathObject[@]}" "''${link[@]}" "''${includes[@]}" \
       "${generated}/src/r_adapter.cc" ${./bridge.cc} embed.o \
       "${runtime}/lib/libtsugumi_abi9.a" -pthread \
       -L"${rHome}/lib" -Wl,-rpath,"${rHome}/lib" -lR -o "$out/lib/main.so"
-    ${import ../../nix/install-tools.nix { inherit lib; } tools}
   ''

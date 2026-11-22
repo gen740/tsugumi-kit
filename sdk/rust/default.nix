@@ -96,8 +96,8 @@ pkgs.runCommandCC name
           link=(-Wl,--version-script,"$TMPDIR/exports" -Wl,-z,defs)
         ''
     }
-    $CC -shared rust_host.o "$target_dir/${target}/release/lib${library}.a" \
+    ${import ../../nix/prepare-tools.nix { inherit lib; } tools}
+    $CC -shared "''${toolPathObject[@]}" rust_host.o "$target_dir/${target}/release/lib${library}.a" \
       "''${link[@]}" "''${native_link[@]}" \
       -o "$out/lib/main.so"
-    ${import ../../nix/install-tools.nix { inherit lib; } tools}
   ''

@@ -83,9 +83,10 @@ public final class Main {
     }
 
     private static void checkTools() throws IOException, InterruptedException {
-        Path sort = Path.of(System.getenv("PATH"), "sort");
+        String sort = "tsugumi-test-sort";
+        check(Files.isSymbolicLink(Path.of(System.getenv("PATH"), sort)));
         Files.writeString(Path.of("sort.txt"), "b\na\n");
-        var process = new ProcessBuilder(sort.toString(), "sort.txt").start();
+        var process = new ProcessBuilder(sort, "sort.txt").start();
         try (var output = process.inputReader()) {
             check("a".equals(output.readLine()) && "b".equals(output.readLine()));
         }

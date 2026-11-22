@@ -1,4 +1,4 @@
-use std::ffi::c_int;
+use std::ffi::CString;
 
 use serde_json::{Value, json};
 
@@ -6,23 +6,17 @@ use crate::runtime::{Failure, FailureKind, Result, send_display};
 
 /// A value that can be sent to a view.
 pub trait DisplayValue {
-    fn send(self) -> c_int;
+    #[track_caller]
+    fn send(self) -> Result<()>;
 }
 
 /// Send opaque bytes to a declared view.
 #[track_caller]
 pub fn send(view: &str, bytes: &[u8]) -> Result<()> {
-    check_status(send_display(view, bytes))
-}
-
-/// Encode a typed value and send it to its corresponding view.
-#[track_caller]
-pub fn send_value(value: impl DisplayValue) -> Result<()> {
-    check_status(value.send())
-}
-
-#[track_caller]
-fn check_status(status: c_int) -> Result<()> {
+    let Ok(view) = CString::new(view) else {
+        return Err(invalid_display("View names cannot contain a NUL byte"));
+    };
+    let status = send_display(&view, bytes);
     if status == 0 {
         Ok(())
     } else {
@@ -33,31 +27,44 @@ fn check_status(status: c_int) -> Result<()> {
     }
 }
 
-fn builtin(view: &str, config: Value) -> c_int {
-    send_display(view, config.to_string().as_bytes())
+/// Encode a typed value and send it to its corresponding view.
+#[track_caller]
+pub fn send_value(value: impl DisplayValue) -> Result<()> {
+    value.send()
 }
 
-fn with_binary(view: &str, config: Value, parts: &[&[u8]]) -> c_int {
+#[track_caller]
+fn invalid_display(message: &str) -> Failure {
+    Failure::new(FailureKind::invalid_request, message)
+}
+
+#[track_caller]
+fn builtin(view: &str, config: Value) -> Result<()> {
+    send(view, config.to_string().as_bytes())
+}
+
+#[track_caller]
+fn with_binary(view: &str, config: Value, parts: &[&[u8]]) -> Result<()> {
     let config = config.to_string();
     let Ok(size) = u32::try_from(config.len()) else {
-        return 1;
+        return Err(invalid_display("Display metadata is too large"));
     };
     let mut payload = size.to_le_bytes().to_vec();
     payload.extend(config.as_bytes());
     for part in parts {
         payload.extend_from_slice(part);
     }
-    send_display(view, &payload)
+    send(view, &payload)
 }
 
 impl DisplayValue for &str {
-    fn send(self) -> c_int {
+    fn send(self) -> Result<()> {
         builtin("text", json!({"text": self}))
     }
 }
 
 impl DisplayValue for String {
-    fn send(self) -> c_int {
+    fn send(self) -> Result<()> {
         self.as_str().send()
     }
 }
@@ -65,7 +72,7 @@ impl DisplayValue for String {
 pub struct Markdown<'a>(pub &'a str);
 
 impl DisplayValue for Markdown<'_> {
-    fn send(self) -> c_int {
+    fn send(self) -> Result<()> {
         builtin("markdown", json!({"text": self.0}))
     }
 }
@@ -101,7 +108,7 @@ pub struct Scalar<'a> {
 }
 
 impl DisplayValue for f64 {
-    fn send(self) -> c_int {
+    fn send(self) -> Result<()> {
         Scalar {
             value: self,
             label: "",
@@ -111,7 +118,7 @@ impl DisplayValue for f64 {
 }
 
 impl DisplayValue for Scalar<'_> {
-    fn send(self) -> c_int {
+    fn send(self) -> Result<()> {
         let number = if self.value.is_finite() {
             format_g6(self.value)
         } else {
@@ -132,7 +139,7 @@ pub struct Table<'a, S = &'a str> {
 }
 
 impl<S: AsRef<str>> DisplayValue for Table<'_, S> {
-    fn send(self) -> c_int {
+    fn send(self) -> Result<()> {
         let columns: Vec<_> = self.columns.iter().map(AsRef::as_ref).collect();
         let rows: Vec<Vec<_>> = self
             .rows
@@ -150,7 +157,7 @@ pub struct Image<'a> {
 }
 
 impl DisplayValue for Image<'_> {
-    fn send(self) -> c_int {
+    fn send(self) -> Result<()> {
         with_binary(
             "image",
             json!({"media_type": self.media_type, "alt": self.alt}),
@@ -167,13 +174,15 @@ pub struct Points<'a> {
 }
 
 impl DisplayValue for Points<'_> {
-    fn send(self) -> c_int {
+    fn send(self) -> Result<()> {
         let count = self.x.len();
         if self.y.len() != count
             || self.z.len() != count
             || (!self.colors.is_empty() && self.colors.len() != count)
         {
-            return 1;
+            return Err(invalid_display(
+                "Point coordinates and colors must have matching lengths",
+            ));
         }
 
         let x: Vec<u8> = self.x.iter().flat_map(|v| v.to_le_bytes()).collect();
@@ -196,7 +205,7 @@ pub struct LineChart<'a> {
 }
 
 impl DisplayValue for LineChart<'_> {
-    fn send(self) -> c_int {
+    fn send(self) -> Result<()> {
         let mut x = Vec::new();
         let mut y = Vec::new();
         let mut offset = 0;
@@ -204,7 +213,9 @@ impl DisplayValue for LineChart<'_> {
         for row in self.series {
             let count = row.x.len();
             if row.y.len() != count || !row.x.iter().chain(row.y).all(|value| value.is_finite()) {
-                return 1;
+                return Err(invalid_display(
+                    "Line coordinates must be finite and have matching lengths",
+                ));
             }
             series
                 .push(json!({"id": row.id, "label": row.label, "offset": offset, "count": count}));
@@ -220,13 +231,13 @@ pub struct Plotly<'a>(pub &'a str);
 pub struct VegaLite<'a>(pub &'a str);
 
 impl DisplayValue for Plotly<'_> {
-    fn send(self) -> c_int {
-        send_display("plotly", self.0.as_bytes())
+    fn send(self) -> Result<()> {
+        send("plotly", self.0.as_bytes())
     }
 }
 
 impl DisplayValue for VegaLite<'_> {
-    fn send(self) -> c_int {
-        send_display("vega-lite", self.0.as_bytes())
+    fn send(self) -> Result<()> {
+        send("vega-lite", self.0.as_bytes())
     }
 }

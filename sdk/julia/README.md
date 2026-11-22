@@ -41,7 +41,9 @@ A `[ubyte]` field uses standard padded base64, with `base64encode` and
 `send(view, bytes)` takes a declared view name and an
 `AbstractVector{UInt8}`. `send(value)` supports strings, real scalars,
 `Markdown`, `Scalar`, `Table`, `Image`, `Points`, `LineChart`,
-`Plotly`, and `VegaLite`. A rejected send throws an error.
+`Plotly`, and `VegaLite`. Local argument and encoding errors throw before
+calling the host. If the host cannot accept the message, `send` throws
+`ErrorException("display was rejected")`.
 
 The SDK at `lib.${system}.juliaSdk` bundles the `line-chart` and `points` HTML views.
 Declare the matching views in your Card's `default.nix` with

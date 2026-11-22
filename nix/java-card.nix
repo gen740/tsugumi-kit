@@ -81,13 +81,13 @@ runCommandCC "tsugumi-java-card"
           link=(-Wl,--version-script,"$PWD/exports" -Wl,-z,defs)
         ''
     }
+    ${import ./prepare-tools.nix { inherit lib; } tools}
     $CXX -std=c++2c -O2 -DNDEBUG -fPIC -fvisibility=hidden \
-      -Wall -Wextra -Werror -Wformat=2 -Wimplicit-fallthrough -shared "''${link[@]}" \
+      -Wall -Wextra -Werror -Wformat=2 -Wimplicit-fallthrough -shared "''${toolPathObject[@]}" "''${link[@]}" \
       -Igenerated/include -I${../sdk/java} -I${../sdk/cpp/src} -I${runtime}/include \
       -I${jdk}/include -I${jdk}/include/${if isDarwin then "darwin" else "linux"} \
       "-DTSUGUMI_JAVA_CLASSPATH=\"$out/lib/card.jar:$TSUGUMI_JAVA_CLASSPATH\"" \
       generated/card_adapter.cc ${../sdk/java/host.cc} ${runtime}/lib/libtsugumi_abi9.a \
       -Wl,-rpath,${jvmDir} "${jvmDir}/libjvm${stdenv.hostPlatform.extensions.sharedLibrary}" \
       -pthread ${lib.optionalString (!isDarwin) "-ldl"} -o "$out/lib/main.so"
-    ${import ./install-tools.nix { inherit lib; } tools}
   ''

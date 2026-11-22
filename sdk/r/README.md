@@ -62,7 +62,9 @@ running the Card again. Keep files needed across calls under `HOME`.
 The constructors `markdown(text)`, `scalar(value, label)`,
 `image(bytes, media_type, alt)`, `points(x, y, z, colors)`,
 `line_chart(series)`, `plotly(spec)` and `vega_lite(spec)` select other
-views. A rejected send raises an R error.
+views. Local argument and encoding errors raise an R error before calling
+the host. If the host cannot accept the message, `send` raises
+`"display rejected"`.
 
 The SDK at `lib.${system}.rSdk` bundles the `line-chart` and `points` HTML views.
 Declare the matching views in your Card's `default.nix` with

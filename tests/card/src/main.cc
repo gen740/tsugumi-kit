@@ -1,7 +1,11 @@
+#include <spawn.h>
+#include <sys/wait.h>
 #include <unistd.h>
 #include <zlib.h>
 
+#include <cerrno>
 #include <cstdint>
+#include <cstdlib>
 #include <exception>
 #include <memory>
 #include <source_location>
@@ -19,6 +23,7 @@
 namespace {
 
 std::thread background;
+const bool path_configured_at_load = std::getenv("PATH") != nullptr;
 
 auto DisplaySamples() -> bool {
   const std::vector<std::string> columns{"n"};
@@ -40,6 +45,23 @@ auto DisplaySamples() -> bool {
              card::display::Points{point, point, point, colors}) == 0 &&
          card::display::send(card::display::LineChart{series}) == 0 &&
          card::display::send("custom", bytes) == 0;
+}
+
+auto CheckTools(bool declared) -> void {
+  if (path_configured_at_load != declared)
+    throw std::runtime_error("Unexpected PATH during Card initialization");
+  char tool[] = "tsugumi-test-tool";
+  char* const args[] = {tool, nullptr};
+  char* const environment[] = {nullptr};
+  pid_t pid;
+  const int error =
+      posix_spawnp(&pid, tool, nullptr, nullptr, args, environment);
+  if (error == ENOENT && !declared) return;
+  if (error != 0) throw std::runtime_error("Could not start the declared tool");
+  int status;
+  if (waitpid(pid, &status, 0) != pid || !declared || !WIFEXITED(status) ||
+      WEXITSTATUS(status) != 42)
+    throw std::runtime_error("Unexpected tool result");
 }
 
 }  // namespace
@@ -100,6 +122,10 @@ auto run(const Card::Inputs& input) -> Card::Output {
         throw std::runtime_error("Could not synchronize the host query");
       break;
     }
+    case 18:
+    case 19:
+      CheckTools(input.params.mode == 18);
+      break;
   }
 
   Card::Output out;

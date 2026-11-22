@@ -124,13 +124,13 @@ pkgs.runCommandCC name
           link=(-Wl,--version-script,"$TMPDIR/exports" -Wl,-z,defs -ldl)
         ''
     }
+    ${import ../../nix/prepare-tools.nix { inherit lib; } tools}
     $CXX -std=c++2c -O2 -DNDEBUG -fPIC -fvisibility=hidden -fvisibility-inlines-hidden \
-      -Wall -Wextra -Werror -Wformat=2 -Wimplicit-fallthrough -shared \
+      -Wall -Wextra -Werror -Wformat=2 -Wimplicit-fallthrough -shared "''${toolPathObject[@]}" \
       -I"${cppRuntime}/include" -I"${../cpp/src}" -isystem "${hostHeaders}" \
       -DTSUGUMI_HOSTFXR='"'${hostfxr}'"' -DTSUGUMI_DOTNET_ROOT='"'${dotnetRoot}'"' \
       -DTSUGUMI_CSHARP_ASSEMBLY='"'${managed}/Card.dll'"' \
       -DTSUGUMI_CSHARP_RUNTIMECONFIG='"'${managed}/Card.runtimeconfig.json'"' \
       ${./host.cc} "${cppRuntime}/lib/libtsugumi_abi9.a" -pthread "''${link[@]}" \
       -o "$out/lib/main.so"
-    ${import ../../nix/install-tools.nix { inherit lib; } tools}
   ''

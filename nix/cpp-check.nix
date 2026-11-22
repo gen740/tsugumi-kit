@@ -4,6 +4,7 @@
   runCommandCC,
   flatbuffers,
   coreutils,
+  writeShellScriptBin,
   zlib,
   # The kit's root entry, `import ./. { inherit pkgs; }`.
   kit,
@@ -29,21 +30,31 @@ let
   # Inject the SDKs the way the core does.
   injected = kit.bind { inherit contract definitionDir; };
   bound = injected.cppSdk.cppCard;
+  testTool = writeShellScriptBin "tsugumi-test-tool" "exit 42";
   definition = import definitionDir {
-    pkgs = { inherit coreutils zlib; };
+    pkgs = { inherit coreutils testTool zlib; };
     inputs.tsugumi = injected;
   };
   card = definition.run;
-  direct = cppCard {
+  directArgs = {
     inherit contract definitionDir;
     src = ../tests/card/src;
     buildInputs = [ zlib ];
-    tools = [ coreutils ];
     cxxflags = [
       "-DABI9_TEST_CARD"
       "-lz"
     ];
   };
+  direct = cppCard (
+    directArgs
+    // {
+      tools = [
+        coreutils
+        testTool
+      ];
+    }
+  );
+  withoutTools = cppCard directArgs;
   checkTemplate =
     template:
     let
@@ -114,11 +125,9 @@ runCommandCC "tsugumi-cpp-abi9-check"
       "$tests/cpp/wire.cc" fake_host.o -pthread ${lib.optionalString (!isDarwin) "-ldl"} -o fake_host
     test -L "${card}/bin/sort"
     test ! -e "${card}/bin/sh"
-    test "$(PATH="${card}/bin" sort <<'EOF'
-    b
-    a
-    EOF
-    )" = $'a\nb'
+    test ! -e "${withoutTools}/bin"
+    env -i ./fake_host --tools "$card" "${card}/bin"
+    env -i ./fake_host --tools "${withoutTools}/lib/main.so" ""
     ./fake_host "$card" "$PWD/legacy.so"
 
     ${

@@ -58,6 +58,12 @@ function main(input)
 
     if mode == 1
         !cancelled() && remaining_ms() == 500 || error("wrong active effects")
+        try
+            send(Points([1], [], [1]))
+            error("expected a local display argument error")
+        catch err
+            err isa ArgumentError || rethrow()
+        end
         send("résumé\n\"")
         send(Markdown("**text**"))
         send(2.5)

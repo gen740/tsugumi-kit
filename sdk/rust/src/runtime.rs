@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::ffi::{c_int, c_void};
+use std::ffi::{CStr, c_int, c_void};
 use std::panic::{AssertUnwindSafe, Location, catch_unwind};
 use std::path::{Component, Path};
 use std::sync::{Mutex, MutexGuard};
@@ -319,10 +319,7 @@ pub fn remaining_ms() -> i64 {
     })
 }
 
-pub(crate) fn send_display(view: &str, bytes: &[u8]) -> c_int {
-    let Ok(view) = std::ffi::CString::new(view) else {
-        return 1;
-    };
+pub(crate) fn send_display(view: &CStr, bytes: &[u8]) -> c_int {
     // Release the lock before invoking the process-lifetime callback.
     let target = *lock(&DISPLAY);
     target.map_or(1, |target| unsafe {

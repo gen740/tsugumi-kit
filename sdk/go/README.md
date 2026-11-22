@@ -35,8 +35,9 @@ validates input and output FlatBuffers with typed verifiers.
 `tsugumi.Send(view, bytes)` takes a declared view name and a byte slice.
 `tsugumi.SendValue(value)` encodes strings, numbers, `Markdown`, `Scalar`,
 `Table`, `Image`, `Points`, `LineChart`, `Plotly`, and `VegaLite` for
-their corresponding views. Both functions return an error if the host rejects
-the update.
+their corresponding views. Local argument and encoding errors are returned
+before calling the host. A nonzero host status produces a transport error
+indicating the host could not accept the message.
 
 The SDK at `lib.${system}.goSdk` bundles the `line-chart` and `points` HTML views.
 Declare the matching views in your Card's `default.nix` with

@@ -54,9 +54,8 @@ Outside the core, call `lib.<system>.javaCard { src; contract; }`, where
   JARs on both the compile-time and runtime classpaths. Include any
   transitive JARs the Card needs. The builder runs `javac` and `jar`.
 - Pass `tools = [ pkgs.coreutils ];` for executables your Card needs.
-  The worker's `PATH` contains the Card package's `bin` if present. With
-  `ProcessBuilder`, resolve the executable against that directory and pass
-  its absolute path to keep lookup within the declared tools. See
+  The SDK sets `PATH` to the Card package's `bin` before starting Java.
+  Use `ProcessBuilder` with the command name and its arguments. See
   [Runtime tools](../README.md#runtime-tools).
 
 ## Typed ports and parameters
@@ -107,8 +106,9 @@ non-finite positions.
 
 Use `Display.send(String view, byte[] bytes)` for a custom view. Add its
 `{ name; type; blob; }` entry with `views = sdk.views ++ [ ... ];`.
-The view defines its payload format. The SDK throws `IllegalStateException`
-if the host rejects the send. Card threads may send between invocations.
+The view defines its payload format. Argument and encoding errors throw before
+the SDK calls the host. The SDK throws `IllegalStateException` if the host
+cannot accept the message. Card threads may send between invocations.
 Messages are live and do not enter history. See the
 [view protocol](cpp-sdk.md#display-a-value).
 

@@ -94,6 +94,21 @@ fn run(input: Inputs<'_>) -> Result<Output> {
         }
         12 => std::panic::panic_any(PanicsOnDrop),
         13 => send("undeclared", &[0, 13, 255])?,
+        14 => send("invalid\0name", &[])?,
+        15 => send_value(Points {
+            x: &[1.0],
+            y: &[],
+            z: &[1.0],
+            colors: &[],
+        })?,
+        16 => send_value(LineChart {
+            series: &[Series {
+                id: "id",
+                label: "line",
+                x: &[f64::NAN],
+                y: &[1.0],
+            }],
+        })?,
         _ => {}
     }
 

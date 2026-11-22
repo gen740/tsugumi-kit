@@ -108,7 +108,27 @@ static void check_query_during_return(tsugumi_main_fn entry, int mode) {
   CHECK(close(sockets[0]) == 0 && close(sockets[1]) == 0);
 }
 
+static int check_tools(const char* card, const char* expected_path) {
+  CHECK(getenv("PATH") == NULL);
+  void* library = load(card);
+  tsugumi_main_fn entry = get_entry(library);
+  const int with_tools = expected_path[0] != '\0';
+  tsugumi_call call = {.abi_version = TSUGUMI_ABI_VERSION,
+                       .input = make_input(VALID, with_tools ? 18 : 19, -1)};
+  tsugumi_bytes result;
+  CHECK(entry(&call, &result) == 0);
+  check_success(result, 0);
+  const char* path = getenv("PATH");
+  CHECK(with_tools ? path && strcmp(path, expected_path) == 0 : path == NULL);
+  CHECK(dlclose(library) == 0);
+  puts(with_tools ? "Card ran a declared tool by name"
+                  : "Tool-free Card left PATH unset and found no tool");
+  return 0;
+}
+
 int main(int argc, char** argv) {
+  if (argc == 4 && strcmp(argv[1], "--tools") == 0)
+    return check_tools(argv[2], argv[3]);
   CHECK(shared_host_main(argc, argv) == 0);
 
   void* current = load(argv[1]);

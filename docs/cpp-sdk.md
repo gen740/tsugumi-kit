@@ -49,8 +49,8 @@ in
 
 The builder also accepts optional `buildInputs`, `cxxflags`, and `tools` lists.
 Use `tools = [ pkgs.coreutils ];` to put `sort` and the other coreutils
-executables on the Card's runtime `PATH`. The worker provides no default
-`PATH` or `/bin/sh`. Use `execvp` or `posix_spawnp` with an argument array
+executables on the Card's runtime `PATH`. The SDK initializes `PATH` when
+the Card library loads. Use `execvp` or `posix_spawnp` with an argument array
 to start a declared tool directly. See [Runtime tools](../README.md#runtime-tools).
 SDK selection belongs in `default.nix`. Omit `language` from `_card.json`.
 
@@ -116,8 +116,9 @@ const int status = card::display::send(
 Keep the backing storage alive until `send` returns. A nonzero status means
 only that the host could not accept the message. The core forwards the name
 unchecked. The UI matches it against the Card's declared views and shows an
-error for an undeclared name. The C++ SDK throws `std::invalid_argument` for
-invalid chart shapes or a raw view name containing a NUL byte.
+error for an undeclared name. Argument and encoding errors throw before
+the SDK calls the host. Invalid chart or point shapes and raw view names
+containing a NUL byte throw `std::invalid_argument`.
 The callback and its host context last for the process lifetime, so a
 Card-owned thread can send its own data after `run` returns. Display
 messages do not enter history.

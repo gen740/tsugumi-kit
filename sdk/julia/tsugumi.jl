@@ -79,8 +79,10 @@ end
 
 function emit(kind, value)
     data = JSON.json(value)
-    code = @ccall gc_safe=true $(HOST.emit)(kind::Cstring, data::Cstring)::Cint
-    code == 0 || error("display was rejected")
+    status = Ref{Cint}()
+    encoding = @ccall gc_safe=true $(HOST.emit)(kind::Cstring, data::Cstring, status::Ref{Cint})::Cint
+    encoding == 0 || throw(ArgumentError("could not encode the display value"))
+    status[] == 0 || error("display was rejected")
     return nothing
 end
 

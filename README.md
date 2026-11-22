@@ -64,11 +64,12 @@ in
 }
 ```
 
-Under the ABI 9 launch contract, the worker sets `PATH` to the Card
-package's `bin` directory when it exists and leaves `PATH` unset otherwise.
-The worker provisions no `/bin/sh`. If two packages provide the same command,
-the first package in `tools` wins. Start commands directly with their argument
-arrays. To use shell syntax, declare a shell package and invoke its executable
+The worker starts with `PATH` unset. When `tools` is nonempty, the SDK sets
+`PATH` to the absolute path of the Card package's `bin` directory as
+`lib/main.so` loads. An empty `tools` list leaves `PATH` unset.
+If two packages provide the same command, the first package in `tools` wins.
+Start commands directly with their argument arrays. To use shell syntax,
+declare a shell package and invoke its executable
 explicitly, for example `bash -c …`.
 
 ## Views

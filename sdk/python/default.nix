@@ -73,9 +73,10 @@ runCommandCC "tsugumi-python-card"
           link=(-Wl,--version-script,"$TMPDIR/exports" -Wl,-z,defs)
         ''
     }
+    ${import ../../nix/prepare-tools.nix { inherit lib; } tools}
     $CXX -std=c++2c -O2 -DNDEBUG -fPIC -fvisibility=hidden -fvisibility-inlines-hidden \
       -Wall -Wextra -Werror -Wformat=2 -Wimplicit-fallthrough \
-      -shared "''${link[@]}" -I"${bindings}/include" -I"${runtime}/include" \
+      -shared "''${toolPathObject[@]}" "''${link[@]}" -I"${bindings}/include" -I"${runtime}/include" \
       -I"${./.}" -I"${../cpp/src}" -I"${python}/include/python${python.pythonVersion}" \
       "-DTSUGUMI_PY_HOME=\"${python}\"" "-DTSUGUMI_LIBPYTHON=\"${libpython}\"" \
       "-DTSUGUMI_PY_SDK=\"$out/lib/python\"" "-DTSUGUMI_PY_SOURCE=\"$src\"" \
@@ -84,5 +85,4 @@ runCommandCC "tsugumi-python-card"
       "${./.}/python_card.cc" "${bindings}/card_adapter.cc" \
       "${runtime}/lib/libtsugumi_abi9.a" "${libpython}" \
       -pthread ${lib.optionalString (!isDarwin) "-ldl"} -o "$out/lib/main.so"
-    ${import ../../nix/install-tools.nix { inherit lib; } tools}
   ''

@@ -58,7 +58,8 @@ positions.
 
 Append custom views with `views = sdk.views ++ [ ... ];` and publish their
 payloads with `tsugumi.send(view, bytes)`. The named view defines the bytes'
-format. The SDK raises `RuntimeError` when the host rejects a send.
+format. Argument and encoding errors raise exceptions before calling the host.
+The SDK raises `RuntimeError` if the host cannot accept the message.
 See the [view protocol](../../docs/cpp-sdk.md#display-a-value).
 
 Call `tsugumi.send(tsugumi.Plotly(fig))` with a Plotly figure, or pass a

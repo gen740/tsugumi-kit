@@ -115,6 +115,11 @@ public static class Card
 
     private static void DisplaySamples()
     {
+        ExpectArgumentError(() => Send("invalid\0name", []));
+        ExpectArgumentError(() => Send(new Points([1], [], [1])));
+        ExpectArgumentError(() => Send(new LineChart([new("id", "line", [2], [])])));
+        ExpectArgumentError(() => Send(new LineChart([new("id", "line", [2], [double.NaN])])));
+
         byte[] bytes = [0, 13, 255];
         if (Send("résumé\n\"") != 0 ||
             Send(new Markdown("**text**")) != 0 ||
@@ -127,5 +132,18 @@ public static class Card
             Send(new VegaLite("""{"mark":"point"}""")) != 0 ||
             Send("custom", bytes) != 0)
             throw new InvalidOperationException("Display failed");
+    }
+
+    private static void ExpectArgumentError(Func<int> send)
+    {
+        try
+        {
+            send();
+        }
+        catch (ArgumentException)
+        {
+            return;
+        }
+        throw new InvalidOperationException("Expected a local display argument error");
     }
 }

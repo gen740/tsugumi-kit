@@ -85,13 +85,14 @@ auto Emit(std::string_view kind, const Json& value) -> int {
   }
   if (kind == "plotly" || kind == "vega-lite")
     return display::Emit(kind, value);
-  return 1;
+  throw std::invalid_argument("Unknown display type");
 }
 
-extern "C" auto EmitDisplay(const char* kind, const char* payload) noexcept
-    -> int {
+extern "C" auto EmitDisplay(const char* kind, const char* payload,
+                            int* status) noexcept -> int {
   try {
-    return Emit(kind, Json::parse(payload));
+    *status = Emit(kind, Json::parse(payload));
+    return 0;
   } catch (...) {
     return 1;
   }

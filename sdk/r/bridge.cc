@@ -86,9 +86,11 @@ extern "C" auto tsugumi_r_remaining_ms() noexcept -> double {
   }
 }
 
-extern "C" auto tsugumi_r_display(const char* request) noexcept -> bool {
+extern "C" auto tsugumi_r_display(const char* request, int* status) noexcept
+    -> bool {
   try {
-    return tsugumi::r::Display(tsugumi::r::Json::parse(request)) == 0;
+    *status = tsugumi::r::Display(tsugumi::r::Json::parse(request));
+    return true;
   } catch (...) {
     return false;
   }

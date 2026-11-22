@@ -9,6 +9,8 @@ fail <- function() stop("R card failure")
 effects <- dyn.load("@native_effects@")[["name"]]
 
 display_samples <- function(bytes) {
+  invalid <- tryCatch(send(points(1, numeric(), 1)), error = conditionMessage)
+  stopifnot(identical(invalid, "could not encode the display value"))
   send("r\u00e9sum\u00e9\n\"")
   send(markdown("**text**"))
   send(scalar(2.5))

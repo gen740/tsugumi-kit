@@ -24,8 +24,9 @@ end
 ## Effects
 
 `Tsugumi.send(view, bytes)` takes a declared view name and a binary
-String. `Tsugumi.send(value)` encodes the typed values below. A rejected
-send raises an error.
+String. `Tsugumi.send(value)` encodes the typed values below. Argument and
+encoding errors raise before calling the host. The SDK raises
+`RuntimeError` if the host cannot accept the message.
 
 The SDK at `lib.${system}.rubySdk` bundles the `line-chart` and `points` HTML views.
 Declare the matching views in your Card's `default.nix` with

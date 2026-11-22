@@ -3,6 +3,7 @@
   stdenv,
   runCommand,
   runCommandCC,
+  writeShellScriptBin,
   flatbuffers,
   coreutils,
   jdk21_headless,
@@ -26,7 +27,11 @@ let
   card = bound.javaCard {
     src = ../tests/java/src;
     jars = [ dependency ];
-    tools = [ coreutils ];
+    tools = [
+      (writeShellScriptBin "tsugumi-test-sort" ''
+        exec ${coreutils}/bin/sort "$@"
+      '')
+    ];
   };
   host = lib.fileset.toSource {
     root = ../tests;
@@ -62,14 +67,14 @@ runCommandCC "tsugumi-java-abi9-check"
         lib.optionalString (!isDarwin) "-ldl"
       } -o fake_host
 
-    test -L ${card}/bin/sort
+    test -L ${card}/bin/tsugumi-test-sort
     test ! -e ${card}/bin/sh
     mkdir work tmp
     legacy="$PWD/legacy.so"
     runner="$PWD/fake_host"
-    export TMPDIR="$PWD/tmp"
+    tmp="$PWD/tmp"
     cd work
-    HOME="$PWD" PATH=${card}/bin "$runner" "$card" "$legacy"
+    env -i HOME="$PWD" TMPDIR="$tmp" "$runner" "$card" "$legacy"
 
     ${
       if isDarwin then

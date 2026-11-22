@@ -97,9 +97,12 @@ auto SendDisplay(const char* view, tsugumi_bytes bytes) -> int {
     const std::lock_guard lock(display_mutex);
     effect = display_effect;
   }
-  return effect.callback
-             ? effect.callback(effect.host, view, bytes.data, bytes.size)
-             : 1;
+  if (!effect.callback) return 1;
+  try {
+    return effect.callback(effect.host, view, bytes.data, bytes.size);
+  } catch (...) {
+    return 1;
+  }
 }
 
 auto Invoke(const tsugumi_call* call, tsugumi_bytes* result,

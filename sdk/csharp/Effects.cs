@@ -40,7 +40,11 @@ public static class Effects
 
     public static unsafe int Send(string view, ReadOnlySpan<byte> bytes)
     {
-        if (send == null || view.Contains('\0')) return 1;
+        ArgumentNullException.ThrowIfNull(view);
+        if (view.Contains('\0'))
+            throw new ArgumentException("View names cannot contain a NUL byte", nameof(view));
+        if (send == null)
+            throw new InvalidOperationException("Display is not initialized");
         var name = Encoding.UTF8.GetBytes(view + "\0");
         fixed (byte* viewPointer = name)
         fixed (byte* data = bytes)
@@ -106,7 +110,7 @@ public static class Effects
         var colors = points.Colors ?? [];
         if (points.Y.Length != count || points.Z.Length != count ||
             (colors.Length != 0 && colors.Length != count))
-            return 1;
+            throw new ArgumentException("Point coordinates and colors must have matching lengths", nameof(points));
 
         return SendBinary("points", JsonSerializer.Serialize(new { count }, ViewJson),
             LittleEndian(points.X, sizeof(float), BinaryPrimitives.WriteSingleLittleEndian),
@@ -123,7 +127,7 @@ public static class Effects
         {
             if (row.X.Length != row.Y.Length ||
                 !row.X.All(double.IsFinite) || !row.Y.All(double.IsFinite))
-                return 1;
+                throw new ArgumentException("Line coordinates must be finite and have matching lengths", nameof(chart));
             series.Add(new(row.X.Length, row.Id, row.Label, offset));
             offset = checked(offset + row.X.Length);
         }

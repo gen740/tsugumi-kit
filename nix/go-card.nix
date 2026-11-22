@@ -176,10 +176,10 @@ let
         ${checkLock}
 
         ${nativeFlags}
-        $CXX "''${cxx_flags[@]}" -shared -I${runtime}/include -I${../sdk/cpp/src} \
+        ${import ./prepare-tools.nix { inherit lib; } tools}
+        $CXX "''${cxx_flags[@]}" -shared "''${toolPathObject[@]}" -I${runtime}/include -I${../sdk/cpp/src} \
           ${sdk}/loader.cc ${runtime}/lib/libtsugumi_abi9.a -pthread "''${loader_link[@]}" \
           -o "$out/lib/main.so"
-        ${import ./install-tools.nix { inherit lib; } tools}
       '';
 in
 {

@@ -134,12 +134,12 @@ let
             ''
         }
         mkdir -p "$out/lib"
+        ${import ./prepare-tools.nix { inherit lib; } tools}
         $CXX -std=c++2c -O2 -DNDEBUG -fPIC -fvisibility=hidden -fvisibility-inlines-hidden \
           -Wall -Wextra -Werror -Wformat=2 -Wimplicit-fallthrough \
-          -shared "''${link[@]}" -I. -I${runtime}/include -I${cpp}/src -I${sdk} \
+          -shared "''${toolPathObject[@]}" "''${link[@]}" -I. -I${runtime}/include -I${cpp}/src -I${sdk} \
           generated.cc ${sdk}/adapter.cc ${sdk}/json_codec.cc embed.o \
           ${runtime}/lib/libtsugumi_abi9.a "''${rubyLibs[@]}" -pthread -o "$out/lib/main.so"
-        ${import ./install-tools.nix { inherit lib; } tools}
       '';
 in
 rubyCardFor

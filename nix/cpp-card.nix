@@ -65,13 +65,13 @@ let
         fi
         # Keep the post-Pack verifier active even for failures detected only
         # in the serialized representation.
+        ${import ./prepare-tools.nix { inherit lib; } tools}
         $CXX -std=c++2c -O2 -DNDEBUG -fPIC -fvisibility=hidden -fvisibility-inlines-hidden \
           -Wall -Wextra -Werror -Wformat=2 -Wimplicit-fallthrough \
-          -shared "''${link[@]}" -I"${generated}/include" -I"${runtime}/include" \
+          -shared "''${toolPathObject[@]}" "''${link[@]}" -I"${generated}/include" -I"${runtime}/include" \
           -I"${../sdk/cpp/src}" ${lib.escapeShellArgs sourceFlags} \
           "''${sources[@]}" "${generated}/src/card_adapter.cc" \
           "${runtime}/lib/libtsugumi_abi9.a" ${lib.escapeShellArgs cxxflags} -pthread -o "$out/lib/main.so"
-        ${import ./install-tools.nix { inherit lib; } tools}
       '';
 in
 {
