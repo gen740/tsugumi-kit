@@ -13,6 +13,7 @@ class MergeMember:
     value: int
     box_type: str
     type: str
+    union_type: str
     merge: "tuple[MergeMember, ...]" = ()
 
 
@@ -131,7 +132,7 @@ def merge_members(schema, root, *, nested=False):
         if child.get("is_struct", False):
             raise ValueError(f"{box['name']}: nested_flatbuffer must be a table")
         members.append(MergeMember(
-            variant["name"], value, box["name"], qualified,
+            variant["name"], value, box["name"], qualified, union["name"],
             merge_members(schema, child, nested=True),
         ))
     if not members:

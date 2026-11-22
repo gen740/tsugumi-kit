@@ -51,6 +51,8 @@ internal sealed class InputPorts
             return null;
         if (port.Kind != kind)
             throw Rejected(FailureKind.invalid_request, $"Wrong kind for input {name}");
+        if (kind == PortKind.FlatBuffer && port.Path is not null)
+            throw Rejected(FailureKind.invalid_request, $"FlatBuffer input {name} has a path");
         return port;
     }
 
@@ -65,7 +67,7 @@ internal sealed class InputPorts
 
     internal static string PathOf(Wire.CardPort port)
     {
-        if (port.Path is not { Length: > 0 } path || port.BytesLength != 0)
+        if (port.Path is not { Length: > 0 } path || path.Contains('\0') || port.BytesLength != 0)
             throw Rejected(FailureKind.invalid_request, $"Invalid Path input {port.Name}");
         return path;
     }

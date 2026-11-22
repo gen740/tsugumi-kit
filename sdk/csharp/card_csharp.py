@@ -6,7 +6,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from tsugumi_ports import load_card_schemas, reflect_schema, write_api_readme
+from tsugumi_ports import load_card_schemas, write_api_readme
 
 SCHEMAS = ("_inputs", "_outputs", "_params")
 # Members every generated class already has.
@@ -85,18 +85,10 @@ def generate_bindings(schemas, out):
 
 
 class Generator:
-    def __init__(self, card, schemas, reflection, pack_methods):
+    def __init__(self, card, pack_methods):
         self.card = card
         self.pack_methods = pack_methods
-        self.reflected = {side: reflect_schema(schemas / f"{side}.fbs", reflection)
-                          for side in ("_inputs", "_outputs")}
         self.helpers = []
-
-    def union(self, side, merged):
-        schema = self.reflected[side]
-        table = next(obj for obj in schema["objects"] if obj["name"] == merged)
-        value = next(field for field in table["fields"] if field["name"] == "value")
-        return schema["enums"][value["type"]["index"]]["name"]
 
     def pack(self, type_):
         name = csharp_type(type_)
@@ -124,9 +116,9 @@ class Generator:
                   "        }", "    }", ""]
         return function
 
-    def encode_merge(self, side, type_, members):
+    def encode_merge(self, type_, members):
         function = f"EncodeMerge{len(self.helpers)}"
-        union = csharp_type(self.union(side, type_))
+        union = csharp_type(members[0].union_type)
         self.helpers.append(lines := [
             f"    internal static {csharp_type(type_)}T? {function}(object value, string name)",
             "    {",
@@ -135,7 +127,7 @@ class Generator:
             table = csharp_type(member.type)
             box = csharp_type(member.box_type)
             if member.merge:
-                nested = self.encode_merge(side, member.type, member.merge)
+                nested = self.encode_merge(member.type, member.merge)
                 lines.append(f"        if ({nested}(value, name) is {{ }} item{index})")
             else:
                 lines.append(f"        if (value is {table}T item{index})")
@@ -234,7 +226,7 @@ class Generator:
             table = csharp_type(port.type)
             item = f"value{index}"
             if port.merge:
-                encode = self.encode_merge("_outputs", port.type, port.merge)
+                encode = self.encode_merge(port.type, port.merge)
                 item = (f"(Ports.{encode}(value{index}, {name}) ?? throw InputPorts.Rejected("
                         f'FailureKind.output_invalid, "Invalid Merge output " + {name}))')
             output_lines.append(
@@ -269,18 +261,26 @@ def readable(type_):
     return type_.replace("global::", "").replace("@", "")
 
 
+def merge_types(members):
+    for member in members:
+        if member.merge:
+            yield from merge_types(member.merge)
+        else:
+            yield member.type
+
+
 def main(schemas, reflection, out):
     schemas, reflection, out = (Path(path).resolve() for path in (schemas, reflection, out))
     out.mkdir(parents=True, exist_ok=True)
     pack_methods = generate_bindings(schemas, out / "Ports")
     card = load_card_schemas(schemas, reflection)
-    generator = Generator(card, schemas, reflection, pack_methods)
+    generator = Generator(card, pack_methods)
     source, inputs, outputs = generator.generate()
     (out / "Card.g.cs").write_text(source, encoding="utf-8")
 
     def described(port):
         if port.merge:
-            members = " | ".join(readable(csharp_type(member.type)) + "T" for member in port.merge)
+            members = " | ".join(type_ + "T" for type_ in merge_types(port.merge))
             return f"object ({members})"
         return readable(generator.port_type(port))
 

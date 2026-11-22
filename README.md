@@ -24,6 +24,7 @@ whole or to Tsugumi's worker, which belongs to the core.
 | Path | Contents |
 | --- | --- |
 | [C++ SDK guide](docs/cpp-sdk.md) | Write a typed Card for ABI 9, display results and work with files in the worker. |
+| [C# SDK guide](docs/csharp-sdk.md) | Build a typed C# Card with the .NET runtime. |
 | [Python SDK guide](docs/python-sdk.md) | Write a typed CPython Card for ABI 9 revision 2. |
 | [Go SDK guide](docs/go-sdk.md) | Build a Go Card with generated types and offline module dependencies. |
 | [Rust SDK guide](docs/rust-sdk.md) | Build a Rust Card with verified borrowed inputs and owned outputs. |
