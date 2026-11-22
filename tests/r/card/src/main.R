@@ -32,6 +32,8 @@ main <- function(input) {
     identical(readLines("loaded"), "loaded")
   )
   writeLines("temporary", tempfile("invocation-"))
+  stopifnot(is.null(optional_input(input, "unwired")))
+  if (input$params$mode == 7L) input$unwired
   if (input$params$mode == 3L) fail()
   if (input$params$mode == 4L) return(NULL)
 
@@ -48,7 +50,7 @@ main <- function(input) {
   }
 
   stopifnot(input$number$unit == "Volts",
-            input$params__$value == 17, input$params_$value == 19)
+            input[["params"]]$value == 17, input$params_$value == 19)
   row <- input$table$rows[[1L]]
   stopifnot(
     row$signed_value == "-9223372036854775808",
@@ -66,13 +68,19 @@ main <- function(input) {
   row$single <- sum(row$single, row$position$coordinates)
 
   file <- paste0("result-", calls, ".txt")
-  writeLines(c(readLines(input$file$value), as.character(calls)), file)
-  if (!is.null(input$directory)) {
-    stopifnot(identical(readLines(file.path(input$directory$value, "child")), "directory"))
+  writeLines(c(readLines(input$file), as.character(calls)), file)
+  directory <- optional_input(input, "directory")
+  if (!is.null(directory)) {
+    stopifnot(identical(readLines(file.path(directory, "child")), "directory"))
+  }
+  arrival <- optional_input(input, "arrival")
+  if (identical(arrival$type, "Temperature")) {
+    arrival$value$value <- arrival$value$value + 1
   }
   list(number = list(value = input$number$value + calls, unit = input$number$unit),
        table = list(rows = list(row)),
-       file = list(value = file),
+       file = file,
        forwarded = input$file,
-       directory = input$directory)
+       directory = directory,
+       arrival = arrival)
 }

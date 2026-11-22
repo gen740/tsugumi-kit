@@ -7,6 +7,7 @@
 #include <pthread.h>
 
 extern void reset_scratch(void);
+extern tsugumi_bytes make_bad_merge_input(void);
 extern int throwing_cancelled(void*);
 extern int64_t throwing_remaining_ms(void*);
 
@@ -51,9 +52,12 @@ int main(int argc, char** argv) {
                        .effects = &effects};
   tsugumi_bytes result;
 
+  /* Envelope failures are found before R starts. */
   for (enum input_case scenario = MALFORMED_ENVELOPE;
-       scenario <= DUPLICATE_PORT; ++scenario) {
-    call.input = make_input(scenario, 0, -1);
+       scenario <= DUPLICATE_PORT + 1; ++scenario) {
+    if (scenario == MISSING_INPUT) continue;
+    call.input = scenario > DUPLICATE_PORT ? make_bad_merge_input()
+                                           : make_input(scenario, 0, -1);
     CHECK(entry(&call, &result) == 0);
     check_input_failure(result, scenario);
     CHECK(access("loaded", F_OK) != 0);
@@ -122,6 +126,16 @@ int main(int argc, char** argv) {
   call.input = make_input(OPTIONAL_PORTS, 6, -1);
   CHECK(entry(&call, &result) == 0);
   check_card_failure(result, 6);
+
+  /* The Card reports the inputs it needs and did not receive. */
+  reset_scratch();
+  call.input = make_input(OPTIONAL_PORTS, 7, -1);
+  CHECK(entry(&call, &result) == 0);
+  check_card_failure(result, 7);
+  reset_scratch();
+  call.input = make_input(MISSING_INPUT, 0, -1);
+  CHECK(entry(&call, &result) == 0);
+  check_input_failure(result, MISSING_INPUT);
   /* The process owns R for its lifetime, including registered callbacks. */
   puts("R ABI 9 fake-host checks passed");
   return 0;

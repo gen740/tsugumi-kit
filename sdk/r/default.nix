@@ -13,10 +13,11 @@
   dejavu_fonts,
   ipaexGothic,
   runtime,
+  portCodegen,
 }:
 {
   src,
-  contract,
+  schemas,
   name ? "tsugumi-r-card",
   entry ? "main.R",
   packages ? (_: [ ]),
@@ -31,33 +32,29 @@ let
     root = ../.;
     fileset = ../display.hh;
   };
+  # The C++ glue, its object API headers and the Card's API, from the schemas.
   generated =
-    runCommand "tsugumi-r-card-codecs"
+    runCommand "tsugumi-r-card-glue"
       {
         nativeBuildInputs = [
           flatbuffers
-          python3
+          (python3.withPackages (_: [ portCodegen ]))
         ];
       }
       ''
-        contract=${lib.escapeShellArg "${contract}"}
+        schemas=${lib.escapeShellArg "${schemas}"}
         mkdir -p "$out/include"
         flatc --cpp --gen-object-api --scoped-enums --force-empty --force-empty-vectors \
-          -o "$out/include" "$contract"/*.fbs
-        for schema in _inputs _outputs _params; do
-          flatc --binary --schema "$contract/$schema.fbs"
-          flatc --json --strict-json "${flatbuffers.src}/reflection/reflection.fbs" -- "$schema.bfbs"
-        done
-        python3 ${../cpp/card_cpp.py} "$contract/_contract.json" "$out"
-        python3 ${./codegen.py} ${../cpp/card_cpp.py} "$contract/_contract.json" \
-          _inputs.json _outputs.json _params.json > "$out/src/r_adapter.cc"
-        rm "$out/src/card_adapter.cc"
+          -o "$out/include" "$schemas"/_{inputs,outputs,params}.fbs
+        python3 ${./codegen.py} ${../cpp} ${./inputs.R} "$schemas" "$out" \
+          ${flatbuffers.src}/reflection/reflection.fbs
       '';
   rHome = "${R}/lib/R";
   rShared = if stdenv.hostPlatform.isDarwin then "libR.dylib" else "libR.so";
 in
 runCommandCC name
   {
+    passthru = { inherit generated; };
     buildInputs = [
       flatbuffers
       nlohmann_json
@@ -68,7 +65,8 @@ runCommandCC name
     ++ packages rPackages;
   }
   ''
-    mkdir -p "$out/lib"
+    mkdir -p "$out/lib" "$out/share/tsugumi"
+    cp -r "${generated}/api" "$out/share/tsugumi/api"
     source_root=${lib.escapeShellArg "${src}"}
     source="$source_root"/${lib.escapeShellArg entry}
     test -f "$source"
@@ -77,6 +75,7 @@ runCommandCC name
       -I"${runtime}/include" -I"${rHome}/include" -DTSUGUMI_LIBR='"${rHome}/lib/${rShared}"' \
       -DTSUGUMI_R_HOME='"${rHome}"' -DTSUGUMI_R_LIBS="\"$R_LIBS_SITE\"" \
       -DTSUGUMI_R_SDK='"${./tsugumi.R}"' -DTSUGUMI_R_SOURCE="\"$source\"" \
+      -DTSUGUMI_R_CARD_API="\"$out/share/tsugumi/api/card.R\"" \
       -DTSUGUMI_R_SOURCE_ROOT="\"$source_root\"" \
       -DTSUGUMI_R_FONTS='"${makeFontsConf { fontDirectories = fonts; }}"' \
       -c ${./embed.c} -o embed.o

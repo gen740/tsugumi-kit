@@ -1,0 +1,48 @@
+attribute "tsugumi";
+
+namespace outputs.rtest;
+
+enum Unit : ubyte { Counts, Volts }
+struct Position { coordinates:[int:2]; units:[Unit:2]; depth:[int:1]; }
+table Number { value:double; unit:Unit; }
+table Choice { name:string (required); }
+union Selection { Choice, Alias:Choice, Description:string }
+table Row {
+  name:string (required);
+  signed_value:long;
+  unsigned_value:ulong;
+  special:[double];
+  single:[double];
+  empty:[int];
+  wide:[ulong];
+  bytes:[ubyte];
+  enabled:[bool];
+  unit:[Unit];
+  nullable:int = null;
+  position:Position;
+  selection:Selection;
+}
+table DataTable { rows:[Row] (required); }
+
+namespace outputs.arrival.tsugumi.merge.t0;
+table Temperature { value:double; }
+
+namespace outputs.arrival.tsugumi.merge.t1;
+table Reading { name:string (required); }
+
+namespace outputs.arrival.tsugumi.merge;
+table TemperatureBox { bytes:[ubyte] (id: 0, nested_flatbuffer: "outputs.arrival.tsugumi.merge.t0.Temperature"); }
+table ReadingBox { bytes:[ubyte] (id: 0, nested_flatbuffer: "outputs.arrival.tsugumi.merge.t1.Reading"); }
+union Arrival { TemperatureBox, ReadingBox }
+table Merged { value:Arrival (id: 1); }
+
+namespace outputs;
+table Outputs {
+  number:outputs.rtest.Number (id: 0, required);
+  table:outputs.rtest.DataTable (id: 1, required);
+  file:string (id: 2, tsugumi: "path", required);
+  forwarded:string (id: 3, tsugumi: "path");
+  directory:string (id: 4, tsugumi: "path");
+  arrival:outputs.arrival.tsugumi.merge.Merged (id: 5);
+}
+root_type Outputs;

@@ -1,10 +1,19 @@
-"""Generate typed C++ JSON codecs from flatc's build-time schema descriptions."""
+"""Generate the R Card's C++ JSON codecs, port glue and API README.
 
-import importlib.util
+The ports come from the shared reflection module; the codecs follow the
+reflected tables of the same schemas.
+"""
+
 import json
+import shutil
 import sys
 from pathlib import Path
 
+from tsugumi_ports import load_card_schemas, reflect_schema, write_api_readme
+
+# flatc appends an underscore to object API members named like C++ keywords.
+sys.path.insert(0, sys.argv[1])
+from card_cpp import FLATC_KEYWORDS
 
 SCALARS = {
     "Bool": "bool",
@@ -250,41 +259,132 @@ class Codecs:
         return "\n\n".join(["\n".join(declarations)] + self.bodies)
 
 
-def generate(contract, schemas, shared):
-    codecs = Codecs(schemas, shared.KEYWORDS)
+def merge_tags(members):
+    """Use a qualified member type when short names collide."""
+    short = [member.type.rsplit(".", 1)[-1] for member in members]
+    return [
+        name if short.count(name) == 1
+        else member.type
+        for name, member in zip(short, members)
+    ]
+
+
+def native(name):
+    return f"{cpp(name)}::NativeTableType"
+
+
+class Ports:
+    """Emit the Merge conversions that hide the core's boxes from R."""
+
+    def __init__(self, codecs):
+        self.codecs = codecs
+        self.functions = []
+
+    def decode_merge(self, type_, members):
+        function = f"DecodeMerge{len(self.functions)}"
+        body = [f"auto {function}(const {native(type_)}& merged, std::string_view name) -> Json {{"]
+        self.functions.append(body)
+        for member, tag in zip(members, merge_tags(members)):
+            value = f"ReadValue<{cpp(member.type)}>({{box->bytes.data(), box->bytes.size()}}, name)"
+            if member.merge:
+                value = f"{self.decode_merge(member.type, member.merge)}({value}, name)"
+            else:
+                value = f"To{self.codecs.use(member.type)}({value})"
+            body += [f"  if (const auto* box = merged.value.As{member.tag}())",
+                     f"    return Json{{{{\"type\", {quote(tag)}}}, {{\"value\", {value}}}}};"]
+        body += ['  Reject(FailureKind::invalid_request, "Invalid Merge input " + std::string(name));',
+                 "}"]
+        return function
+
+    def encode_merge(self, type_, members):
+        function = f"EncodeMerge{len(self.functions)}"
+        body = [
+            f"auto {function}(const Json& value, std::string_view name) -> {native(type_)} {{",
+            '  const auto& type = Member(value, "type");',
+            '  const auto& payload = Member(value, "value");',
+            f"  {native(type_)} merged;",
+        ]
+        self.functions.append(body)
+        for member, tag in zip(members, merge_tags(members)):
+            if member.merge:
+                value = f"{self.encode_merge(member.type, member.merge)}(payload, name)"
+            else:
+                value = f"From{self.codecs.use(member.type)}(payload)"
+            body += [f"  if (type == {quote(tag)}) {{",
+                     f"    {native(member.box_type)} box;",
+                     f"    box.bytes = PackValue<{cpp(member.type)}>({value}, name);",
+                     "    merged.value.Set(std::move(box));",
+                     "    return merged;",
+                     "  }"]
+        body += ['  throw std::invalid_argument("Unknown Merge member for " + std::string(name));',
+                 "}"]
+        return function
+
+    def emit(self):
+        return "\n\n".join("\n".join(body) for body in reversed(self.functions))
+
+
+def r_type(port):
+    if port.kind == "Path":
+        return "character path"
+    if port.merge:
+        return " | ".join(f'list(type = "{tag}", value = <{member.type}>)'
+                          for member, tag in zip(port.merge, merge_tags(port.merge)))
+    return f"list <{port.type}>"
+
+
+def generate(card, schemas):
+    codecs = Codecs(schemas, FLATC_KEYWORDS)
+    ports = Ports(codecs)
     read = []
     write = []
-    port_names = {port["name"] for port in contract["inputs"]}
-    params_port = "params_"
-    while params_port in port_names:
-        params_port += "_"
-    inputs = shared.ports(contract["inputs"], {"Inputs", "params"})
-    for name, _, table, kind, required in inputs:
-        codec = codecs.use(table.removeprefix("::").replace("::", "."))
-        key = quote(params_port) if name == '"params"' else name
-        read += [
-            f"  if (const auto port = buffer.ReadPort<{table}>({name}, {kind}, {str(required).lower()}))",
-            f"    input[{key}] = To{codec}(*port);",
-        ]
-    params = codecs.use("parameters.Params")
-    read += ["  buffer.CheckConsumed();",
-             f'  input["params"] = To{params}(ReadValue<::parameters::Params>(buffer.Params(), "params"));']
-    outputs = shared.ports(contract["outputs"], {"Output"})
-    for name, _, table, kind, required in outputs:
-        codec = codecs.use(table.removeprefix("::").replace("::", "."))
+    for port in card.inputs:
+        name = quote(port.name)
+        if port.kind == "Path":
+            read += [f"  if (const auto path = buffer.ReadPath({name}))",
+                     f"    ports[{name}] = path->string();"]
+            continue
+        value = (f"{ports.decode_merge(port.type, port.merge)}(*port, {name})" if port.merge
+                 else f"To{codecs.use(port.type)}(*port)")
+        read += [f"  if (const auto port = buffer.ReadPort<{cpp(port.type)}>({name}))",
+                 f"    ports[{name}] = {value};"]
+    params = codecs.use(card.params_type)
+    read += [
+        "  buffer.CheckConsumed();",
+        f'  const auto params = To{params}(ReadValue<{cpp(card.params_type)}>(buffer.Params(), "params"));',
+        '  input = Json{{"ports", std::move(ports)}, {"params", params}};',
+    ]
+    for port in card.outputs:
+        name = quote(port.name)
+        required = str(port.required).lower()
+        if port.kind == "Path":
+            value_type = "std::filesystem::path"
+            value = "FromValue<std::string>(*item)"
+            store = f"WritePath(result, {name}, port, {required});"
+        else:
+            value_type = native(port.type)
+            value = (f"{ports.encode_merge(port.type, port.merge)}(*item, {name})" if port.merge
+                     else f"From{codecs.use(port.type)}(*item)")
+            store = f"WritePort<{cpp(port.type)}>(result, {name}, port, {required});"
         write += [
             "  {",
             f"    const auto item = output.find({name});",
-            f"    std::optional<{table}T> port;",
+            f"    std::optional<{value_type}> port;",
             "    if (item != output.end()) {",
-            f"      if (!item->is_null()) port = From{codec}(*item);",
+            f"      if (!item->is_null()) port = {value};",
             "      output.erase(item);",
             "    }",
-            f"    WritePort<{table}>(result, {name}, {kind}, port, {str(required).lower()});",
+            f"    {store}",
             "  }",
         ]
     return """// Generated by the Tsugumi ABI 9 R SDK.
-#include "card.hh"
+#include <filesystem>
+#include <optional>
+#include <string_view>
+
+#include "_inputs_generated.h"
+#include "_outputs_generated.h"
+#include "_params_generated.h"
 #include "adapter.hh"
 #include "bridge.hh"
 
@@ -292,27 +392,21 @@ namespace {
 using namespace tsugumi::abi9;
 using namespace tsugumi::r;
 
-""" + codecs.emit() + """
+""" + codecs.emit() + "\n\n" + ports.emit() + """
 
 auto RunCard(tsugumi_bytes bytes) -> Tsugumi::Card::CardResultT {
   Tsugumi::Card::CardResultT result;
-  Json input = Json::object();
+  Json input;
   try {
     Input buffer(bytes);
+    Json ports = Json::object();
 """ + "\n".join("  " + line for line in read) + """
   } catch (const std::invalid_argument& error) {
     Reject(FailureKind::invalid_request, error.what());
   }
   auto reply = RunR(input);
-  if (const auto failure = reply.find("failure"); failure != reply.end()) {
-    result.failure = std::make_unique<Tsugumi::Card::CardFailureT>();
-    result.failure->kind = failure->value("kind", "") == "output_invalid"
-        ? FailureKind::output_invalid : FailureKind::worker_failed;
-    result.failure->message = failure->at("message").get<std::string>();
-    result.failure->source = failure->value("source", "");
-    result.failure->line = failure->value("line", 0u);
-    return result;
-  }
+  if (const auto failure = reply.find("failure"); failure != reply.end())
+    return ReadFailure(*failure);
   try {
     auto& output = reply.at("output");
 """ + "\n".join("  " + line for line in write) + """
@@ -335,10 +429,44 @@ auto tsugumi_main(const tsugumi_call* call, tsugumi_bytes* result) -> int {
 """
 
 
+API_NOTES = """
+## R values
+
+`main(input)` reads `input$port` (or `input[["port"]]`) for an input it
+needs; an absent input raises a Card failure of kind `input_missing`.
+`optional_input(input, "port")` returns `NULL` for an absent input.
+Read parameters from `input$params`; use `input[["params"]]` for a port
+named `params`. Return a named list of outputs.
+
+A table is a named list keyed by the field names in the `.fbs` files in this
+directory. A Path port is a character string. A Merge of mixed types is
+`list(type = "Member", value = table)`.
+"""
+
+
 if __name__ == "__main__":
-    shared_path, contract_path, *schemas = map(Path, sys.argv[1:])
-    spec = importlib.util.spec_from_file_location("card_cpp", shared_path)
-    shared = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(shared)
-    print(generate(json.loads(contract_path.read_text()),
-                   [json.loads(path.read_text()) for path in schemas], shared))
+    input_api, source, out, reflection = (Path(path).resolve() for path in sys.argv[2:])
+    card = load_card_schemas(source, reflection)
+    schemas = [reflect_schema(source / f"_{side}.fbs", reflection)
+               for side in ("inputs", "outputs", "params")]
+    (out / "src").mkdir(parents=True, exist_ok=True)
+    (out / "src/r_adapter.cc").write_text(generate(card, schemas), encoding="utf-8")
+    api = out / "api"
+    api.mkdir()
+    write_api_readme(
+        api / "README.md",
+        ((port.name, r_type(port) + " or NULL") for port in card.inputs),
+        ((port.name, r_type(port) + (" (required output)" if port.required else ""))
+         for port in card.outputs),
+        ((param.name, param.type) for param in card.params),
+    )
+    with (api / "README.md").open("a", encoding="utf-8") as readme:
+        readme.write(API_NOTES)
+    overview = (api / "README.md").read_text(encoding="utf-8")
+    (api / "card.R").write_text(
+        "\n".join(f"# {line}".rstrip() for line in overview.splitlines())
+        + "\n\n" + input_api.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    for side in ("inputs", "outputs", "params"):
+        shutil.copyfile(source / f"_{side}.fbs", api / f"_{side}.fbs")

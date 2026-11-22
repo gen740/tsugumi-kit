@@ -88,7 +88,8 @@ remaining_ms <- function() .Call("tsugumi_r_remaining_ms")
 }
 
 .tsugumi_failure <- function(error, root) {
-  failure <- list(kind = "worker_failed", message = conditionMessage(error))
+  kind <- if (inherits(error, "tsugumi_failure")) error$kind else "worker_failed"
+  failure <- list(kind = kind, message = conditionMessage(error))
   # Use the innermost Card function with a retained R source reference.
   functions <- lapply(rev(seq_len(sys.nframe())), sys.function)
   for (fun in functions) {
@@ -137,7 +138,10 @@ remaining_ms <- function() .Call("tsugumi_r_remaining_ms")
         return(.tsugumi_json(list(failure = .tsugumi_state$load_failure)))
       }
     }
-    input <- lapply(jsonlite::fromJSON(json, simplifyVector = FALSE), .tsugumi_decode_input)
+    values <- jsonlite::fromJSON(json, simplifyVector = FALSE)
+    input <- structure(lapply(values$ports, .tsugumi_decode_input),
+                       class = "tsugumi_input",
+                       params = .tsugumi_decode_input(values$params))
     output <- .tsugumi_state$entry(input)
     output_names <- names(output)
     if (is.null(output) || (is.list(output) && !length(output))) {

@@ -19,6 +19,26 @@ auto RunR(const Json& input) -> Json {
   return Json::parse(reply.get());
 }
 
+auto ReadFailure(const Json& failure) -> Tsugumi::Card::CardResultT {
+  using Tsugumi::Data::FailureKind;
+  Tsugumi::Card::CardResultT result;
+  result.failure = std::make_unique<Tsugumi::Card::CardFailureT>();
+  auto& report = *result.failure;
+  const auto kind = failure.value("kind", std::string{});
+  report.kind = FailureKind::worker_failed;
+  for (const auto candidate : Tsugumi::Data::EnumValuesFailureKind()) {
+    if (candidate != FailureKind::unspecified &&
+        kind == Tsugumi::Data::EnumNameFailureKind(candidate)) {
+      report.kind = candidate;
+      break;
+    }
+  }
+  report.message = failure.at("message").get<std::string>();
+  report.source = failure.value("source", std::string{});
+  report.line = failure.value("line", uint32_t{});
+  return result;
+}
+
 namespace {
 
 template <typename T>

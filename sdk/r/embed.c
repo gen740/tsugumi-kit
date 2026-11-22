@@ -20,7 +20,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#include "tsugumi/abi9/abi.h"
+#include "tsugumi/abi9/card_abi.h"
 
 extern bool tsugumi_r_cancelled(void);
 extern double tsugumi_r_remaining_ms(void);
@@ -99,17 +99,23 @@ static SEXP utf8(const char* text) {
   return Rf_ScalarString(Rf_mkCharCE(text, CE_UTF8));
 }
 
+static void source_sdk(SEXP environment, const char* file) {
+  SEXP path = PROTECT(utf8(file));
+  SEXP load = PROTECT(Rf_lang3(Rf_install("sys.source"), path, environment));
+  Rf_eval(load, R_BaseEnv);
+  UNPROTECT(2);
+}
+
 static void load_sdk(void* unused) {
   (void)unused;
   R_registerRoutines(R_getEmbeddingDllInfo(), NULL, methods, NULL, NULL);
   register_effects();
   SEXP environment = PROTECT(R_NewEnv(R_GlobalEnv, TRUE, 29));
-  SEXP path = PROTECT(utf8(TSUGUMI_R_SDK));
-  SEXP load = PROTECT(Rf_lang3(Rf_install("sys.source"), path, environment));
-  Rf_eval(load, R_BaseEnv);
+  source_sdk(environment, TSUGUMI_R_SDK);
+  source_sdk(environment, TSUGUMI_R_CARD_API);
   R_PreserveObject(environment);
   sdk = environment;
-  UNPROTECT(3);
+  UNPROTECT(1);
 }
 
 static bool stack_bounds(uintptr_t* top, size_t* size) {

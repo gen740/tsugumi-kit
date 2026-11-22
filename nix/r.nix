@@ -1,16 +1,10 @@
 { self, ... }:
 {
   perSystem =
-    {
-      config,
-      pkgs,
-      system,
-      ...
-    }:
+    { pkgs, system, ... }:
     {
       checks.rAbi9 = pkgs.callPackage ../tests/r {
-        rCard = self.lib.${system}.rCard;
-        runtime = config.packages.cppRuntime;
+        kit = self.lib.${system};
       };
     };
 }
