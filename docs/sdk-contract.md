@@ -50,8 +50,8 @@ absence value. The table gives the conventions for this revision's SDK ports.
 | Rust | `T` via `require_input(name, option)?` | `Option<T>` |
 | Python | `input.require(name)` returns `T` | `input.get(name)` or a generated attribute returns `T \| None` |
 | Go | `T` via `RequireInput[T](input, name)` | `*T` via a generated accessor or `OptionalInput[T](input, name)` |
-| C# | `T` | `T?` |
-| Java | `T` | `Optional<T>` |
+| C# | `T` via `input.Get<T>(name)` | `T?` via a generated property or `input.Find<T>(name)` |
+| Java | `T` via `input.get(name, Type.class)` | `Optional<T>` via a generated accessor or `input.find(name, Type.class)` |
 | Ruby | Required lookup yielding a value | Optional lookup yielding a value or `nil` |
 | R | `input[["port"]]` or `input$port` | `optional_input(input, "port")`, absent as `NULL` |
 | Julia | `input[:port]` or `input.port` yields `T` | `get(input, :port, nothing)` yields `Union{T, Nothing}` |

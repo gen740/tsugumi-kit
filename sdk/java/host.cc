@@ -215,26 +215,34 @@ class Jvm {
   const char* error_ = nullptr;
 };
 
-auto CheckPorts(const auto* ports, std::span<const JavaPort> contract,
-                FailureKind invalid, FailureKind missing) -> void {
+// Input ports are absent unless connected, so only required outputs can be
+// missing. The Java Card decides which inputs it needs.
+auto CheckPorts(const auto* ports, std::span<const JavaPort> catalog,
+                FailureKind invalid) -> void {
   std::unordered_set<std::string_view> seen;
   if (ports) {
     for (const auto* port : *ports) {
       const auto name = port->name()->string_view();
-      const auto expected = std::ranges::find(contract, name, &JavaPort::name);
-      if (expected == contract.end() || port->kind() != expected->kind ||
+      const auto expected = std::ranges::find(catalog, name, &JavaPort::name);
+      if (expected == catalog.end() || port->kind() != expected->kind ||
           !seen.insert(name).second) {
         Reject(invalid, "Unexpected port " + std::string(name));
       }
       const auto* data = port->bytes();
-      if (!data || !expected->verify(Buffer({data->data(), data->size()}))) {
+      if (expected->kind == PortKind::Path) {
+        if (!port->path() || port->path()->size() == 0 ||
+            (data && data->size())) {
+          Reject(invalid, "Invalid Path for " + std::string(name));
+        }
+      } else if (port->path() || !data ||
+                 !expected->verify(Buffer({data->data(), data->size()}))) {
         Reject(invalid, "Invalid FlatBuffer for " + std::string(name));
       }
     }
   }
-  for (const auto& port : contract) {
+  for (const auto& port : catalog) {
     if (port.required && !seen.contains(port.name)) {
-      Reject(missing, "Missing port " + std::string(port.name));
+      Reject(invalid, "Missing port " + std::string(port.name));
     }
   }
 }
@@ -252,8 +260,7 @@ auto RunJava(tsugumi_bytes bytes, Verify params,
       !params(Buffer({param_bytes->data(), param_bytes->size()}))) {
     Reject(FailureKind::invalid_request, "Invalid FlatBuffer for params");
   }
-  CheckPorts(input->inputs(), inputs, FailureKind::invalid_request,
-             FailureKind::input_missing);
+  CheckPorts(input->inputs(), inputs, FailureKind::invalid_request);
 
   // JNI supports one JVM per process. Keep its classes and state warm.
   static const Jvm jvm;
@@ -262,8 +269,7 @@ auto RunJava(tsugumi_bytes bytes, Verify params,
   const auto* result = result_buffer.Verify<CardResult>();
   if (!result) Reject(FailureKind::worker_failed, "Invalid Java CardResult");
   if (!result->failure()) {
-    CheckPorts(result->outputs(), outputs, FailureKind::output_invalid,
-               FailureKind::output_invalid);
+    CheckPorts(result->outputs(), outputs, FailureKind::output_invalid);
   }
   CardResultT value;
   result->UnPackTo(&value);

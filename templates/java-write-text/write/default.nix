@@ -1,8 +1,16 @@
-{ inputs, ... }:
+{
+  pkgs,
+  params,
+  inputs,
+  schemas,
+}:
 let
   sdk = inputs.tsugumi.javaSdk;
 in
 {
-  run = sdk.javaCard { src = ./src; };
+  run = sdk.javaCard {
+    inherit schemas;
+    src = ./src;
+  };
   views = sdk.views;
 }

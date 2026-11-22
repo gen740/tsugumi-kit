@@ -7,6 +7,7 @@
   jdk21_headless,
   python3,
   runtime,
+  portCodegen,
 }:
 let
   jdk = jdk21_headless;
@@ -29,7 +30,7 @@ let
 in
 {
   src,
-  contract,
+  schemas,
   jars ? [ ],
   mainClass ? "card.Main",
   tools ? [ ],
@@ -44,7 +45,7 @@ runCommandCC "tsugumi-java-card"
     nativeBuildInputs = [
       flatbuffers
       jdk
-      python3
+      (python3.withPackages (_: [ portCodegen ]))
     ];
     buildInputs = [ flatbuffers ];
     TSUGUMI_JAVA_CLASSPATH = classPath;
@@ -53,12 +54,16 @@ runCommandCC "tsugumi-java-card"
   }
   ''
     src=${lib.escapeShellArg "${src}"}
-    mkdir -p generated classes "$out/lib"
-    python3 ${../sdk/java/generate.py} ${../sdk/cpp} ${lib.escapeShellArg "${contract}"} \
+    mkdir -p generated classes "$out/lib" "$out/share/tsugumi/api"
+    python3 ${../sdk/java/generate.py} ${../sdk/cpp} ${lib.escapeShellArg "${schemas}"} \
       "$src" "$TSUGUMI_JAVA_MAIN_CLASS" generated ${flatbuffers.src}/reflection/reflection.fbs \
-      ${../abi/9}/tsugumi_enums.fbs
+      ${../abi/9}/card_enums.fbs
+    # The Agent-readable API: the Card types and the port bindings.
+    cp generated/README.md "$out/share/tsugumi/api/"
+    (cd generated/java && cp -r . "$out/share/tsugumi/api/" &&
+      rm "$out/share/tsugumi/api/tsugumi/"{Entry,UnionChecks}.java)
     flatc --java --java-package-prefix tsugumi.wire -o generated/java \
-      ${../abi/9}/{tsugumi_enums,card}.fbs
+      ${../abi/9}/{card_enums,card}.fbs
     # Use a NUL-delimited list so source paths may contain whitespace.
     find "$src" -type f -name '*.java' ! -name '._*' -print0 |
       LC_ALL=C sort -z > card-sources

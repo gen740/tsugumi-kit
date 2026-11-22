@@ -1,5 +1,7 @@
 #include "wire.h"
 
+#include <dlfcn.h>
+
 #include <algorithm>
 #include <array>
 #include <filesystem>
@@ -35,7 +37,7 @@ template <class Table>
 auto DecodePort(const CardPort& port, std::string_view name, PortKind kind) ->
     typename Table::NativeTableType {
   CHECK(port.name()->string_view() == name && port.kind() == kind);
-  CHECK(port.bytes() && port.bytes()->size());
+  CHECK(!port.path() && port.bytes() && port.bytes()->size());
   const size_t size = port.bytes()->size();
   struct alignas(FLATBUFFERS_MAX_ALIGNMENT) Block {
     uint8_t bytes[FLATBUFFERS_MAX_ALIGNMENT];
@@ -57,12 +59,19 @@ auto Encode(const typename Table::NativeTableType& value)
 }
 
 auto AddPort(CardInputT& input, const char* name, PortKind kind,
-             std::vector<uint8_t> bytes) -> void {
+             std::vector<uint8_t> bytes, std::string path = {}) -> void {
   auto port = std::make_unique<CardPortT>();
   port->name = name;
   port->kind = kind;
   port->bytes = std::move(bytes);
+  port->path = std::move(path);
   input.inputs.push_back(std::move(port));
+}
+
+auto ReadPath(const CardPort& port, std::string_view name) -> std::string {
+  CHECK(port.name()->string_view() == name && port.kind() == PortKind::Path);
+  CHECK(port.path() && !port.bytes());
+  return port.path()->str();
 }
 
 auto CheckFailure(tsugumi_bytes result, FailureKind kind)
@@ -101,7 +110,7 @@ extern "C" auto make_input(input_case test_case, int mode, int fd)
     inputs::number::NumberT number;
     number.position = std::make_unique<inputs::number::Position>(40, -15);
     const auto kind = test_case == UNKNOWN_KIND ? static_cast<PortKind>(255)
-                      : test_case == WRONG_KIND ? PortKind::File
+                      : test_case == WRONG_KIND ? PortKind::Path
                                                 : PortKind::FlatBuffer;
     AddPort(input, "number", kind,
             test_case == MALFORMED_PORT
@@ -115,21 +124,39 @@ extern "C" auto make_input(input_case test_case, int mode, int fd)
   if (test_case == OPTIONAL_PORTS) {
     input_path = std::filesystem::absolute("input.txt").string();
     std::ofstream file(input_path);
-    file << "read from File input";
+    file << "read from Path input";
     CHECK(file.good());
-    inputs::file::FileT port;
-    port.value = input_path;
-    AddPort(input, "file", PortKind::File, Encode<inputs::file::File>(port));
+    AddPort(input, "file", PortKind::Path, {}, input_path);
 
     directory_path = std::filesystem::absolute("input-directory").string();
     CHECK(std::filesystem::create_directory(directory_path));
     std::ofstream member(std::filesystem::path(directory_path) / "member.txt");
-    member << "forwarded Directory member";
+    member << "forwarded directory member";
     CHECK(member.good());
-    inputs::directory::DirectoryT directory;
-    directory.value = directory_path;
-    AddPort(input, "directory", PortKind::Directory,
-            Encode<inputs::directory::Directory>(directory));
+    AddPort(input, "directory", PortKind::Path, {}, directory_path);
+  }
+
+  if (test_case == OPTIONAL_PORTS || (mode >= 23 && mode <= 26)) {
+    using namespace inputs::arrival::tsugumi::merge;
+    MergedT merged;
+    if (mode == 23) {
+      t1::ReadingT reading;
+      reading.name = "sensor";
+      ReadingBoxT box;
+      box.bytes = Encode<t1::Reading>(reading);
+      merged.value.Set(std::move(box));
+    } else if (mode != 25) {
+      t0::TemperatureT temperature;
+      temperature.value = 20.0;
+      TemperatureBoxT box;
+      if (mode == 24) {
+        box.bytes = {1, 2, 3};
+      } else if (mode != 26) {
+        box.bytes = Encode<t0::Temperature>(temperature);
+      }
+      merged.value.Set(std::move(box));
+    }
+    AddPort(input, "arrival", PortKind::FlatBuffer, Encode<Merged>(merged));
   }
 
   flatbuffers::FlatBufferBuilder builder;
@@ -147,7 +174,7 @@ extern "C" auto check_success(tsugumi_bytes result, int optional_ports)
   }
   CHECK(!decoded.failure() && decoded.outputs());
   const auto& ports = *decoded.outputs();
-  CHECK(ports.size() == (optional_ports ? 5u : 2u));
+  CHECK(ports.size() == (optional_ports ? 6u : 2u));
   const auto number = DecodePort<outputs::number::Number>(
       *ports.Get(0), "number", PortKind::FlatBuffer);
   CHECK(number.position && number.position->x() == 42 &&
@@ -157,30 +184,86 @@ extern "C" auto check_success(tsugumi_bytes result, int optional_ports)
   CHECK(data.rows.size() == 1 && data.rows.front()->value == 2);
   CHECK(data.choice.AsCount() && data.choice.AsCount()->value == 5);
   if (optional_ports) {
-    const auto file =
-        DecodePort<outputs::file::File>(*ports.Get(2), "file", PortKind::File);
-    CHECK(file.value == "result.txt");
+    const auto file = ReadPath(*ports.Get(2), "file");
+    CHECK(file == "result.txt");
     CHECK(std::filesystem::is_regular_file(
-        std::filesystem::symlink_status(file.value)));
-    std::ifstream content(file.value);
+        std::filesystem::symlink_status(file)));
+    std::ifstream content(file);
     const std::string text(std::istreambuf_iterator<char>{content}, {});
-    CHECK(text == "read from File input");
-    const auto forwarded = DecodePort<outputs::forwarded::File>(
-        *ports.Get(3), "forwarded", PortKind::File);
-    CHECK(forwarded.value == input_path);
-    const auto directory = DecodePort<outputs::directory::Directory>(
-        *ports.Get(4), "directory", PortKind::Directory);
-    CHECK(directory.value == directory_path);
-    CHECK(std::filesystem::is_regular_file(
-        std::filesystem::path(directory.value) / "member.txt"));
+    CHECK(text == "read from Path input");
+    CHECK(ReadPath(*ports.Get(3), "forwarded") == input_path);
+    const auto directory = ReadPath(*ports.Get(4), "directory");
+    CHECK(directory == directory_path);
+    CHECK(std::filesystem::is_regular_file(std::filesystem::path(directory) /
+                                           "member.txt"));
+    using namespace outputs::arrival::tsugumi::merge;
+    const auto arrival =
+        DecodePort<Merged>(*ports.Get(5), "arrival", PortKind::FlatBuffer);
+    const auto* box = arrival.value.AsTemperatureBox();
+    CHECK(box && Decode<t0::Temperature>({box->bytes.data(), box->bytes.size()})
+                         .value() == 21.0);
   }
 }
 
 extern "C" auto check_input_failure(tsugumi_bytes result, input_case test_case)
     -> void {
-  CheckFailure(result, test_case == MISSING_INPUT
-                           ? FailureKind::input_missing
-                           : FailureKind::invalid_request);
+  if (test_case == MISSING_INPUT) {
+    CHECK(CheckFailure(result, FailureKind::input_missing)
+              .message()
+              ->string_view() == "Missing input number");
+  } else {
+    CheckFailure(result, FailureKind::invalid_request);
+  }
+}
+
+extern "C" auto check_shared_abi(int argc, char** argv) -> int;
+
+auto main(int argc, char** argv) -> int {
+  CHECK(argc == 3);
+  // Hold the library open across both suites to keep the same embedded JVM.
+  void* library = dlopen(argv[1], RTLD_NOW | RTLD_LOCAL);
+  if (!library) std::fprintf(stderr, "%s\n", dlerror());
+  CHECK(library);
+  CHECK(check_shared_abi(argc, argv) == 0);
+  const auto entry =
+      reinterpret_cast<tsugumi_main_fn>(dlsym(library, "tsugumi_main"));
+  CHECK(entry);
+  auto run = [entry](int mode) {
+    const tsugumi_call call{.abi_version = TSUGUMI_ABI_VERSION,
+                            .input = make_input(VALID, mode, -1),
+                            .host = nullptr,
+                            .effects = nullptr};
+    tsugumi_bytes result{};
+    CHECK(entry(&call, &result) == 0);
+    return result;
+  };
+  CHECK(CheckFailure(run(20), FailureKind::input_missing)
+            .message()
+            ->string_view() == "Missing input unwired");
+  CHECK(CheckFailure(run(21), FailureKind::output_invalid)
+            .message()
+            ->string_view() == "Invalid Merge output arrival");
+  CHECK(CheckFailure(run(22), FailureKind::invalid_request)
+            .message()
+            ->string_view() == "Wrong Java type for input number");
+  const auto& reading = Decode<CardResult>(run(23));
+  CHECK(!reading.failure() && reading.outputs() &&
+        reading.outputs()->size() == 3);
+  using namespace outputs::arrival::tsugumi::merge;
+  const auto arrival = DecodePort<Merged>(*reading.outputs()->Get(2), "arrival",
+                                          PortKind::FlatBuffer);
+  const auto* box = arrival.value.AsReadingBox();
+  CHECK(box && Decode<t1::Reading>({box->bytes.data(), box->bytes.size()})
+                       .name()
+                       ->string_view() == "sensor");
+  for (int mode : {24, 25, 26}) {
+    CHECK(CheckFailure(run(mode), FailureKind::invalid_request)
+              .message()
+              ->string_view()
+              .ends_with("arrival"));
+  }
+  CHECK(dlclose(library) == 0);
+  return 0;
 }
 
 extern "C" auto check_card_failure(tsugumi_bytes result, int mode) -> void {

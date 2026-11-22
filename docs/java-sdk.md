@@ -1,6 +1,6 @@
 # Writing a Java Card
 
-This guide targets **Card ABI 9 (unreleased)**. The Card package contains
+This guide targets **Card ABI 9, revision 2 (unreleased)**. The Card package contains
 `lib/main.so` and `lib/card.jar`. The native entry point starts an embedded
 Java 21 VM on the first valid call. With `reuseWorker`, the JVM and the Card's
 static fields stay live for the worker's lifetime.
@@ -8,8 +8,8 @@ static fields stay live for the worker's lifetime.
 ## Build and run
 
 Implement a public static `run(Card.Input)` method that returns `Card.Output`.
-The default entry class is `card.Main`. This example takes a required Text input
-named `text` with a string field `value` and returns a required File named `file`.
+The default entry class is `card.Main`. This example needs a `text` input
+wired from a Text table with a string field `value`. It returns a Path on `file`.
 
 ```java
 package card;
@@ -22,7 +22,7 @@ import tsugumi.Display;
 
 public final class Main {
     public static Card.Output run(Card.Input input) throws IOException {
-        String text = input.text().getValue();
+        String text = input.get("text", inputs.text.TextT.class).getValue();
         Path file = Files.writeString(Path.of("message.txt"), text);
         Display.send(new Display.Text(text));
         return new Card.Output(file);
@@ -34,20 +34,29 @@ Put the source in `src/card/Main.java` under the Card definition. Use the
 [Java text template](../templates/java-write-text/) for the complete project fragment.
 
 ```nix
-{ inputs, ... }:
+{
+  pkgs,
+  params,
+  inputs,
+  schemas,
+}:
 let
   sdk = inputs.tsugumi.javaSdk;
 in
 {
-  run = sdk.javaCard { src = ./src; };
+  run = sdk.javaCard {
+    inherit schemas;
+    src = ./src;
+  };
   views = sdk.views;
 }
 ```
 
-The core binds the Card contract to the builder in `inputs.tsugumi`.
-Outside the core, call `lib.<system>.javaCard { src; contract; }`, where
-`contract` contains the generated `_contract.json`, `_inputs.fbs`,
-`_outputs.fbs` and `_params.fbs`.
+The builder uses the three FlatBuffers files in `schemas`. Outside the core,
+call `lib.<system>.javaSdk.javaCard` with those same arguments. The run output
+ships the generated `tsugumi/Card.java`, the port bindings and their README
+under `share/tsugumi/api/`. Use **Build SDK** in the Card editor to see the API
+for the current wiring. [Card SDK contract](sdk-contract.md)
 
 - Set `mainClass = "example.Main";` to choose a different package-qualified entry class.
 - Pass `jars = [ "${package}/share/java/dependency.jar" ];` to put Nix-provided
@@ -60,22 +69,35 @@ Outside the core, call `lib.<system>.javaCard { src; contract; }`, where
 
 ## Typed ports and parameters
 
-The builder generates `tsugumi.Card.Input` and `tsugumi.Card.Output` records.
-`input.params()` is a `parameters.ParamsT`. For FlatBuffer ports, use the
-generated FlatBuffers object API. For example, a port of type
+The builder generates `tsugumi.Card.Input` and the `tsugumi.Card.Output`
+record. `input.params()` is a `parameters.ParamsT`. Use the generated
+FlatBuffers object API for FlatBuffer ports. For example, a port of type
 `outputs.total.Number` takes an `outputs.total.NumberT`. Set its fields
 with the generated setters and pass it to the output record constructor.
-Constructor arguments follow the contract's output port order. Optional input
-ports are `null` when absent. Pass `null` for optional outputs you want to
-omit. Required outputs must have a value. The builder appends underscores
-to reserved identifiers and to record member names that collide with
-`params()` or another member.
+Constructor arguments follow the schema's output port order. Pass `null`
+to omit an optional output. Required outputs must have a value.
 
-For File and Directory ports the record fields are `java.nio.file.Path`.
-Inputs hold absolute paths. Create new outputs under the working directory
-and finish writing before returning the paths. To forward a File or
-Directory, return the input path unchanged. See the
+Every input can be absent. Use `input.get("port", Type.class)` for a needed
+value of type `T`. If it is absent, the call fails with `input_missing` and
+names the port. Use `input.find("port", Type.class)` for an `Optional<T>`.
+Both lookups accept the name of a disconnected port when `Type` is
+available independently of that connection. Generated accessors for connected
+ports, such as `input.text()`, also return `Optional<T>`. The builder appends
+underscores to reserved identifiers and conflicting accessor names. Name-based
+lookups take the original port name.
+
+A Path port uses `java.nio.file.Path` for a file or directory. Input paths
+are absolute. Create new outputs under the working directory and finish
+writing before returning the paths. Return an input path unchanged to forward
+it. You can look up a Path by name with `Path.class` even if it is disconnected. See the
 [worker filesystem contract](cpp-sdk.md#files-directories-and-worker-lifetime).
+
+A mixed-type Merge exposes the selected member's generated object type.
+The API README lists the possible types for each Merge port. Use Java pattern
+matching on its `Object` value, for example
+`input.arrival().orElse(null) instanceof inputs.arrival.tsugumi.merge.t0.TemperatureT t`.
+The SDK verifies the nested FlatBuffer and unpacks the selected member. Pass
+one of the listed member objects for a Merge output so the SDK can box it.
 
 ## Display a value
 

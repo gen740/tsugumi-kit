@@ -13,6 +13,8 @@ import outputs.data.DataT;
 import outputs.data.RowT;
 import outputs.number.NumberT;
 import outputs.number.PositionT;
+import inputs.arrival.tsugumi.merge.t0.TemperatureT;
+import inputs.arrival.tsugumi.merge.t1.ReadingT;
 import tsugumi.Card;
 import tsugumi.Display;
 import tsugumi.Effects;
@@ -27,8 +29,8 @@ public final class Main {
         ++calls;
         switch (input.params().getMode()) {
             case 1 -> {
-                // Two successful calls and five failures preceded this call.
-                check(calls == 8);
+                // Three scenario calls and five failures preceded this call.
+                check(calls == 9);
                 check(System.getProperty("user.home").equals(System.getenv("HOME")));
                 check(System.getProperty("java.io.tmpdir").equals(System.getenv("TMPDIR")));
                 checkTools();
@@ -45,23 +47,31 @@ public final class Main {
             }
             case 2 -> {
                 background.join();
-                check(calls == 9);
+                check(calls == 10);
             }
             case 3 -> throw new Failure(FailureKind.CANCELLED, "explicit failure", "fit");
             case 4 -> throw new IllegalStateException("standard exception");
             case 5 -> throw new AssertionError("test error");
-            case 6 -> { return new Card.Output(null, null, null, null, null); }
+            case 6 -> { return new Card.Output(null, null, null, null, null, null); }
             default -> {}
         }
 
-        var text = input.data().getChoice().asText();
+        var data = input.get("data", inputs.data.DataT.class);
+        // A needed input: absent produces INPUT_MISSING naming the port.
+        var number = input.get("number", inputs.number.NumberT.class);
+        check(input.number().orElseThrow() == number);
+        check(input.find("unwired", Path.class).isEmpty());
+        if (input.params().getMode() == 20) input.get("unwired", Path.class);
+        if (input.params().getMode() == 22) input.get("number", Path.class);
+
+        var text = data.getChoice().asText();
         check(text.getText().equals("value"));
-        long value = input.data().getRows()[0].getValue();
+        long value = data.getRows()[0].getValue();
         var position = new PositionT();
-        position.setX(Offset.add(input.number().getPosition().getX(), value));
-        position.setY(input.number().getPosition().getY());
-        var number = new NumberT();
-        number.setPosition(position);
+        position.setX(Offset.add(number.getPosition().getX(), value));
+        position.setY(number.getPosition().getY());
+        var outputNumber = new NumberT();
+        outputNumber.setPosition(position);
 
         var row = new RowT();
         row.setValue(value);
@@ -70,16 +80,34 @@ public final class Main {
         var choice = new ChoiceUnion();
         choice.setType(input.params().getMode() == 7 ? Choice.NONE : Choice.Count);
         choice.setValue(count);
-        var data = new DataT();
-        data.setRows(new RowT[]{row});
-        data.setChoice(choice);
+        var outputData = new DataT();
+        outputData.setRows(new RowT[]{row});
+        outputData.setChoice(choice);
 
+        Path file = input.file().orElse(null);
         Path result = null;
-        if (input.file() != null) {
+        if (file != null) {
             result = Path.of("result.txt");
-            Files.writeString(result, Files.readString(input.file()));
+            Files.writeString(result, Files.readString(file));
         }
-        return new Card.Output(number, data, result, input.file(), input.directory());
+        Object arrival = switch (input.arrival().orElse(null)) {
+            case TemperatureT temperature -> {
+                var next = new outputs.arrival.tsugumi.merge.t0.TemperatureT();
+                next.setValue(temperature.getValue() + 1);
+                yield next;
+            }
+            case ReadingT reading -> {
+                var next = new outputs.arrival.tsugumi.merge.t1.ReadingT();
+                next.setName(reading.getName());
+                yield next;
+            }
+            case null -> null;
+            default -> throw new AssertionError("Unexpected Merge member");
+        };
+        if (input.params().getMode() == 21) arrival = "not a Merge member";
+        // Return input paths unchanged to forward them.
+        return new Card.Output(outputNumber, outputData, result, file,
+                input.find("directory", Path.class).orElse(null), arrival);
     }
 
     private static void checkTools() throws IOException, InterruptedException {

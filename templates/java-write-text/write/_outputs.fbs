@@ -1,5 +1,4 @@
 attribute "tsugumi";
 
-table File { value:string (required); }
-table Outputs { file:File (required, tsugumi: "file"); }
+table Outputs { file:string (required, tsugumi: "path"); }
 root_type Outputs;

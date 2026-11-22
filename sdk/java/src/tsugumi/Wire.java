@@ -2,17 +2,21 @@ package tsugumi;
 
 import com.google.flatbuffers.FlatBufferBuilder;
 import java.nio.ByteBuffer;
+import java.nio.file.InvalidPathException;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.function.ToIntFunction;
 import parameters.Params;
 import parameters.ParamsT;
 import tsugumi.wire.Tsugumi.Card.CardFailure;
 import tsugumi.wire.Tsugumi.Card.CardInput;
 import tsugumi.wire.Tsugumi.Card.CardPort;
 import tsugumi.wire.Tsugumi.Card.CardResult;
+import tsugumi.wire.Tsugumi.Data.PortKind;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 
@@ -33,37 +37,54 @@ final class Wire {
         }
 
         ParamsT params() {
-            return Params.getRootAsParams(input.paramsAsByteBuffer()).unpack();
+            return Params.getRootAsParams(input.paramsAsByteBuffer().slice()).unpack();
         }
 
-        <T> T read(String name, Function<ByteBuffer, T> decode) {
+        // An input that did not arrive stays absent from the values.
+        void read(String name, Function<ByteBuffer, Object> decode, Map<String, Object> values) {
             CardPort port = ports.get(name);
-            return port == null ? null : decode.apply(port.bytesAsByteBuffer());
+            if (port != null) values.put(name, decode.apply(port.bytesAsByteBuffer().slice()));
+        }
+
+        void path(String name, Map<String, Object> values) {
+            CardPort port = ports.get(name);
+            if (port == null) return;
+            try {
+                values.put(name, Path.of(port.path()));
+            } catch (InvalidPathException error) {
+                throw new Failure(FailureKind.INVALID_REQUEST, "Invalid Path input " + name);
+            }
         }
     }
 
-    @FunctionalInterface
-    interface Pack<T> {
-        int write(FlatBufferBuilder builder, T value);
+    static byte[] pack(String name, ToIntFunction<FlatBufferBuilder> pack) {
+        try {
+            var payload = new FlatBufferBuilder();
+            payload.finish(pack.applyAsInt(payload));
+            return payload.sizedByteArray();
+        } catch (RuntimeException | AssertionError | StackOverflowError error) {
+            throw new Failure(FailureKind.OUTPUT_INVALID,
+                    "Invalid output " + name + ": " + error);
+        }
     }
 
     static final class Outputs {
         private final FlatBufferBuilder result = new FlatBufferBuilder();
         private final ArrayList<Integer> offsets = new ArrayList<>();
 
-        <T> void add(String name, int kind, T value, Pack<T> pack) {
-            if (value == null) return;
-            byte[] bytes;
-            try {
-                var payload = new FlatBufferBuilder();
-                payload.finish(pack.write(payload, value));
-                bytes = payload.sizedByteArray();
-            } catch (RuntimeException | AssertionError | StackOverflowError error) {
-                throw new Failure(FailureKind.OUTPUT_INVALID,
-                        "Invalid output " + name + ": " + error);
+        void add(String name, byte[] bytes) {
+            offsets.add(CardPort.createCardPort(result, result.createString(name),
+                    PortKind.FlatBuffer, CardPort.createBytesVector(result, bytes), 0));
+        }
+
+        void path(String name, Path path) {
+            if (path == null) return;
+            String value = path.toString();
+            if (value.isEmpty()) {
+                throw new Failure(FailureKind.OUTPUT_INVALID, "Invalid Path output " + name);
             }
             offsets.add(CardPort.createCardPort(result, result.createString(name),
-                    kind, CardPort.createBytesVector(result, bytes)));
+                    PortKind.Path, 0, result.createString(value)));
         }
 
         byte[] finish() {
