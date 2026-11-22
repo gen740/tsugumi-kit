@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 import json
 from pathlib import Path
+import re
 import subprocess
 from tempfile import TemporaryDirectory
 
@@ -59,7 +60,16 @@ def reflect_schema(schema, reflection_fbs, *, flatc="flatc"):
              "--", str(bfbs)],
             check=True,
         )
-        return json.loads(bfbs.with_suffix(".json").read_text(encoding="utf-8"))
+        metadata = bfbs.with_suffix(".json").read_text(encoding="utf-8")
+        # flatc emits these literals even with --strict-json.
+        literals = {"inf": "Infinity", "-inf": "-Infinity", "nan": "NaN"}
+        metadata = re.sub(
+            r'(^\s*"default_real":\s*)([+-]?)(inf|nan)(?=[\s,}])',
+            lambda match: match[1] + literals.get(match[2] + match[3], literals[match[3]]),
+            metadata,
+            flags=re.MULTILINE,
+        )
+        return json.loads(metadata)
 
 
 def attributes(field):
