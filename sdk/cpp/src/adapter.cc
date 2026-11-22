@@ -108,9 +108,10 @@ auto SendDisplay(const char* view, tsugumi_bytes bytes) -> int {
 auto Invoke(const tsugumi_call* call, tsugumi_bytes* result,
             CardBody body) noexcept -> int {
   // A different ABI may provide only the leading version at this address.
-  uint32_t version = 0;
-  if (call) std::memcpy(&version, call, sizeof(version));
-  if (version != TSUGUMI_ABI_VERSION || !result) return 1;
+  if (!call || !result) return 1;
+  uint32_t version;
+  std::memcpy(&version, call, sizeof(version));
+  if (version != TSUGUMI_ABI_VERSION) return 1;
   *result = {};
   result_buffer = {};
   try {

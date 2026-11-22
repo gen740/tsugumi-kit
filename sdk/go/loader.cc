@@ -39,9 +39,10 @@ extern "C" auto tsugumi_main(const tsugumi_call* call, tsugumi_bytes* result)
     -> int {
   // A different ABI can pass only the leading version. The Go shared
   // library's constructor starts the runtime, so load it after this gate.
-  uint32_t version = 0;
-  if (call) std::memcpy(&version, call, sizeof(version));
-  if (version != TSUGUMI_ABI_VERSION || !result) return 1;
+  if (!call || !result) return 1;
+  uint32_t version;
+  std::memcpy(&version, call, sizeof(version));
+  if (version != TSUGUMI_ABI_VERSION) return 1;
 
   static const auto entry = LoadCard();
   return entry ? entry(call, result)
