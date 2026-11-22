@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { once } from "node:events";
 import { writeFileSync } from "node:fs";
 import { Worker } from "node:worker_threads";
 import { setImmediate } from "node:timers/promises";
@@ -93,6 +94,12 @@ export default async function run({ ports, params, need }, ctx) {
     case 15:
       need("file");
       break;
+    case 16: {
+      // The host returns from main while this Worker is still running.
+      const worker = new Worker(new URL("./exit-worker.mjs", import.meta.url));
+      await once(worker, "message");
+      break;
+    }
   }
   const merge = outputs.arrival.tsugumi.merge;
   const { x, y } = number.position;

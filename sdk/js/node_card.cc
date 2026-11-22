@@ -6,6 +6,7 @@
 
 #include <array>
 #include <condition_variable>
+#include <cstdlib>
 #include <cstring>
 #include <exception>
 #include <memory>
@@ -92,9 +93,7 @@ auto BindEffects(v8::Local<v8::Object> exports, Value,
 
 class Runtime {
  public:
-  Runtime() {
-    std::thread([this] { RunLoop(); }).detach();
-  }
+  Runtime() : thread_([this] { RunLoop(); }) {}
 
   Runtime(const Runtime&) = delete;
   auto operator=(const Runtime&) -> Runtime& = delete;
@@ -116,6 +115,21 @@ class Runtime {
   }
 
  private:
+  // Process exit runs libnode's static destructors. Until then, Node
+  // worker_threads and V8 platform threads can still be running, for
+  // example while a Worker disposes its isolate after its script ends.
+  // Stop the environment and wait for its teardown first.
+  static auto StopAtExit() -> void {
+    auto& self = *instance_;
+    // A host that exits from a send on the Node thread cannot join it.
+    if (std::this_thread::get_id() == self.thread_.get_id()) return;
+    {
+      const std::lock_guard lock(self.mutex_);
+      if (!self.stopped_) node::Stop(self.setup_->env());
+    }
+    self.thread_.join();
+  }
+
   struct Request {
     tsugumi_bytes input;
     std::vector<uint8_t> result = {};
@@ -253,12 +267,20 @@ class Runtime {
           "Cannot create the Node.js event loop wake handle");
     }
     wake_.data = this;
+    // Register after InitializeOncePerProcess, so this handler runs before
+    // the exit handlers that Node's dependencies installed while starting.
+    instance_ = this;
+    if (std::atexit(StopAtExit) != 0) {
+      uv_close(reinterpret_cast<uv_handle_t*>(&wake_), nullptr);
+      throw std::runtime_error("Cannot register the Node.js exit handler");
+    }
     {
       const std::lock_guard lock(mutex_);
       ready_ = true;
       changed_.notify_all();
     }
     node::SpinEventLoop(setup_->env());
+    uv_close(reinterpret_cast<uv_handle_t*>(&wake_), nullptr);
   }
 
   auto RunLoop() -> void {
@@ -293,11 +315,13 @@ class Runtime {
       stop_error_ = error;
       changed_.notify_all();
     }
-    if (ready_) uv_close(reinterpret_cast<uv_handle_t*>(&wake_), nullptr);
-    invoke_.Reset();
-    resolve_.Reset();
-    reject_.Reset();
-    entry_.Reset();
+    if (setup_) {
+      const v8::Locker locker(setup_->isolate());
+      invoke_.Reset();
+      resolve_.Reset();
+      reject_.Reset();
+      entry_.Reset();
+    }
     setup_.reset();
     if (initialization && !initialization->early_return()) {
       node::TearDownOncePerProcess();
@@ -315,6 +339,8 @@ class Runtime {
   std::unique_ptr<node::CommonEnvironmentSetup> setup_;
   v8::Global<v8::Function> invoke_, resolve_, reject_;
   v8::Global<v8::String> entry_;
+  std::thread thread_;
+  static inline Runtime* instance_ = nullptr;
 };
 
 // The libuv loop can dispatch a host effect even between calls. Keep the

@@ -98,6 +98,10 @@ read the deadline in milliseconds. `-1` means the active call has no
 deadline. Between calls, they return `true` and `0`, respectively. The
 Node event loop keeps running between calls, and callbacks on that loop
 and Node `worker_threads` can use `send` for the worker's lifetime.
+When the worker process exits, the SDK stops the Node environment and
+waits for it, including its `worker_threads`, before libnode's exit-time
+destructors run. A `worker_threads` Worker blocked in a synchronous call
+delays that exit, as in Node.
 
 Throw a `Failure(FailureKind.cancelled, message)` for a structured failure.
 An ordinary exception or rejected Promise becomes `worker_failed`.
