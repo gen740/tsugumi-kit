@@ -31,7 +31,7 @@ whole or to Tsugumi's worker, which belongs to the core.
 | [Julia SDK guide](docs/julia-sdk.md) | Write a Julia Card with generated port documentation and an embedded Julia runtime. |
 | [R SDK guide](docs/r-sdk.md) | Write an R Card with named-list ports and an embedded R runtime. |
 | [Java SDK guide](docs/java-sdk.md) | Build a typed Java Card with an embedded JVM. |
-| [JavaScript SDK guide](docs/js-sdk.md) | Write an async Node.js Card with typed ports and npm dependencies. |
+| [JavaScript SDK guide](docs/js-sdk.md) | Write an async Node.js Card with generated TypeScript bindings and npm dependencies for ABI 9 revision 2. |
 | [Template guide](docs/templates.md) | Template format, Git import and the host and project stores. |
 | [Example templates](templates/README.md) | A [CSV filter](templates/filter-counts/) and a [two-Card temperature conversion](templates/temperature-conversion/). |
 | `abi/9/` | Vendored Card ABI 9 header and FlatBuffers schemas. |

@@ -1,19 +1,21 @@
 # Writing a JavaScript Card
 
-This guide targets **Card ABI 9 (unreleased)**. A JavaScript Card exports one
+This guide targets **Card ABI 9 revision 2 (unreleased)**. A JavaScript Card exports one
 function from `src/main.mjs`. It receives typed input ports and parameters and
 returns an object keyed by output port. The function can return a Promise.
 
 ```js
 import { writeFile } from "node:fs/promises";
-import { Failure, FailureKind, Markdown, outputs } from "@tsugumi/card";
+import { Failure, FailureKind, Text } from "@tsugumi/card";
 
 /** @type {import("@tsugumi/card").Card} */
 export default async function run({ params }, { cancelled, display }) {
   if (cancelled()) throw new Failure(FailureKind.cancelled, "Stopped before writing");
-  await writeFile("note.txt", params.text ?? "", "utf8");
-  display.send(new Markdown("Wrote **note.txt**"));
-  return { file: new outputs.file.FileT("note.txt") };
+  const file = "note.txt";
+  const bytes = new TextEncoder().encode(params.text ?? "");
+  await writeFile(file, bytes);
+  display.send(new Text(`Wrote ${bytes.length} bytes to ${file}`));
+  return { file };
 }
 ```
 
@@ -22,31 +24,38 @@ definition. Declare inputs and parameters in `_card.json`, output types in
 `_outputs.fbs`, and select the SDK in `default.nix`.
 
 ```nix
-{ inputs, ... }:
+{ pkgs, params, inputs, schemas }:
 let
   sdk = inputs.tsugumi.jsSdk;
 in
 {
-  run = sdk.jsCard { src = ./src; };
+  run = sdk.jsCard { inherit schemas; src = ./src; };
   views = sdk.views;
 }
 ```
 
-`jsCard` produces `lib/main.so`. The core supplies its contract through
-`inputs.tsugumi.jsSdk`. For standalone builds, use
-`kit.lib.${system}.jsSdk.jsCard { inherit src contract; }` with the directory
-containing the generated `_inputs.fbs`, `_outputs.fbs`, `_params.fbs`, and
-`_contract.json`.
+`schemas` contains the generated `_inputs.fbs`, `_outputs.fbs`, and
+`_params.fbs`. For standalone builds, pass the same directory to
+`kit.lib.${system}.jsSdk.jsCard { inherit src schemas; }`.
+`jsCard` installs `lib/main.so` and publishes the generated TypeScript sources,
+`index.d.ts`, and a typed README under `share/tsugumi/api/`.
 
 ## Types and dependencies
 
-The builder generates `@tsugumi/card` and its TypeScript declarations from the
-contract. The builder's `bindings` passthru contains the generated package
-under `js/`. `CardInput.ports` uses the exact port names, and absent optional
-ports are `undefined`. `CardInput.params` is the generated `ParamsT` object.
-Use `outputs.<port>.<Table>T` to construct output values. The generated
-namespaces also expose child tables, structs, and enums. For example,
-`outputs.file.FileT` is the File table for the `file` output above.
+The builder generates `@tsugumi/card` from the supplied schemas. The builder's
+`bindings` passthru contains the generated package under `js/`.
+`CardInput.params` is the generated `ParamsT` object.
+`input.ports[name]` returns the value or `undefined`. The generated
+`CardPorts` type lists the connected ports. Use `input.need(name)` to get a
+needed value of type `T`. If the port is absent, including when it is
+disconnected, `need` throws a `Failure` with kind `input_missing` and a
+message naming the port.
+
+Use `outputs.<port>.<Table>T` to construct a FlatBuffer output. The generated
+namespaces expose child tables, structs, and enums. For mixed-type Merge
+ports, the generated input and output types are unions of the member object
+types. Narrow an input with `instanceof`, and return an instance of the
+corresponding output member type. The SDK handles verification and boxing.
 Omit optional outputs or set them to `undefined`. Return `{}` from a Card
 with no outputs. FlatBuffers 64-bit integers are JavaScript `bigint` values.
 
@@ -97,10 +106,10 @@ file path and line.
 
 ## Files and worker lifetime
 
-Create new File or Directory outputs under the current working directory.
-Complete their writes before returning, and set each output's `value` to
-its path. For an input File or Directory, read its absolute `value` path
-during the active call. To forward it, return that path unchanged. See
+Declare a Path output as `string (tsugumi: "path")` in `_outputs.fbs` and
+return its path as a string. Create the file or directory under the current
+working directory and complete its writes before returning. A Path input
+is a staged absolute path string. To forward it, return that string unchanged. See
 [Files, directories and worker lifetime](cpp-sdk.md#files-directories-and-worker-lifetime)
 for the worker's filesystem rules.
 

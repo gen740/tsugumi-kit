@@ -55,7 +55,7 @@ absence value. The table gives the conventions for this revision's SDK ports.
 | Ruby | Required lookup yielding a value | Optional lookup yielding a value or `nil` |
 | R | `input[["port"]]` or `input$port` | `optional_input(input, "port")`, absent as `NULL` |
 | Julia | `input[:port]` or `input.port` yields `T` | `get(input, :port, nothing)` yields `Union{T, Nothing}` |
-| JavaScript | Needed value of type `T` | `T \| undefined` in the generated declarations |
+| JavaScript | `input.need(name)` returns `T` | `input.ports[name]` returns `T \| undefined` |
 
 A Path port is declared as `string (tsugumi: "path")`. Expose it as the
 language's path type, or a string where the language uses strings for paths.
