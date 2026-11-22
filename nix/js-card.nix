@@ -11,6 +11,7 @@
   importNpmLock,
   libnode,
   runtime,
+  portCodegen,
 }:
 let
   # Use the JS implementation from the same FlatBuffers source as flatc.
@@ -32,7 +33,7 @@ let
 in
 {
   src,
-  contract,
+  schemas,
   tools ? [ ],
   buildInputs ? [ ],
   nativeBuildInputs ? [ ],
@@ -62,20 +63,24 @@ let
       {
         nativeBuildInputs = [
           flatbuffers
-          python3
+          (python3.withPackages (_: [ portCodegen ]))
           typescript
         ];
       }
       ''
-        contract=${lib.escapeShellArg "${contract}"}
-        mkdir -p generated node_modules "$out/js/node_modules"
+        schemas=${lib.escapeShellArg "${schemas}"}
+        mkdir -p generated node_modules "$out/js/node_modules" "$out/api"
         ln -s ${flatbuffersJs} node_modules/flatbuffers
         ln -s ${flatbuffersJs} "$out/js/node_modules/flatbuffers"
         cp ${sdk}/package.json .
-        flatc --ts --gen-object-api --gen-all -I "$contract" -o generated \
-          "$contract/_inputs.fbs" "$contract/_outputs.fbs" "$contract/_params.fbs" "${abi}/card.fbs"
-        python3 "${sdk}/generate.py" "$contract" "${../sdk/cpp}" \
-          "${flatbuffers.src}/reflection/reflection.fbs" "$out/native" generated
+        flatc --ts --gen-object-api --gen-all -o generated \
+          "$schemas/_inputs.fbs" "$schemas/_outputs.fbs" "$schemas/_params.fbs"
+        python3 "${sdk}/generate.py" "$schemas" "${../sdk/cpp}" \
+          "${flatbuffers.src}/reflection/reflection.fbs" "$out/native" generated "$out/api/README.md"
+        # The Card-facing API: the port bindings without the ABI envelope.
+        cp -r generated/. ${sdk}/index.d.ts "$out/api/"
+        flatc --ts --gen-object-api --gen-all -o generated "${abi}/card.fbs"
+        install -Dm644 generated/tsugumi/data/failure-kind.ts "$out/api/tsugumi/data/failure-kind.ts"
         tsc --target es2022 --module nodenext --declaration --noCheck \
           --rootDir generated --outDir "$out/js" generated/bindings.ts generated/tsugumi/card.ts
         cp ${sdk}/{package.json,bootstrap.cjs,index.js,index.d.ts,effects.js,display.js,failure.js,runtime.js} "$out/js/"
@@ -93,7 +98,8 @@ runCommandCC "tsugumi-js-card"
     src=${lib.escapeShellArg "${src}"}
     test -f "$src/main.mjs" || { echo "jsCard: src must contain main.mjs" >&2; exit 1; }
     app="$out/lib/card"
-    mkdir -p "$app/node_modules/@tsugumi"
+    mkdir -p "$app/node_modules/@tsugumi" "$out/share/tsugumi"
+    cp -r "${bindings}/api" "$out/share/tsugumi/api"
     # The installed node_modules comes exclusively from the lockfile.
     tar --exclude=./node_modules -C "$src" -cf - . | tar -x -C "$app"
     chmod u+w "$app"

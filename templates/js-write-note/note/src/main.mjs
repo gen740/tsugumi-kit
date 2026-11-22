@@ -1,5 +1,5 @@
 import { writeFile } from "node:fs/promises";
-import { Failure, FailureKind, Text, outputs } from "@tsugumi/card";
+import { Failure, FailureKind, Text } from "@tsugumi/card";
 
 /** @type {import("@tsugumi/card").Card} */
 export default async function run({ params }, { cancelled, display }) {
@@ -8,5 +8,5 @@ export default async function run({ params }, { cancelled, display }) {
   const bytes = new TextEncoder().encode(params.text ?? "");
   await writeFile(file, bytes);
   display.send(new Text(`Wrote ${bytes.length} bytes to ${file}`));
-  return { file: new outputs.file.FileT(file) };
+  return { file };
 }

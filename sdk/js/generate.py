@@ -1,10 +1,11 @@
-"""Generate the JS contract bindings and native wire verifier at build time."""
+"""Generate the JS Card bindings and the native wire verifier at build time."""
 
 import json
 import re
-import subprocess
 import sys
 from pathlib import Path
+
+from tsugumi_ports import load_card_schemas, reflect_schema, write_api_readme
 
 
 # Match the TypeScript object API names emitted by flatc.
@@ -56,14 +57,29 @@ def export_escaped_objects(js):
             path.write_text(patched)
 
 
+def link_namespace_barrels(js):
+    # flatc writes no barrel for a namespace that holds only namespaces, such
+    # as inputs.<port> above a Merge's tsugumi.merge. Export every child.
+    for directory in sorted((path for path in js.rglob("*") if path.is_dir()),
+                            key=lambda path: -len(path.parts)):
+        barrel = directory.with_suffix(".ts")
+        source = barrel.read_text() if barrel.exists() else ""
+        lines = [f"export * as {child.name} from './{directory.name}/{child.name}.js';"
+                 for child in sorted(directory.iterdir()) if child.is_dir()
+                 and f"export * as {child.name} from" not in source]
+        if lines:
+            barrel.write_text(source + "\n".join(lines) + "\n")
+
+
 def union_rules(schema):
+    """Union tag checks for user tables, which the TS object API does not make."""
     objects = schema["objects"]
     unions, children = {}, {}
     for index, obj in enumerate(objects):
         if obj.get("is_struct"):
             continue
         fields = obj.get("fields", [])
-        by_id = {field["id"]: field["name"] for field in fields}
+        by_id = {field.get("id", 0): field["name"] for field in fields}
         for field in fields:
             if field.get("deprecated"):
                 continue
@@ -73,10 +89,10 @@ def union_rules(schema):
             element = spec.get("element") if vector else base
             member = escape(camel(field["name"]))
             if element == "Union":
-                tag = escape(camel(by_id[field["id"] - 1]))
+                tag = escape(camel(by_id[field.get("id", 0) - 1]))
                 variants = {}
                 for variant in schema["enums"][spec["index"]]["values"]:
-                    if not variant["value"]:
+                    if not variant.get("value", 0):
                         continue
                     kind = variant["union_type"]
                     variants[variant["value"]] = (
@@ -97,7 +113,7 @@ def union_rules(schema):
             break
         checked.update(parents)
 
-    lines = ["export const outputChecks = new Map(["]
+    lines = ["export const outputChecks = new Map<unknown, any>(["]
     for index in sorted(checked):
         cls = js_type(objects[index]["name"]) + "T"
         lines.append(f"  [{cls}, {{ unions: [")
@@ -115,11 +131,168 @@ def union_rules(schema):
     return lines
 
 
-def cpp_adapter(contract, names, kinds):
-    def cpp_type(port):
-        return "::" + "::".join(names.get(part, part) for part in port["type"].split("."))
+def ts_value_type(type_, members):
+    if members:
+        return " | ".join(ts_value_type(member.type, member.merge) for member in members)
+    return js_type(type_) + "T"
 
+
+def ts_type(port):
+    return "string" if port.kind == "Path" else ts_value_type(port.type, port.merge)
+
+
+def descriptor(type_, members):
+    """The runtime's view of one FlatBuffer type, with a Merge's boxed members."""
+    cls = js_type(type_)
+    table = type_.rsplit(".", 1)[-1]
+    entries = [f"read: {cls}.{camel('get_root_as_' + table)}", f"object: {cls}T"]
+    if members:
+        boxed = ", ".join(
+            f"{{ tag: {member.value}, box: {js_type(member.box_type)}, "
+            f"boxObject: {js_type(member.box_type)}T, "
+            f"type: {descriptor(member.type, member.merge)} }}"
+            for member in members)
+        entries.append(f"members: [{boxed}]")
+    return "{ " + ", ".join(entries) + " }"
+
+
+def port_descriptor(port):
+    entries = [f"name: {json.dumps(port.name)}", f"kind: {json.dumps(port.kind)}",
+               f"required: {str(port.required).lower()}"]
+    if port.kind == "FlatBuffer":
+        entries.append(f"type: {descriptor(port.type, port.merge)}")
+    return "  { " + ", ".join(entries) + " },"
+
+
+def js_bindings(card, output_schema):
     lines = [
+        "import { inputs } from './_inputs.js';",
+        "import { outputs } from './_outputs.js';",
+        "import { parameters } from './_params.js';",
+        "export { inputs, outputs, parameters };",
+        "",
+        "// Connected inputs; any of them may be absent from a call.",
+        "export interface CardPorts {",
+    ]
+    lines += [f"  {json.dumps(port.name)}?: {ts_type(port)};" for port in card.inputs]
+    lines += [
+        "}",
+        "",
+        "export interface CardInput {",
+        f"  params: {js_type(card.params_type)}T;",
+        "  ports: CardPorts;",
+        "  // The input's value, or an input_missing Failure naming the port.",
+        "  need<K extends keyof CardPorts>(name: K): Exclude<CardPorts[K], undefined>;",
+        "  need(name: string): Exclude<CardPorts[keyof CardPorts], undefined>;",
+        "}",
+        "",
+        "export interface CardOutput {",
+    ]
+    for port in card.outputs:
+        optional = "" if port.required else "?"
+        suffix = "" if port.required else " | undefined"
+        lines.append(f"  {json.dumps(port.name)}{optional}: {ts_type(port)}{suffix};")
+    table = card.params_type.rsplit(".", 1)[-1]
+    lines += [
+        "}",
+        "",
+        f"export const readParams = {js_type(card.params_type)}.{camel('get_root_as_' + table)};",
+        "export const inputPorts = [",
+        *map(port_descriptor, card.inputs),
+        "];",
+        "export const outputPorts = [",
+        *map(port_descriptor, card.outputs),
+        "];",
+        "",
+        *union_rules(output_schema),
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def cpp_adapter(card, names):
+    # The C++ generator's renamed identifiers, shared with its headers.
+    from card_cpp import cpp_type, flatc_identifier
+
+    functions = {}
+
+    def verify_value(type_, members, bytes_, name, kind):
+        merge = ", " + verify_merge(type_, members) if members else ""
+        return (f"VerifyNodeValue<{cpp_type(type_, names)}>({bytes_}, "
+                f"{name}, {kind}{merge});")
+
+    def verify_merge(type_, members):
+        function = f"VerifyMerge{len(functions)}"
+        functions[function] = body = [
+            f"auto {function}(const {cpp_type(type_, names)}& merged,",
+            "    std::string_view name, FailureKind kind) -> void {",
+        ]
+        for member in members:
+            tag = flatc_identifier(names.get(member.tag, member.tag))
+            body += [
+                f"  if (const auto* box = merged.value_as_{tag}()) {{",
+                "    const auto* bytes = box->bytes();",
+                "    if (!bytes) Reject(kind, \"Missing Merge bytes for \" + std::string(name));",
+                "    " + verify_value(member.type, member.merge,
+                                      "{bytes->data(), bytes->size()}", "name", "kind"),
+                "    return;",
+                "  }",
+            ]
+        body += ['  Reject(kind, "Invalid Merge port " + std::string(name));', "}", ""]
+        return function
+
+    body = [
+        "auto RunCard(tsugumi_bytes bytes) -> Tsugumi::Card::CardResultT {",
+        "  {",
+        "    Input input(bytes);",
+    ]
+    for port in card.inputs:
+        name = json.dumps(port.name)
+        if port.kind == "Path":
+            body.append(f"    input.ReadPath({name});")
+        else:
+            body += [
+                f"    if (const auto payload = input.ReadPortBytes({name}))",
+                "      " + verify_value(port.type, port.merge, "*payload", name,
+                                        "FailureKind::invalid_request"),
+            ]
+    body += [
+        "    input.CheckConsumed();",
+        "    " + verify_value(card.params_type, (), "input.Params()", '"params"',
+                              "FailureKind::invalid_request"),
+        "  }",
+        "  auto result = RunNodeCard(bytes);",
+        "  std::unordered_set<std::string> seen;",
+        "  for (const auto& port : result.outputs) {",
+        "    if (!seen.insert(port->name).second)",
+        '      Reject(FailureKind::output_invalid, "Duplicate output " + port->name);',
+    ]
+    for port in card.outputs:
+        body.append(f"    if (port->name == {json.dumps(port.name)}) {{")
+        if port.kind == "Path":
+            body.append("      VerifyPathOutput(*port);")
+        else:
+            body += [
+                "      VerifyFlatBufferOutput(*port);",
+                "      " + verify_value(port.type, port.merge,
+                                        "{port->bytes.data(), port->bytes.size()}",
+                                        "port->name", "FailureKind::output_invalid"),
+            ]
+        body += ["      continue;", "    }"]
+    body += [
+        '    Reject(FailureKind::output_invalid, "Unknown output " + port->name);',
+        "  }",
+    ]
+    for port in card.outputs:
+        if port.required:
+            name = json.dumps(port.name)
+            body += [f"  if (!result.failure && !seen.contains({name}))",
+                     f'    Reject(FailureKind::output_invalid, "Missing output " + std::string({name}));']
+    body += ["  return result;", "}"]
+    return "\n".join([
+        '#include <string>',
+        '#include <string_view>',
+        '#include <unordered_set>',
+        "",
         '#include "_inputs_generated.h"',
         '#include "_outputs_generated.h"',
         '#include "_params_generated.h"',
@@ -127,35 +300,9 @@ def cpp_adapter(contract, names, kinds):
         "",
         "namespace {",
         "using namespace tsugumi::abi9;",
-        "auto RunCard(tsugumi_bytes bytes) -> Tsugumi::Card::CardResultT {",
-        "  Input input(bytes);",
-    ]
-    for port in contract["inputs"]:
-        name = json.dumps(port["name"])
-        kind = kinds[port["kind"]]
-        required = str(port["required"]).lower()
-        lines.append(
-            f"  input.ReadPort<{cpp_type(port)}>({name}, PortKind::{kind}, {required});"
-        )
-    lines += [
-        "  input.CheckConsumed();",
-        '  ReadValue<::parameters::Params>(input.Params(), "params");',
-        "  auto result = RunNodeCard(bytes);",
-        "  for (const auto& port : result.outputs) {",
-    ]
-    for port in contract["outputs"]:
-        name = json.dumps(port["name"])
-        lines += [
-            f"    if (port->name == {name}) {{",
-            f"      VerifyNodeOutput<{cpp_type(port)}>(*port);",
-            "      continue;",
-            "    }",
-        ]
-    lines += [
-        '    Reject(FailureKind::output_invalid, "Unknown output " + port->name);',
-        "  }",
-        "  return result;",
-        "}",
+        "",
+        *(line for function in reversed(functions.values()) for line in function),
+        *body,
         "}  // namespace",
         "",
         'extern "C" __attribute__((visibility("default")))',
@@ -163,58 +310,31 @@ def cpp_adapter(contract, names, kinds):
         "  return tsugumi::abi9::Invoke(call, result, RunCard);",
         "}",
         "",
-    ]
-    return "\n".join(lines)
+    ])
 
 
-def js_bindings(contract, kinds, schema):
-    lines = [
-        "import { inputs } from './_inputs.js';",
-        "import { outputs } from './_outputs.js';",
-        "import { parameters } from './_params.js';",
-        "import { PortKind } from './tsugumi/data/port-kind.js';",
-        "export { inputs, outputs, parameters };",
-        "",
-        "export interface CardInput {",
-        "  params: parameters.ParamsT;",
-        "  ports: {",
-    ]
-    for port in contract["inputs"]:
-        optional = "" if port["required"] else "?"
-        lines.append(f"    {json.dumps(port['name'])}{optional}: {js_type(port['type'])}T;")
-    lines += ["  };", "}", "", "export interface CardOutput {"]
-    for port in contract["outputs"]:
-        optional = "" if port["required"] else "?"
-        lines.append(f"  {json.dumps(port['name'])}{optional}: {js_type(port['type'])}T;")
-    lines += ["}", "", "export const readParams = parameters.Params.getRootAsParams;"]
-    for side, variable in (("inputs", "inputPorts"), ("outputs", "outputPorts")):
-        lines.append(f"export const {variable} = [")
-        for port in contract[side]:
-            cls = js_type(port["type"])
-            table = port["type"].rsplit(".", 1)[-1]
-            name = json.dumps(port["name"])
-            entry = (f"read: {cls}.{camel('get_root_as_' + table)}" if side == "inputs"
-                     else f"object: {cls}T, kind: PortKind.{kinds[port['kind']]}, "
-                          f"required: {str(port['required']).lower()}")
-            lines.append(f"  {{ name: {name}, {entry} }},")
-        lines.append("];")
-    return "\n".join([*lines, "", *union_rules(schema)]) + "\n"
+def write_readme(card, path):
+    write_api_readme(
+        path,
+        ((port.name, f"{ts_type(port)} | undefined") for port in card.inputs),
+        ((port.name, ts_type(port) + (" (required output)" if port.required
+                                      else " | undefined")) for port in card.outputs),
+        ((param.name, param.type) for param in card.params),
+    )
 
 
 if __name__ == "__main__":
-    source, cpp, reflection, native, js = map(Path, sys.argv[1:])
+    schemas, cpp, reflection, native, js, readme = map(Path, sys.argv[1:])
     sys.dont_write_bytecode = True
     sys.path.insert(0, str(cpp))
-    from card_cpp import KINDS, generate_headers
+    from card_cpp import generate_headers
 
-    contract = json.loads(source.joinpath("_contract.json").read_text())
+    card = load_card_schemas(schemas, reflection)
     native.joinpath("include").mkdir(parents=True)
-    names, _ = generate_headers(source, native, reflection)
-    native.joinpath("card_adapter.cc").write_text(cpp_adapter(contract, names, KINDS))
-    subprocess.run(["flatc", "-b", "--schema", "--bfbs-builtins",
-                    "-I", str(source), str(source / "_outputs.fbs")], check=True)
-    subprocess.run(["flatc", "-t", "--strict-json", "--defaults-json", str(reflection), "--",
-                    "_outputs.bfbs"], check=True)
-    schema = json.loads(Path("_outputs.json").read_text())
+    names, _ = generate_headers(schemas, native, reflection)
+    native.joinpath("card_adapter.cc").write_text(cpp_adapter(card, names))
     export_escaped_objects(js)
-    js.joinpath("bindings.ts").write_text(js_bindings(contract, KINDS, schema))
+    link_namespace_barrels(js)
+    js.joinpath("bindings.ts").write_text(
+        js_bindings(card, reflect_schema(schemas / "_outputs.fbs", reflection)))
+    write_readme(card, readme)

@@ -6,6 +6,7 @@ import { CardPort } from "./tsugumi/card/card-port.js";
 import { CardResult, CardResultT } from "./tsugumi/card/card-result.js";
 import { CardFailureT } from "./tsugumi/card/card-failure.js";
 import { FailureKind } from "./tsugumi/data/failure-kind.js";
+import { PortKind } from "./tsugumi/data/port-kind.js";
 import { inputPorts, outputChecks, outputPorts, readParams } from "./bindings.js";
 import { cancelled, remainingMs, send } from "./effects.js";
 import { display } from "./display.js";
@@ -19,18 +20,35 @@ function pack(value) {
   return builder.asUint8Array();
 }
 
+// Decode one FlatBuffer port value. A Merge yields its active member.
+function readValue(type, bytes, name) {
+  const table = type.read(new ByteBuffer(bytes));
+  if (!type.members) return table.unpack();
+  const member = type.members.find(({ tag }) => tag === table.valueType());
+  if (!member) throw new Failure(FailureKind.invalid_request, `Invalid Merge input ${name}`);
+  return readValue(member.type, table.value(new member.box()).bytesArray(), name);
+}
+
 function decode(bytes) {
   const envelope = CardInput.getRootAsCardInput(new ByteBuffer(bytes));
   const wire = new Map();
   for (let i = 0; i < envelope.inputsLength(); i++) {
     const port = envelope.inputs(i);
-    wire.set(port.name(), port.bytesArray());
+    wire.set(port.name(), port);
   }
   const ports = Object.create(null);
-  for (const { name, read } of inputPorts) {
-    if (wire.has(name)) ports[name] = read(new ByteBuffer(wire.get(name))).unpack();
+  for (const { name, kind, type } of inputPorts) {
+    const port = wire.get(name);
+    if (port === undefined) continue;
+    ports[name] = kind === "Path" ? port.path()
+      : readValue(type, port.bytesArray() ?? new Uint8Array(), name);
   }
-  return { params: readParams(new ByteBuffer(envelope.paramsArray())).unpack(), ports };
+  const need = name => {
+    const value = ports[name];
+    if (value !== undefined) return value;
+    throw new Failure(FailureKind.input_missing, `Missing input ${name}`);
+  };
+  return { params: readParams(new ByteBuffer(envelope.paramsArray())).unpack(), ports, need };
 }
 
 function checkUnion(item, tag, variants, required, member) {
@@ -70,30 +88,69 @@ function checkUnions(value, object) {
   }
 }
 
+function accepts(type, item) {
+  return type.members ? type.members.some(member => accepts(member.type, item))
+    : item instanceof type.object;
+}
+
+function typeNames(type) {
+  return type.members ? type.members.flatMap(member => typeNames(member.type)) : [type.object.name];
+}
+
+// Pack an output value. A Merge boxes the member's bytes under its tag.
+function packValue(type, item) {
+  if (!type.members) {
+    checkUnions(item, type.object);
+    return pack(item);
+  }
+  const member = type.members.find(({ type }) => accepts(type, item));
+  const box = new member.boxObject();
+  box.bytes = Array.from(packValue(member.type, item));
+  const merged = new type.object();
+  merged.valueType = member.tag;
+  merged.value = box;
+  return pack(merged);
+}
+
+function encodePort(builder, name, kind, type, item) {
+  const portName = builder.createString(name);
+  if (kind === "Path") {
+    if (typeof item !== "string" || item === "" || item.includes("\0")) {
+      throw new Failure(FailureKind.output_invalid, `Output ${name} must be a path string`);
+    }
+    const path = builder.createString(item);
+    return CardPort.createCardPort(builder, portName, PortKind.Path, 0, path);
+  }
+  if (!accepts(type, item)) {
+    throw new Failure(FailureKind.output_invalid,
+      `Output ${name} must be a ${typeNames(type).join(" or ")}`);
+  }
+  let bytes;
+  try {
+    bytes = packValue(type, item);
+  } catch (error) {
+    throw new Failure(FailureKind.output_invalid, `Invalid output ${name}: ${error}`);
+  }
+  const payload = CardPort.createBytesVector(builder, bytes);
+  return CardPort.createCardPort(builder, portName, PortKind.FlatBuffer, payload, 0);
+}
+
 function encode(value) {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new Failure(FailureKind.output_invalid, "Card must return an output object");
   }
-  const builder = new Builder();
-  const ports = [];
-  for (const { name, object, kind, required } of outputPorts) {
-    const item = Object.hasOwn(value, name) ? value[name] : undefined;
-    if (item === undefined && !required) continue;
-    if (!(item instanceof object)) {
-      throw new Failure(FailureKind.output_invalid, `Output ${name} must be a ${object.name}`);
-    }
-    try {
-      checkUnions(item, object);
-      const bytes = pack(item);
-      const payload = CardPort.createBytesVector(builder, bytes);
-      const portName = builder.createString(name);
-      ports.push(CardPort.createCardPort(builder, portName, kind, payload));
-    } catch (error) {
-      throw new Failure(FailureKind.output_invalid, `Invalid output ${name}: ${error}`);
-    }
-  }
   if (Object.keys(value).some(name => !outputPorts.some(port => port.name === name))) {
     throw new Failure(FailureKind.output_invalid, "Unknown output port");
+  }
+  const builder = new Builder();
+  const ports = [];
+  for (const { name, kind, required, type } of outputPorts) {
+    const item = Object.hasOwn(value, name) ? value[name] : undefined;
+    if (item === undefined) {
+      if (required) throw new Failure(FailureKind.output_invalid, `Missing output ${name}`);
+      continue;
+    }
+    ports.push(encodePort(builder, name, kind, type, item));
   }
   const outputs = CardResult.createOutputsVector(builder, ports);
   CardResult.startCardResult(builder);

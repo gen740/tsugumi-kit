@@ -2,7 +2,7 @@ import { FailureKind } from "./tsugumi/data/failure-kind.js";
 import type { CardInput, CardOutput } from "./bindings.js";
 
 export { inputs, outputs, parameters } from "./bindings.js";
-export type { CardInput, CardOutput } from "./bindings.js";
+export type { CardInput, CardOutput, CardPorts } from "./bindings.js";
 export { FailureKind };
 
 export class Failure extends Error {

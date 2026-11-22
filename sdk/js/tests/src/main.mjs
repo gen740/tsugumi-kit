@@ -6,17 +6,19 @@ import { setImmediate } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import isNumber from "is-number";
 import {
-  outputs, Failure, FailureKind, Text, Markdown, Table, Image, Points, LineChart,
+  inputs, outputs, Failure, FailureKind, Text, Markdown, Table, Image, Points, LineChart,
 } from "@tsugumi/card";
 
 let calls = 0;
 
 /** @type {import("@tsugumi/card").Card} */
-export default async function run({ ports, params }, ctx) {
+export default async function run({ ports, params, need }, ctx) {
   assert.equal(isNumber("42"), true);
   await setImmediate();
   const { display, send, cancelled, remainingMs } = ctx;
-  const { file, directory } = ports;
+  const number = need("number");
+  const { file, directory, arrival } = ports;
+  assert.equal(Object.hasOwn(ports, "unwired"), false);
 
   switch (params.mode) {
     case 0:
@@ -73,17 +75,34 @@ export default async function run({ ports, params }, ctx) {
       writeFileSync("result.txt", "42");
       return {
         number: new outputs.number.NumberT(new outputs.number.ValueT(42n)),
-        file: new outputs.file.FileT("result.txt"),
+        file: "result.txt",
       };
     case 11:
       assert.equal(send("undeclared", new Uint8Array([42])), 37);
       break;
+    case 12:
+      need("unwired");
+      break;
+    case 13:
+      return { number: new outputs.number.NumberT(new outputs.number.ValueT(42n)), file: 42 };
+    case 14:
+      return {
+        number: new outputs.number.NumberT(new outputs.number.ValueT(42n)),
+        arrival: new outputs.number.CodeT(1n),
+      };
+    case 15:
+      need("file");
+      break;
   }
-  const { x, y } = ports.number.position;
+  const merge = outputs.arrival.tsugumi.merge;
+  const { x, y } = number.position;
   return {
     number: new outputs.number.NumberT(
       new outputs.number.ValueT(x + y, outputs.number.Detail.Code, new outputs.number.CodeT(2n))),
-    file: file && new outputs.file.FileT(file.value),
-    directory: directory && new outputs.directory.DirectoryT(directory.value),
+    file,
+    directory,
+    arrival: arrival instanceof inputs.arrival.tsugumi.merge.t0.TemperatureT
+      ? new merge.t0.TemperatureT(arrival.value + 1)
+      : arrival && new merge.t1.ReadingT(arrival.name),
   };
 }

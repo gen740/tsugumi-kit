@@ -4,9 +4,7 @@
 #include <cstdio>
 #include <string_view>
 
-#include "wire.h"
-
-extern "C" auto check_file_output(tsugumi_bytes bytes) -> void;
+#include "js_cases.hh"
 
 auto main(int argc, char** argv) -> int {
   CHECK(argc == 2);
@@ -24,10 +22,17 @@ auto main(int argc, char** argv) -> int {
   tsugumi_bytes result;
   CHECK(entry(&call, &result) == 0);
   check_file_output(result);
-  for (int mode = 9; mode <= 10; ++mode) {
+  for (int mode = 9; mode <= 15; ++mode) {
+    if (mode == 11) continue;
     call.input = make_input(VALID, mode, -1);
     CHECK(entry(&call, &result) == 0);
     check_card_failure(result, mode);
+  }
+
+  for (int scenario = MERGE_TEMPERATURE; scenario <= MERGE_EMPTY; ++scenario) {
+    call.input = make_merge_input(scenario);
+    CHECK(entry(&call, &result) == 0);
+    check_merge(result, scenario);
   }
 
   int displays = 0;

@@ -5,10 +5,13 @@
 #include <cstdio>
 #include <fstream>
 #include <string>
+#include <string_view>
 #include <vector>
 
+#include "_inputs_generated.h"
 #include "_outputs_generated.h"
 #include "adapter.hh"
+#include "js_cases.hh"
 
 namespace {
 
@@ -62,6 +65,10 @@ extern "C" auto check_card_failure(tsugumi_bytes result, int mode) -> void {
   } else if (mode == 5) {
     CHECK(CheckFailure(result, FailureKind::worker_failed).message ==
           "rejected value");
+  } else if (mode == 12 || mode == 15) {
+    const auto failure = CheckFailure(result, FailureKind::input_missing);
+    CHECK(failure.message == (mode == 12 ? "Missing input unwired" : "Missing input file"));
+    CHECK(failure.source == "src/main.mjs" && failure.line > 0);
   } else {
     CheckFailure(result, FailureKind::output_invalid);
   }
@@ -108,13 +115,89 @@ extern "C" auto check_file_output(tsugumi_bytes bytes) -> void {
   CHECK(!result->failure() && result->outputs());
   CHECK(result->outputs()->size() == 2);
   const auto* port = result->outputs()->Get(1);
-  CHECK(port->name()->str() == "file" && port->kind() == PortKind::File);
-  const auto* data = port->bytes();
-  const Buffer payload({data->data(), data->size()});
-  const auto* file = payload.Verify<outputs::file::File>();
-  CHECK(file && file->value()->str() == "result.txt");
-  std::ifstream stream(file->value()->str());
+  CHECK(port->name()->str() == "file" && port->kind() == PortKind::Path);
+  CHECK(!port->bytes() && port->path()->str() == "result.txt");
+  std::ifstream stream(port->path()->str());
   std::string contents;
   std::getline(stream, contents);
   CHECK(contents == "42");
+}
+
+namespace {
+
+std::vector<uint8_t> merge_input;
+
+template <class Table>
+auto Pack(const typename Table::NativeTableType& value)
+    -> std::vector<uint8_t> {
+  flatbuffers::FlatBufferBuilder builder;
+  builder.Finish(Table::Pack(builder, &value));
+  return {builder.GetBufferPointer(),
+          builder.GetBufferPointer() + builder.GetSize()};
+}
+
+}  // namespace
+
+extern "C" auto make_merge_input(int scenario) -> tsugumi_bytes {
+  const auto valid = make_input(VALID, 0, -1);
+  const Buffer buffer(valid);
+  CardInputT input;
+  buffer.Verify<CardInput>()->UnPackTo(&input);
+  using namespace inputs::arrival::tsugumi::merge;
+  MergedT merged;
+  if (scenario == MERGE_TEMPERATURE || scenario == MERGE_BAD_BYTES) {
+    t0::TemperatureT temperature;
+    temperature.value = 20.0;
+    TemperatureBoxT box;
+    box.bytes = scenario == MERGE_BAD_BYTES ? std::vector<uint8_t>{1, 2, 3}
+                                            : Pack<t0::Temperature>(temperature);
+    merged.value.Set(std::move(box));
+  } else if (scenario == MERGE_READING) {
+    t1::ReadingT reading;
+    reading.name = "sensor";
+    ReadingBoxT box;
+    box.bytes = Pack<t1::Reading>(reading);
+    merged.value.Set(std::move(box));
+  }
+  auto port = std::make_unique<CardPortT>();
+  port->name = "arrival";
+  port->kind = PortKind::FlatBuffer;
+  port->bytes = Pack<Merged>(merged);
+  input.inputs.push_back(std::move(port));
+  merge_input = Pack<CardInput>(input);
+  return {merge_input.data(), merge_input.size()};
+}
+
+extern "C" auto check_merge(tsugumi_bytes bytes, int scenario) -> void {
+  if (scenario == MERGE_BAD_BYTES || scenario == MERGE_EMPTY) {
+    const auto failure = CheckFailure(bytes, FailureKind::invalid_request);
+    CHECK(failure.message.find("arrival") != std::string::npos);
+    return;
+  }
+  const Buffer buffer(bytes);
+  const auto* result = buffer.Verify<CardResult>();
+  CHECK(result);
+  ReportFailure(*result);
+  CHECK(!result->failure() && result->outputs() &&
+        result->outputs()->size() == 2);
+  const auto* port = result->outputs()->Get(1);
+  CHECK(port->name()->str() == "arrival" &&
+        port->kind() == PortKind::FlatBuffer && !port->path());
+  using namespace outputs::arrival::tsugumi::merge;
+  const Buffer payload({port->bytes()->data(), port->bytes()->size()});
+  const auto* merged = payload.Verify<Merged>();
+  CHECK(merged);
+  if (scenario == MERGE_TEMPERATURE) {
+    const auto* box = merged->value_as_TemperatureBox();
+    CHECK(box && box->bytes());
+    const Buffer nested({box->bytes()->data(), box->bytes()->size()});
+    const auto* temperature = nested.Verify<t0::Temperature>();
+    CHECK(temperature && temperature->value() == 21.0);
+  } else {
+    const auto* box = merged->value_as_ReadingBox();
+    CHECK(box && box->bytes());
+    const Buffer nested({box->bytes()->data(), box->bytes()->size()});
+    const auto* reading = nested.Verify<t1::Reading>();
+    CHECK(reading && reading->name()->str() == "sensor");
+  }
 }

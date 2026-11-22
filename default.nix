@@ -24,7 +24,7 @@ let
     rCard = pkgs.callPackage ./sdk/r { inherit runtime ipaexGothic portCodegen; };
     rubyCard = import ./nix/ruby-card.nix { inherit pkgs runtime; };
     jsCard = pkgs.callPackage ./nix/js-card.nix {
-      inherit runtime;
+      inherit runtime portCodegen;
       libnode = pkgs.callPackage ./nix/js-libnode.nix { };
     };
   };
