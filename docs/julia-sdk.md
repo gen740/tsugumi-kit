@@ -79,7 +79,7 @@ calling the host. If the host cannot accept the message, `send` throws
 The SDK at `lib.${system}.juliaSdk` bundles the `line-chart` and `points` HTML views.
 Declare the matching views in your Card's `default.nix` with
 `views = sdk.views ++ [ ... ];`.
-For `send("text")`, include the `text` view from `inputs.tsugumi.cppSdk.views`.
+The bundled `text` view displays values sent with `send("text")`.
 See the [view protocol](cpp-sdk.md#display-a-value).
 
 Tasks scheduled on a separate Julia thread can keep

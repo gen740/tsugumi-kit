@@ -9,7 +9,7 @@ let
 in
 {
   run = sdk.rustCard { inherit schemas; src = ./src; sourcePrefix = "src"; };
-  views = sdk.views ++ builtins.filter (view: view.name == "markdown") inputs.tsugumi.cppSdk.views;
+  views = sdk.views;
 }
 ```
 
@@ -68,8 +68,7 @@ The core forwards the view name and the UI looks up the corresponding declared v
 The SDK at `lib.${system}.rustSdk` bundles the `line-chart` and `points` HTML views.
 Declare the matching views in your Card's `default.nix` with
 `views = sdk.views ++ [ ... ];`.
-The example above uses the `markdown` view, which you can include from
-`lib.${system}.cppSdk.views`.
+The bundled `markdown` view displays scalar values.
 See the [view protocol](cpp-sdk.md#display-a-value).
 
 A Card-owned thread can send displays after `run` returns. Between calls

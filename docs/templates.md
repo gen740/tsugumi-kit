@@ -28,9 +28,9 @@ add `pkgs` to the arguments of `default.nix`.
 
 [Display a value](cpp-sdk.md#display-a-value) · [Runtime tools](../README.md#runtime-tools)
 
-The Go and Rust starters append the bundled `text` view from `cppSdk.views`
-to their language SDK's views. Each takes a string from `settings`, writes a
-text file in the Card's working directory and returns its path on a File port.
+The Go and Rust starters use the bundled `text` view from their SDK.
+Each takes a string from `settings`, writes a text file in the Card's working
+directory and returns its path on a Path port.
 
 A template may include a `layout.json` fragment with positions for its Cards. A graph's **connections** specify which output port feeds which input port. Layout coordinates only tell the UI where to draw the Cards. In the temperature example, both definition directories, the internal wire and the layout travel together.
 

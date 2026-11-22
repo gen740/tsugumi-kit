@@ -40,8 +40,8 @@ let
   };
   inherit (stdenv.hostPlatform) isDarwin;
 in
-assert definition.views == kit.cppSdk.views;
-assert note.views == kit.cppSdk.views;
+assert definition.views == kit.jsSdk.views;
+assert note.views == kit.jsSdk.views;
 runCommandCC "tsugumi-js-abi9-check"
   {
     nativeBuildInputs = [ flatbuffers ];

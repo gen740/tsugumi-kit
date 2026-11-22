@@ -46,7 +46,7 @@ let
   inherit (stdenv.hostPlatform) isDarwin;
 in
 assert !(card ? views);
-assert definition.views == kit.cppSdk.views;
+assert definition.views == kit.javaSdk.views;
 runCommandCC "tsugumi-java-abi9-check"
   {
     nativeBuildInputs = [ flatbuffers ];

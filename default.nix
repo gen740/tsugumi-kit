@@ -43,23 +43,23 @@ let
     };
     goSdk = {
       inherit goCard goCardSdk;
-      views = views.charts;
+      views = views.common;
     };
     rustSdk = {
       inherit rustCard;
-      views = views.charts;
+      views = views.common;
     };
     csharpSdk = {
       inherit csharpCard;
-      views = views.charts;
+      views = views.common;
     };
     juliaSdk = {
       inherit juliaCard;
-      views = views.charts;
+      views = views.common;
     };
     rSdk = {
       inherit rCard;
-      views = views.charts;
+      views = views.common;
     };
     jsSdk = {
       inherit jsCard;
@@ -67,7 +67,7 @@ let
     };
     rubySdk = {
       inherit rubyCard;
-      views = views.charts;
+      views = views.common;
     };
   };
 in

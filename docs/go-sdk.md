@@ -9,7 +9,7 @@ let
 in
 {
   run = sdk.goCard { inherit schemas; src = ./src; };
-  views = sdk.views ++ builtins.filter (view: view.name == "markdown") inputs.tsugumi.cppSdk.views;
+  views = sdk.views;
 }
 ```
 
@@ -67,8 +67,7 @@ indicating the host could not accept the message.
 The SDK at `lib.${system}.goSdk` bundles the `line-chart` and `points` HTML views.
 Declare the matching views in your Card's `default.nix` with
 `views = sdk.views ++ [ ... ];`.
-The example above uses the `markdown` view, which you can include from
-`lib.${system}.cppSdk.views`.
+The bundled `markdown` view displays scalar values.
 See the [view protocol](cpp-sdk.md#display-a-value).
 
 A goroutine may send live updates between calls. Run background work inside `tsugumi.Guard(func() error { ... })`

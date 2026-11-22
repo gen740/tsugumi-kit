@@ -82,10 +82,8 @@ directory, set `sourcePrefix` to its path relative to the Card definition.
 errors raise before calling the host. The SDK raises `RuntimeError` if the
 host cannot accept the message.
 
-Declare the matching views alongside `run`. The Ruby SDK bundles the
-`line-chart` and `points` HTML views. For text, scalar, table, and image
-displays, select the applicable views from `inputs.tsugumi.cppSdk.views`
-and append them to `sdk.views`. Scalars use the `markdown` view.
+Declare the matching views alongside `run`. The Ruby SDK bundles text, markdown, table, image, line-chart, and points views.
+Scalars use the `markdown` view.
 [View protocol](cpp-sdk.md#display-a-value)
 
 | Value | Constructor |

@@ -9,11 +9,11 @@ C# source as `src`.
 ```nix
 { pkgs, params, inputs, schemas }:
 let
-  inherit (inputs.tsugumi) csharpSdk cppSdk;
+  inherit (inputs.tsugumi) csharpSdk;
 in
 {
   run = csharpSdk.csharpCard { inherit schemas; src = ./src; };
-  views = csharpSdk.views ++ builtins.filter (view: view.name == "markdown") cppSdk.views;
+  views = csharpSdk.views;
 }
 ```
 
@@ -84,8 +84,7 @@ means the host could not accept the message.
 The C# SDK bundles the `line-chart` and `points` HTML views.
 Declare the matching views in your Card's `default.nix` with
 `views = csharpSdk.views ++ [ ... ];`.
-The example above includes the `markdown` view from
-`inputs.tsugumi.cppSdk.views`.
+The bundled `markdown` view displays scalar values.
 See the [view protocol](cpp-sdk.md#display-a-value).
 
 A background thread can send live updates between calls.

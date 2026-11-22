@@ -82,8 +82,8 @@ explicitly, for example `bash -c …`.
 Each language SDK exposes a builder and a `views` list under
 `lib.${system}`. The SDK attributes are `cppSdk`, `pythonSdk`, `goSdk`,
 `rustSdk`, `csharpSdk`, `juliaSdk`, `rSdk`, `rubySdk`, `javaSdk`, and `jsSdk`.
-Every SDK bundles the `line-chart` and `points` HTML views. C++, Python, Java, and
-JavaScript also bundle `text`, `markdown`, `table`, and `image`. Python bundles `plotly`.
+Every SDK bundles `text`, `markdown`, `table`, `image`, `line-chart`, and `points`
+HTML views. The Python SDK also bundles `plotly`.
 
 Declare `views = sdk.views ++ [ ... ];` alongside `run` in your Card's
 `default.nix`. A view entry has a `name`, a `type` of `"html"` or
@@ -93,10 +93,6 @@ to a view by name during or between calls. The core does not check the
 name; the UI matches it against the Card's declared views and shows an
 error for an unknown name. Display messages are live
 and do not enter history. See the [view protocol](docs/cpp-sdk.md#display-a-value).
-
-The typed text, markdown, table, and image encoders in the other SDKs can
-use the corresponding C++ HTML files. For example, a Go Card that sends a
-number can append the `markdown` view from `lib.${system}.cppSdk.views`.
 
 ## Status
 

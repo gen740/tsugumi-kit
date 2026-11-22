@@ -12,5 +12,5 @@ in
     inherit schemas;
     src = ./src;
   };
-  views = sdk.views ++ builtins.filter (view: view.name == "text") inputs.tsugumi.cppSdk.views;
+  views = sdk.views;
 }
