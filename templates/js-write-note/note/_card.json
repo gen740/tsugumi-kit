@@ -1,0 +1,4 @@
+{
+  "type": "code",
+  "params": [{ "name": "text", "type": "string", "data": "Hello from Tsugumi" }]
+}

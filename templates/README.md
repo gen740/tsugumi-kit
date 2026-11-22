@@ -10,5 +10,6 @@ upcoming ABI 9 integration in Tsugumi.
 | [Normalize text with Go](go-normalize-text/) | An Input Card wired to a Go Card that collapses whitespace and returns a text File. |
 | [Number lines with Rust](rust-number-lines/) | An Input Card wired to a Rust Card that numbers the lines and returns a text File. |
 | [Write text with Java](java-write-text/) | An Input Card wired to a Java Card that displays the text and returns it as a File. |
+| [Write a note with JavaScript](js-write-note/) | A Node.js Card that writes a parameter to a text File and displays its byte count. |
 
 See the [template guide](../docs/templates.md) for the format and Git import fields.

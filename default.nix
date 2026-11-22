@@ -23,6 +23,10 @@ let
     juliaCard = import ./sdk/julia/card.nix { inherit pkgs runtime; };
     rCard = pkgs.callPackage ./sdk/r { inherit runtime ipaexGothic; };
     rubyCard = import ./nix/ruby-card.nix { inherit pkgs runtime; };
+    jsCard = pkgs.callPackage ./nix/js-card.nix {
+      inherit runtime;
+      libnode = pkgs.callPackage ./nix/js-libnode.nix { };
+    };
   };
   sdks = with builders; {
     cppSdk = {
@@ -56,6 +60,10 @@ let
     rSdk = {
       inherit rCard;
       views = views.charts;
+    };
+    jsSdk = {
+      inherit jsCard;
+      views = views.common;
     };
     rubySdk = {
       inherit rubyCard;

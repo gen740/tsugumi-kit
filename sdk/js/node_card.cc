@@ -1,0 +1,346 @@
+#include "node_card.hh"
+
+#include <dlfcn.h>
+#include <node.h>
+#include <uv.h>
+
+#include <array>
+#include <condition_variable>
+#include <cstring>
+#include <exception>
+#include <memory>
+#include <mutex>
+#include <stdexcept>
+#include <string>
+#include <thread>
+#include <utility>
+#include <vector>
+
+namespace tsugumi::abi9 {
+namespace {
+
+using Value = v8::Local<v8::Value>;
+using CallbackInfo = v8::FunctionCallbackInfo<v8::Value>;
+
+auto ThrowError(v8::Isolate* isolate, const char* message) -> void {
+  isolate->ThrowException(v8::Exception::Error(
+      v8::String::NewFromUtf8(isolate, message).ToLocalChecked()));
+}
+
+auto Send(const CallbackInfo& args) -> void {
+  auto* isolate = args.GetIsolate();
+  if (!args[0]->IsString() || !args[1]->IsUint8Array()) {
+    ThrowError(isolate, "Expected a view name and Uint8Array");
+    return;
+  }
+  try {
+    const v8::String::Utf8Value view(isolate, args[0]);
+    if (!*view) {
+      ThrowError(isolate, "Cannot encode the display view name");
+      return;
+    }
+    if (std::memchr(*view, 0, view.length())) {
+      ThrowError(isolate, "Expected a view name without NUL bytes");
+      return;
+    }
+    const auto array = args[1].As<v8::Uint8Array>();
+    if (array->HasBuffer() && array->Buffer()->WasDetached()) {
+      ThrowError(isolate, "Display data has a detached buffer");
+      return;
+    }
+    std::vector<uint8_t> bytes(array->ByteLength());
+    if (!bytes.empty() &&
+        array->CopyContents(bytes.data(), bytes.size()) != bytes.size()) {
+      ThrowError(isolate, "Cannot copy the display data");
+      return;
+    }
+    args.GetReturnValue().Set(SendDisplay(*view, {bytes.data(), bytes.size()}));
+  } catch (...) {
+    ThrowError(isolate, "Cannot prepare the display message");
+  }
+}
+
+auto Cancelled(const CallbackInfo& args) -> void {
+  try {
+    args.GetReturnValue().Set(card::cancelled());
+  } catch (...) {
+    ThrowError(args.GetIsolate(), "The host cancellation query failed");
+  }
+}
+
+auto RemainingMs(const CallbackInfo& args) -> void {
+  try {
+    args.GetReturnValue().Set(static_cast<double>(card::remaining_ms()));
+  } catch (...) {
+    ThrowError(args.GetIsolate(), "The host deadline query failed");
+  }
+}
+
+auto BindEffects(v8::Local<v8::Object> exports, Value,
+                 v8::Local<v8::Context> context, void*) -> void {
+  auto* isolate = v8::Isolate::GetCurrent();
+  const auto set = [&](const char* name, v8::FunctionCallback method) {
+    const auto key = v8::String::NewFromUtf8(isolate, name).ToLocalChecked();
+    exports
+        ->Set(context, key, v8::Function::New(context, method).ToLocalChecked())
+        .Check();
+  };
+  set("send", Send);
+  set("cancelled", Cancelled);
+  set("remainingMs", RemainingMs);
+}
+
+class Runtime {
+ public:
+  Runtime() {
+    std::thread([this] { RunLoop(); }).detach();
+  }
+
+  Runtime(const Runtime&) = delete;
+  auto operator=(const Runtime&) -> Runtime& = delete;
+
+  auto Call(tsugumi_bytes bytes) -> std::vector<uint8_t> {
+    Request request{.input = bytes};
+    std::unique_lock lock(mutex_);
+    changed_.wait(lock, [&] { return ready_ || stopped_; });
+    if (stopped_) std::rethrow_exception(stop_error_);
+    request_ = &request;
+    if (uv_async_send(&wake_) != 0) {
+      request_ = nullptr;
+      throw std::runtime_error("Cannot wake the Node.js runtime");
+    }
+    changed_.wait(lock, [&] { return request_ == nullptr || stopped_; });
+    request_ = nullptr;
+    if (stopped_) std::rethrow_exception(stop_error_);
+    return std::move(request.result);
+  }
+
+ private:
+  struct Request {
+    tsugumi_bytes input;
+    std::vector<uint8_t> result = {};
+  };
+
+  auto Complete(std::vector<uint8_t> bytes) -> void {
+    const std::lock_guard lock(mutex_);
+    request_->result = std::move(bytes);
+    request_ = nullptr;
+    changed_.notify_all();
+  }
+
+  // A failure in the bootstrap or native bridge leaves the environment
+  // unusable. Card errors take the regular CardResult path.
+  auto Fail(std::exception_ptr error) -> void {
+    execution_error_ = std::move(error);
+    node::Stop(setup_->env());
+  }
+
+  static auto Self(const CallbackInfo& args) -> Runtime& {
+    return *static_cast<Runtime*>(args.Data().As<v8::External>()->Value());
+  }
+
+  static auto Resolve(const CallbackInfo& args) -> void {
+    auto& self = Self(args);
+    try {
+      if (!args[0]->IsUint8Array()) {
+        throw std::runtime_error("Node.js SDK returned a non-byte result");
+      }
+      const auto array = args[0].As<v8::Uint8Array>();
+      std::vector<uint8_t> bytes(array->ByteLength());
+      if (!bytes.empty()) array->CopyContents(bytes.data(), bytes.size());
+      self.Complete(std::move(bytes));
+    } catch (...) {
+      self.Fail(std::current_exception());
+    }
+  }
+
+  static auto RejectPromise(const CallbackInfo& args) -> void {
+    auto& self = Self(args);
+    try {
+      const v8::String::Utf8Value message(args.GetIsolate(), args[0]);
+      throw std::runtime_error(*message ? *message
+                                        : "Node.js SDK promise rejected");
+    } catch (...) {
+      self.Fail(std::current_exception());
+    }
+  }
+
+  auto Invoke() -> void {
+    auto* isolate = setup_->isolate();
+    const v8::HandleScope scope(isolate);
+    const auto context = setup_->context();
+    v8::TryCatch caught(isolate);
+    tsugumi_bytes input;
+    {
+      const std::lock_guard lock(mutex_);
+      input = request_->input;
+    }
+    const auto array = v8::ArrayBuffer::New(isolate, input.size);
+    std::memcpy(array->GetBackingStore()->Data(), input.data, input.size);
+    std::array<Value, 4> args = {v8::Uint8Array::New(array, 0, input.size),
+                                 entry_.Get(isolate), resolve_.Get(isolate),
+                                 reject_.Get(isolate)};
+    if (node::MakeCallback(isolate, context->Global(), invoke_.Get(isolate),
+                           args.size(), args.data(), {0, 0})
+            .IsEmpty()) {
+      const v8::String::Utf8Value message(isolate, caught.Exception());
+      throw std::runtime_error(*message ? *message
+                                        : "Cannot invoke the Node.js Card");
+    }
+  }
+
+  static auto Wake(uv_async_t* wake) -> void {
+    auto& self = *static_cast<Runtime*>(wake->data);
+    try {
+      self.Invoke();
+    } catch (...) {
+      self.Fail(std::current_exception());
+    }
+  }
+
+  auto SetUpCallbacks(v8::Local<v8::Context> context) -> void {
+    auto* isolate = setup_->isolate();
+    const auto self = v8::External::New(isolate, this);
+    entry_.Reset(isolate,
+                 v8::String::NewFromUtf8Literal(isolate, TSUGUMI_JS_ENTRY));
+    resolve_.Reset(isolate,
+                   v8::Function::New(context, Resolve, self).ToLocalChecked());
+    reject_.Reset(
+        isolate,
+        v8::Function::New(context, RejectPromise, self).ToLocalChecked());
+  }
+
+  auto RunEnvironment(node::InitializationResult& initialization) -> void {
+    std::vector<std::string> errors;
+    using namespace node::EnvironmentFlags;
+    constexpr auto flags = static_cast<Flags>(
+        kDefaultFlags | kNoGlobalSearchPaths | kNoStartDebugSignalHandler);
+    setup_ = node::CommonEnvironmentSetup::Create(
+        initialization.platform(), &errors, initialization.args(),
+        initialization.exec_args(), flags);
+    if (!setup_) {
+      throw std::runtime_error(errors.empty()
+                                   ? "Cannot create Node.js environment"
+                                   : errors.front());
+    }
+    auto* isolate = setup_->isolate();
+    const v8::Locker locker(isolate);
+    const v8::Isolate::Scope isolate_scope(isolate);
+    const v8::HandleScope handles(isolate);
+    const auto context = setup_->context();
+    const v8::Context::Scope context_scope(context);
+    node::AddLinkedBinding(setup_->env(), "tsugumi_card", BindEffects, nullptr);
+    node::SetProcessExitHandler(
+        setup_->env(), [](node::Environment* env, int) { node::Stop(env); });
+    {
+      v8::TryCatch caught(isolate);
+      Value loaded;
+      if (!node::LoadEnvironment(
+               setup_->env(),
+               "return require('node:module').createRequire(process."
+               "argv[1])(process.argv[1])")
+               .ToLocal(&loaded) ||
+          !loaded->IsFunction()) {
+        const v8::String::Utf8Value message(isolate, caught.Exception());
+        throw std::runtime_error(
+            *message ? *message : "Cannot load the Node.js SDK bootstrap");
+      }
+      invoke_.Reset(isolate, loaded.As<v8::Function>());
+    }
+    SetUpCallbacks(context);
+    if (uv_async_init(setup_->event_loop(), &wake_, Wake) != 0) {
+      throw std::runtime_error(
+          "Cannot create the Node.js event loop wake handle");
+    }
+    wake_.data = this;
+    {
+      const std::lock_guard lock(mutex_);
+      ready_ = true;
+      changed_.notify_all();
+    }
+    node::SpinEventLoop(setup_->env());
+  }
+
+  auto RunLoop() -> void {
+    std::exception_ptr error;
+    std::shared_ptr<node::InitializationResult> initialization;
+    try {
+      // The worker opens the Card with RTLD_LOCAL. Native npm addons can
+      // resolve Node-API symbols against this process-lifetime reference.
+      if (!dlopen(TSUGUMI_LIBNODE, RTLD_NOW | RTLD_GLOBAL)) {
+        throw std::runtime_error(dlerror());
+      }
+      using namespace node::ProcessInitializationFlags;
+      initialization = node::InitializeOncePerProcess(
+          {TSUGUMI_NODE, "--unhandled-rejections=warn", TSUGUMI_JS_BOOTSTRAP},
+          {kDisableNodeOptionsEnv, kNoStdioInitialization,
+           kNoDefaultSignalHandling, kNoParseGlobalDebugVariables,
+           kNoAdjustResourceLimits, kNoUseLargePages});
+      if (initialization->early_return()) {
+        const auto& errors = initialization->errors();
+        throw std::runtime_error(errors.empty() ? "Cannot initialize Node.js"
+                                                : errors.front());
+      }
+      RunEnvironment(*initialization);
+      if (execution_error_) std::rethrow_exception(execution_error_);
+      throw std::runtime_error("The Node.js event loop stopped");
+    } catch (...) {
+      error = std::current_exception();
+    }
+    {
+      const std::lock_guard lock(mutex_);
+      stopped_ = true;
+      stop_error_ = error;
+      changed_.notify_all();
+    }
+    if (ready_) uv_close(reinterpret_cast<uv_handle_t*>(&wake_), nullptr);
+    invoke_.Reset();
+    resolve_.Reset();
+    reject_.Reset();
+    entry_.Reset();
+    setup_.reset();
+    if (initialization && !initialization->early_return()) {
+      node::TearDownOncePerProcess();
+    }
+  }
+
+  std::mutex mutex_;
+  std::condition_variable changed_;
+  Request* request_ = nullptr;
+  bool ready_ = false;
+  bool stopped_ = false;
+  std::exception_ptr stop_error_;
+  std::exception_ptr execution_error_;
+  uv_async_t wake_{};
+  std::unique_ptr<node::CommonEnvironmentSetup> setup_;
+  v8::Global<v8::Function> invoke_, resolve_, reject_;
+  v8::Global<v8::String> entry_;
+};
+
+// The libuv loop can dispatch a host effect even between calls. Keep the
+// adapter and its runtime loaded until process exit. In particular, joining
+// the Node thread during dlclose can deadlock on the dynamic loader lock.
+auto StartRuntime() -> Runtime* {
+  Dl_info card;
+  if (!dladdr(reinterpret_cast<const void*>(&RunNodeCard), &card) ||
+      !dlopen(card.dli_fname, RTLD_NOW | RTLD_LOCAL)) {
+    throw std::runtime_error("Cannot retain the Node.js Card library");
+  }
+  return new Runtime;
+}
+
+}  // namespace
+
+auto RunNodeCard(tsugumi_bytes input) -> Tsugumi::Card::CardResultT {
+  static auto* runtime = StartRuntime();
+  const auto bytes = runtime->Call(input);
+  const Buffer buffer({bytes.data(), bytes.size()});
+  const auto* result = buffer.Verify<Tsugumi::Card::CardResult>();
+  if (!result)
+    Reject(FailureKind::output_invalid, "Invalid Node.js CardResult");
+  Tsugumi::Card::CardResultT value;
+  result->UnPackTo(&value);
+  return value;
+}
+
+}  // namespace tsugumi::abi9

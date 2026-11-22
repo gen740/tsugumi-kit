@@ -30,6 +30,7 @@
         '';
     in
     {
+      checks.jsAbi9 = pkgs.callPackage ./js-check.nix { kit = self.lib.${system}; };
       checks.cppAbi9 = pkgs.callPackage ./cpp-check.nix { kit = self.lib.${system}; };
       checks.javaAbi9 = pkgs.callPackage ./java-check.nix { kit = self.lib.${system}; };
       # The root entry builds with the caller's pkgs, not the kit's pin.
