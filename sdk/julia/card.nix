@@ -1,4 +1,8 @@
-{ pkgs, runtime }:
+{
+  pkgs,
+  runtime,
+  portCodegen,
+}:
 let
   legacyHeaders = pkgs.lib.fileset.toSource {
     root = ../.;
@@ -62,7 +66,7 @@ let
 in
 {
   src,
-  contract,
+  schemas,
   entry ? "main.jl",
   sourcePrefix ? "src",
   tools ? [ ],
@@ -71,12 +75,24 @@ assert lib.assertMsg (
   sourcePrefix == ""
   || lib.all (part: part != "" && part != "." && part != "..") (lib.splitString "/" sourcePrefix)
 ) "juliaCard: sourcePrefix must be a relative directory inside the Card definition";
+let
+  # The C++ glue, its object API headers and the Card's API, from the schemas.
+  generated =
+    pkgs.runCommand "tsugumi-julia-card-glue"
+      {
+        nativeBuildInputs = [
+          flatbuffers
+          (pkgs.python3.withPackages (_: [ portCodegen ]))
+        ];
+      }
+      ''
+        python3 ${./generate.py} ${../cpp} ${./inputs.jl} ${lib.escapeShellArg "${schemas}"} "$out" \
+          ${flatbuffers.src}/reflection/reflection.fbs
+      '';
+in
 pkgs.runCommandCC "tsugumi-julia-card"
   {
-    nativeBuildInputs = [
-      flatbuffers
-      pkgs.python3
-    ];
+    passthru = { inherit generated; };
     buildInputs = [
       flatbuffers
       nlohmann_json
@@ -84,13 +100,9 @@ pkgs.runCommandCC "tsugumi-julia-card"
     ];
   }
   ''
-    contract=${lib.escapeShellArg "${contract}"}
     src=${lib.escapeShellArg "${src}"}
     entry=${lib.escapeShellArg entry}
     test -f "$src/$entry"
-    # Schema metadata stays in the build directory and is consumed by Python.
-    python3 ${./generate.py} ${../cpp}/card_cpp.py "$contract/_contract.json" \
-      generated ${flatbuffers.src}/reflection/reflection.fbs > card_adapter.cc
 
     ${
       if isDarwin then
@@ -104,20 +116,22 @@ pkgs.runCommandCC "tsugumi-julia-card"
         ''
     }
 
-    mkdir -p "$out/lib"
+    mkdir -p "$out/lib" "$out/share/tsugumi"
+    cp -r ${generated}/api "$out/share/tsugumi/api"
     ${import ../../nix/prepare-tools.nix { inherit lib; } tools}
     $CXX -std=c++2c -O2 -DNDEBUG -fPIC -fvisibility=hidden -fvisibility-inlines-hidden \
       -Wall -Wextra -Werror -Wformat=2 -Wimplicit-fallthrough \
       -shared "''${toolPathObject[@]}" "''${exports[@]}" \
-      -isystem generated/include -I${./.} -I${runtime}/include -I${../cpp/src} -I${legacyHeaders} \
+      -isystem ${generated}/include -I${./.} -I${runtime}/include -I${../cpp/src} -I${legacyHeaders} \
       -isystem ${julia}/include/julia \
       -DTSUGUMI_LIBJULIA='"${juliaLib}"' \
       -DTSUGUMI_JULIA_PROJECT='"${project}"' \
       -DTSUGUMI_JULIA_DEPOT='"${depot}"' \
       -DTSUGUMI_JULIA_SDK='"${./tsugumi.jl}"' \
+      -DTSUGUMI_JULIA_CARD_API="\"$out/share/tsugumi/api/card.jl\"" \
       -DTSUGUMI_JULIA_SOURCE=${lib.escapeShellArg (builtins.toJSON "${src}")} \
       -DTSUGUMI_JULIA_ENTRY=${lib.escapeShellArg (builtins.toJSON entry)} \
       -DTSUGUMI_JULIA_SOURCE_PREFIX=${lib.escapeShellArg (builtins.toJSON sourcePrefix)} \
-      card_adapter.cc ${./bridge.cc} ${runtime}/lib/libtsugumi_abi9.a \
+      ${generated}/src/card_adapter.cc ${./bridge.cc} ${runtime}/lib/libtsugumi_abi9.a \
       -L${julia}/lib -Wl,-rpath,${julia}/lib -ljulia -pthread -o "$out/lib/main.so"
   ''

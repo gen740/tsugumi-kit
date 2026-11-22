@@ -1,0 +1,4 @@
+attribute "tsugumi";
+namespace outputs;
+table Outputs { file:string (id: 0, required, tsugumi: "path"); }
+root_type Outputs;

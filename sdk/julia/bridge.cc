@@ -233,6 +233,8 @@ class Interpreter {
       throw std::runtime_error("Could not initialize the Julia bridge");
     jl_eval_string(bridge);
     CheckJulia("Installing the Julia bridge");
+    jl_eval_string("const TSUGUMI_JULIA_CARD_API = \"" TSUGUMI_JULIA_CARD_API "\"");
+    CheckJulia("Locating the Julia Card API");
     jl_eval_string("Base.include(Main, \"" TSUGUMI_JULIA_SDK "\")");
     CheckJulia("Loading the Julia SDK");
     auto* sdk = reinterpret_cast<jl_module_t*>(

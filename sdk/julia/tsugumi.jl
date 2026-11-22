@@ -3,20 +3,8 @@ module Tsugumi
 import JSON
 import Printf
 
-export Inputs, path, send, cancelled, remaining_ms, CardFailure
+export Inputs, send, cancelled, remaining_ms, CardFailure
 export Markdown, Scalar, Table, Image, Points, LineChart, Plotly, VegaLite
-
-struct Inputs
-    ports::Dict{String,Any}
-    params::Dict{String,Any}
-end
-
-Base.getindex(input::Inputs, name::AbstractString) = getfield(input, :ports)[name]
-Base.getproperty(input::Inputs, name::Symbol) =
-    name === :params ? getfield(input, :params) : input[String(name)]
-Base.propertynames(input::Inputs, private::Bool=false) =
-    (:params, (Symbol(name) for name in keys(getfield(input, :ports)) if name != "params")...)
-path(input::Inputs, name::AbstractString) = input[name]["value"]
 
 struct CardFailure <: Exception
     kind::Symbol
@@ -26,6 +14,8 @@ end
 CardFailure(kind::Symbol, message::AbstractString; cell::AbstractString="") =
     CardFailure(kind, String(message), String(cell))
 Base.showerror(io::IO, failure::CardFailure) = print(io, failure.message)
+
+include(Main.TSUGUMI_JULIA_CARD_API)
 
 const HOST = Main.TSUGUMI_JULIA_HOST
 cancelled() = (@ccall gc_safe=true $(HOST.cancelled)()::Cint) != 0
@@ -114,7 +104,7 @@ function JSON.show_json(io::JSON.Writer.StructuralContext, s::PortSerialization,
 end
 
 module CardCode
-using ..Tsugumi: Inputs, path, send, cancelled, remaining_ms, CardFailure
+using ..Tsugumi: Inputs, send, cancelled, remaining_ms, CardFailure
 using ..Tsugumi: Markdown, Scalar, Table, Image, Points, LineChart, Plotly, VegaLite
 end
 

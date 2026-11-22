@@ -1,11 +1,11 @@
 {
+  pkgs,
   lib,
   stdenv,
   runCommandCC,
   flatbuffers,
-  python3,
-  juliaCard,
-  runtime,
+  # The kit's root entry, `import ./. { inherit pkgs; }`.
+  kit,
 }:
 let
   inherit (stdenv.hostPlatform) isDarwin;
@@ -17,31 +17,45 @@ let
       ../wire.h
     ];
   };
-  card = juliaCard {
-    src = ./card;
-    contract = ./contract;
+  runtime = kit.cppRuntime;
+  definition = import ./card {
+    inherit pkgs;
+    inputs.tsugumi = kit;
+    params = { };
+    schemas = ./schemas;
   };
+  card = definition.run;
+  starter =
+    (import ../../templates/julia-write-text/write {
+      inherit pkgs;
+      inputs.tsugumi = kit;
+      params = { };
+      schemas = ../templates/text-to-path;
+    }).run;
 in
+assert definition.views == kit.juliaSdk.views;
 runCommandCC "tsugumi-julia-abi9-check"
   {
-    nativeBuildInputs = [
-      flatbuffers
-      python3
-    ];
     buildInputs = [ flatbuffers ];
+    passthru.apiCards = [
+      card
+      starter
+    ];
   }
   ''
     shared=${shared}
     include=${runtime}/include
     card=${card}/lib/main.so
 
-    python3 ${../../sdk/cpp/card_cpp.py} ${./contract}/_contract.json generated \
-      ${flatbuffers.src}/reflection/reflection.fbs
+    test -s "${card}/share/tsugumi/api/README.md"
+    test -s "${card}/share/tsugumi/api/_inputs.fbs"
+    test -s "${card}/share/tsugumi/api/card.jl"
+    grep -F '`arrival` — `(type="Temperature"' "${card}/share/tsugumi/api/README.md"
     $CC -std=c11 -D_DEFAULT_SOURCE -Dmain=shared_main -Dalarm=julia_test_alarm -Wall -Wextra -Werror \
       -I"$include" -c "$shared/fake_host.c"
     $CC -std=c11 -Wall -Wextra -Werror -c ${./watchdog.c} -o watchdog.o
     $CC -std=c11 -Wall -Wextra -Werror -fPIC -shared "$shared/legacy.c" -o legacy.so
-    $CXX -std=c++2c -Wall -Wextra -Werror -isystem generated/include -I"$include" -I"$shared" \
+    $CXX -std=c++2c -Wall -Wextra -Werror -isystem "${card.generated}/include" -I"$include" -I"$shared" \
       -I${../../sdk/cpp/src} \
       ${./wire.cc} fake_host.o watchdog.o ${runtime}/lib/libtsugumi_abi9.a \
       -pthread ${lib.optionalString (!isDarwin) "-ldl"} -o fake_host
@@ -54,6 +68,11 @@ runCommandCC "tsugumi-julia-abi9-check"
     printf 'directory input\n' > "$HOME/input-directory/keep.txt"
     (cd "$HOME" && ../fake_host "$card" "$OLDPWD/legacy.so")
     test -d "$HOME/.julia"
+
+    $CXX -std=c++2c -Wall -Wextra -Werror -isystem "${starter.generated}/include" \
+      -I"$include" -I"$shared" ${./text_template.cc} \
+      ${lib.optionalString (!isDarwin) "-ldl"} -o text-host
+    (cd "$HOME" && ../text-host "${starter}/lib/main.so")
 
     ${
       if isDarwin then

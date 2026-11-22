@@ -6,6 +6,9 @@ include("failure.jl")
 
 function main(input)
     mode = input.params["mode"]
+    number = input.number
+    get(input, :unwired, nothing) === nothing || error("unwired input arrived")
+    mode == 18 && input.unwired
     mode == 3 && throw(CardFailure(:cancelled, "explicit failure"; cell="fit"))
     mode == 4 && fail_from_include()
     mode == 5 && error("Card threw")
@@ -13,14 +16,14 @@ function main(input)
     mode == 7 && return (; number=(; value=-1))
     mode == 8 && return CardFailure(:input_missing, "returned failure"; cell="load")
     mode == 9 && throw(CardFailure(:unspecified, "reserved failure kind"; cell="fit"))
-    mode == 10 && return (; number=input.number, table=(; rows=[nothing]))
+    mode == 10 && return (; number, table=(; rows=[nothing]))
 
-    for name in (:number, :table, :file, :directory, :Params, :params)
+    for name in (:number, :table, :Params, :params)
         hasproperty(input, name) || error("missing property $name")
     end
-    !hasproperty(input, :ports) && !hasproperty(input, :absent) || error("unexpected property")
+    !hasproperty(input, :ports) && !hasproperty(input, :unwired) || error("unexpected property")
     input.Params["return"] == 43 && input.Params["__value"] == 7 || error("wrong reserved fields")
-    input.number["value"] == typemax(UInt64) || error("lost integer precision")
+    number["value"] == typemax(UInt64) || error("lost integer precision")
     rows = input.table["rows"]
     rows[1]["measure"] == "NaN" || error("wrong NaN token")
     rows[2]["measure"] == "Infinity" || error("wrong infinity token")
@@ -85,14 +88,21 @@ function main(input)
     end
 
     file = forward = nothing
-    if input.file !== nothing
-        source = path(input, "file")
+    source = get(input, :file, nothing)
+    if source !== nothing
         open(io -> write(io, uppercase(read(source, String))), "output.txt", "w")
-        file = (; value="output.txt")
-        forward = (; value=source)
+        file = "output.txt"
+        forward = source
     end
-    directory = input.directory === nothing ? nothing : (; value=path(input, "directory"))
-    return (; number=input.number, table=(; rows), file, forward, directory, switch=input.Params)
+    directory = get(input, "directory", nothing)
+    arrival = get(input, :arrival, nothing)
+    if arrival !== nothing
+        value = arrival["value"]
+        arrival = arrival["type"] == "Temperature" ?
+            (; type="Temperature", value=(; value=value["value"] + 1)) :
+            (; type=arrival["type"], value)
+    end
+    return (; number, table=(; rows), file, forward, directory, switch=input.Params, arrival)
 end
 
 const effect_task = Ref{Task}()
