@@ -11,6 +11,6 @@ Copy the pair into a project and connect a Trigger to `settings.start`. At the d
 
 The converter's `default.nix` declares the C++ SDK's bundled HTML views with `views = sdk.views`, including the `markdown` view used for the live display.
 
-The example saves the internal wire using the existing project `tsugumi.json` canvas syntax. Its use as a template fragment is provisional. If your importer copies only definitions, connect `settings.celsius` to `convert.celsius` as shown. The optional [layout fragment](layout.json) places the two Cards side by side.
+The example saves the internal wire using the existing project `tsugumi.json` canvas syntax. Its use as a template fragment is provisional. If your importer copies only definitions, connect `settings.celsius` to `convert.celsius` as shown. The optional layout fragment (`layout.bin`) places the two Cards side by side.
 
 Git import subdirectory: `templates/temperature-conversion`. [Template guide](../../docs/templates.md) · [C++ source](convert/src/card.cc)

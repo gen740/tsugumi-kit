@@ -1,4 +1,12 @@
 {
   "type": "input",
-  "params": [{ "name": "value", "type": "string", "data": "Hello from Tsugumi" }]
+  "params": [
+    {
+      "name": "value",
+      "type": "string",
+      "data": {
+        "string": "Hello from Tsugumi"
+      }
+    }
+  ]
 }

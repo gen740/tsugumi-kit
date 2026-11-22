@@ -1,4 +1,8 @@
 {
   "type": "code",
-  "inputs": [{ "name": "celsius" }]
+  "inputs": [
+    {
+      "name": "celsius"
+    }
+  ]
 }

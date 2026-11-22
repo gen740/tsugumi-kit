@@ -1,4 +1,12 @@
 {
   "type": "input",
-  "params": [{ "name": "value", "type": "string", "data": "alpha   beta\tgamma" }]
+  "params": [
+    {
+      "name": "value",
+      "type": "string",
+      "data": {
+        "string": "alpha   beta\tgamma"
+      }
+    }
+  ]
 }

@@ -1,4 +1,12 @@
 {
   "type": "code",
-  "params": [{ "name": "text", "type": "string", "data": "Hello from Tsugumi" }]
+  "params": [
+    {
+      "name": "text",
+      "type": "string",
+      "data": {
+        "string": "Hello from Tsugumi"
+      }
+    }
+  ]
 }

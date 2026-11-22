@@ -1,4 +1,8 @@
 {
   "type": "code",
-  "inputs": [{ "name": "text" }]
+  "inputs": [
+    {
+      "name": "text"
+    }
+  ]
 }

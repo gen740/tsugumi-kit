@@ -1,10 +1,23 @@
 {
   "canvas": {
-    "cards": [{ "id": "settings" }, { "id": "convert" }],
+    "cards": [
+      {
+        "id": "settings"
+      },
+      {
+        "id": "convert"
+      }
+    ],
     "connections": [
       {
-        "from": { "card": "settings", "port": "celsius" },
-        "to": { "card": "convert", "port": "celsius" }
+        "from": {
+          "card": "settings",
+          "port": "celsius"
+        },
+        "to": {
+          "card": "convert",
+          "port": "celsius"
+        }
       }
     ]
   }
