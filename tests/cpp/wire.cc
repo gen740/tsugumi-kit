@@ -99,7 +99,7 @@ extern "C" auto check_display(tsugumi_bytes bytes, int record, unsigned index)
   constexpr std::array samples{
       Sample{"text", R"({"text":"résumé\n\""})", 0},
       Sample{"markdown", R"({"text":"**text**"})", 0, 1},
-      Sample{"scalar", R"({"label":"","value":2.5})", 0},
+      Sample{"markdown", R"({"text":"2.5"})", 0},
       Sample{"table", R"({"columns":["n"],"rows":[["1"]]})", 0},
       Sample{"image", R"({"alt":"sample","media_type":"image/png"})", 1},
       Sample{"custom", "mode=fast", 1, 1},

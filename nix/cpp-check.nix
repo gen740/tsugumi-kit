@@ -71,7 +71,6 @@ assert
   builtins.attrNames definition.views == [
     "image"
     "markdown"
-    "scalar"
     "table"
     "text"
   ];

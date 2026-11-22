@@ -98,8 +98,8 @@ def _number(value):
 @_as_module.register
 def _scalar(value: Scalar):
     number = float(value.value)
-    return Module("scalar",
-                  {"value": number if math.isfinite(number) else None, "label": value.label})
+    text = format(number, ".6g") if math.isfinite(number) else "\u2014"
+    return Module("markdown", {"text": f"**{value.label}**: {text}" if value.label else text})
 
 
 @_as_module.register

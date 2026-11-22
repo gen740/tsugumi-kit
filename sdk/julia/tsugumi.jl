@@ -1,6 +1,7 @@
 module Tsugumi
 
 import JSON
+import Printf
 
 export Inputs, path, display, cancelled, remaining_ms, CardFailure
 export Markdown, Scalar, Table, Image, Points, LineChart, Plotly, VegaLite, View
@@ -87,7 +88,10 @@ end
 display(value::AbstractString; record::Bool=false) = emit("text", value, record)
 display(value::Markdown; record::Bool=false) = emit("markdown", value.text, record)
 display(value::Real; record::Bool=false) = display(Scalar(value); record)
-display(value::Scalar; record::Bool=false) = emit("scalar", value, record)
+function display(value::Scalar; record::Bool=false)
+    number = isfinite(value.value) ? Printf.@sprintf("%.6g", value.value) : "\u2014"
+    display(Markdown(isempty(value.label) ? number : "**$(value.label)**: $number"); record)
+end
 display(value::Table; record::Bool=false) = emit("table", value, record)
 display(value::Image; record::Bool=false) = emit("image", value, record)
 display(value::Points; record::Bool=false) = emit("points", value, record)

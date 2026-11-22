@@ -51,7 +51,6 @@ assert
     "image"
     "markdown"
     "plotly"
-    "scalar"
     "table"
     "text"
   ];

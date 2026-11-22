@@ -43,14 +43,6 @@ auto Emit(std::string_view kind, const Json& value, bool record) -> int {
   if (kind == "text" || kind == "markdown")
     return legacy_display::Emit(kind, {{"text", value.get<std::string>()}},
                                 record);
-  if (kind == "scalar") {
-    const auto number =
-        value.at("value").is_null() ? NAN : Field<double>(value, "value");
-    return legacy_display::Emit(
-        kind,
-        {{"value", number}, {"label", Field<std::string>(value, "label")}},
-        record);
-  }
   if (kind == "table") {
     const auto columns = Field<std::vector<std::string>>(value, "columns");
     const auto rows =

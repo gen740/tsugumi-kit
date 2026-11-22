@@ -291,7 +291,7 @@ extern "C" auto check_display(tsugumi_bytes bytes, int record, unsigned index)
   constexpr std::array samples{
       Sample{"tsugumi:text", R"({"text":"résumé\n\""})", 0},
       Sample{"tsugumi:markdown", R"({"text":"**text**"})", 0, 1},
-      Sample{"tsugumi:scalar", R"({"label":"","value":2.5})", 0},
+      Sample{"tsugumi:markdown", R"({"text":"2.5"})", 0},
       Sample{"tsugumi:table", R"({"columns":["n"],"rows":[["1"]]})", 0},
       Sample{"tsugumi:image", R"({"alt":"sample","media_type":"image/png"})",
              1},

@@ -18,7 +18,7 @@ auto run(const Card::Inputs& input) -> Card::Output {
 }
 ```
 
-For an input of 20, the next Card receives 68 on the output port. The scalar also appears live. Returning the output and displaying a value are independent operations. The [temperature conversion template](../templates/temperature-conversion/) includes the input Card, both output schemas and the wire between them.
+For an input of 20, the next Card receives 68 on the output port. The value also appears live, as markdown. Returning the output and displaying a value are independent operations. The [temperature conversion template](../templates/temperature-conversion/) includes the input Card, both output schemas and the wire between them.
 
 | Card definition file | What to put there |
 | --- | --- |
@@ -50,13 +50,13 @@ To construct the injected builder, use `tsugumi-kit.lib.${system}.cppCard { inhe
 
 ## Display a value
 
-`card::display(value)` selects the view by C++ type and shows it live. To keep that particular display in history, pass `true` as the second argument. The flag defaults to `false` on **every call**. For example, `card::display("Reading input")` is live only and `card::display(card::Scalar{42, "rows"}, true)` records the scalar. Each recorded display appends a row with its module, config, blobs, arrival time, run and Card.
+`card::display(value)` selects the view by C++ type and shows it live. To keep that particular display in history, pass `true` as the second argument. The flag defaults to `false` on **every call**. For example, `card::display("Reading input")` is live only and `card::display(card::Scalar{42, "rows"}, true)` records the number as markdown. Each recorded display appends a row with its module, config, blobs, arrival time, run and Card.
 
 | Value accepted by the SDK | View name | Display |
 | --- | --- | --- |
 | `std::string_view` (including a string literal) | `text` | Plain text |
 | `card::Markdown` | `markdown` | Markdown |
-| `double`, `card::Scalar` | `scalar` | A number, optionally with a label |
+| `double`, `card::Scalar` | `markdown` | A number with 6 significant digits, shown as `**label**: value` when it has a label |
 | `card::Table` | `table` | Column names and rows of strings |
 | `card::Image` | `image` | Media type, image bytes and optional alt text |
 | `card::Module` | The supplied name | A custom view's config and optional named blobs |

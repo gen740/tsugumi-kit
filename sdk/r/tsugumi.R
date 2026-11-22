@@ -43,7 +43,8 @@ display.tsugumi_view <- function(value, record = FALSE) {
 
 scalar <- function(value, label = "") {
   if (!is.numeric(value) || length(value) != 1L) stop("expected a scalar")
-  .tsugumi_view("scalar", list(value = value, label = label))
+  number <- if (is.finite(value)) sprintf("%.6g", value) else "\u2014"
+  markdown(if (nzchar(label)) paste0("**", label, "**: ", number) else number)
 }
 markdown <- function(text) {
   .tsugumi_view("markdown", paste(text, collapse = "\n"))

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"strconv"
 
 	wire "tsugumi/Tsugumi/Card"
 	"tsugumi/flatbuffers"
@@ -96,11 +97,19 @@ func configuredModule(name string, config any, blobs ...Blob) (Module, error) {
 	return Module{Module: "tsugumi:" + name, Config: bytes, Blobs: blobs}, err
 }
 
-func scalarValue(value float64) any {
+func scalarValue(value float64) string {
 	if math.IsNaN(value) || math.IsInf(value, 0) {
-		return nil
+		return "\u2014"
 	}
-	return value
+	return strconv.FormatFloat(value, 'g', 6, 64)
+}
+
+// scalarText is the markdown shown for a number: "**label**: value".
+func scalarText(label, number string) string {
+	if label == "" {
+		return number
+	}
+	return "**" + label + "**: " + number
 }
 
 func displayModule(value any) (Module, error) {
@@ -110,13 +119,13 @@ func displayModule(value any) (Module, error) {
 	case Markdown:
 		return configuredModule("markdown", map[string]Markdown{"text": value})
 	case Scalar:
-		return configuredModule("scalar", map[string]any{"value": scalarValue(value.Value), "label": value.Label})
+		return configuredModule("markdown", map[string]string{"text": scalarText(value.Label, scalarValue(value.Value))})
 	case float32:
 		return displayModule(Scalar{Value: float64(value)})
 	case float64:
 		return displayModule(Scalar{Value: value})
 	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
-		return configuredModule("scalar", map[string]any{"value": value, "label": ""})
+		return configuredModule("markdown", map[string]string{"text": scalarText("", fmt.Sprint(value))})
 	case Table:
 		rows := make([][]string, 0, len(value.Rows))
 		for _, row := range value.Rows {

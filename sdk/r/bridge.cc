@@ -32,13 +32,6 @@ auto Display(const Json& request, bool record) -> int {
   if (kind == "text" || kind == "markdown")
     return legacy_display::Emit(kind, {{"text", FromValue<std::string>(value)}},
                                 record);
-  if (kind == "scalar") {
-    return legacy_display::Emit(
-        kind,
-        {{"value", FromValue<double>(value.at("value"))},
-         {"label", value.at("label").get<std::string>()}},
-        record);
-  }
   if (kind == "table") {
     const auto columns = Array<std::string>(value.at("columns"));
     const auto rows = ReadVector(value.at("rows"), Array<std::string>);

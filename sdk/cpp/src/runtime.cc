@@ -1,4 +1,6 @@
+#include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <nlohmann/json.hpp>
 #include <source_location>
 #include <stdexcept>
@@ -63,8 +65,13 @@ auto display(double value, bool record) -> int {
 }
 
 auto display(Scalar scalar, bool record) -> int {
-  const auto config = json{{"value", scalar.value}, {"label", scalar.label}};
-  return display(Module{"scalar", config.dump()}, record);
+  char number[32] = "\xe2\x80\x94";
+  if (std::isfinite(scalar.value))
+    std::snprintf(number, sizeof number, "%.6g", scalar.value);
+  auto text = std::string{};
+  if (!scalar.label.empty()) text = "**" + std::string{scalar.label} + "**: ";
+  text += number;
+  return display(Markdown{text}, record);
 }
 
 auto display(Table table, bool record) -> int {

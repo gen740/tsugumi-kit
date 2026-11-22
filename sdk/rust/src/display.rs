@@ -112,6 +112,31 @@ impl DisplayValue for Markdown<'_> {
     }
 }
 
+/// Format like C's `%.6g`.
+fn format_g6(value: f64) -> String {
+    let scientific = format!("{value:.5e}");
+    let (mantissa, exponent) = scientific.split_once('e').unwrap();
+    let exponent: i32 = exponent.parse().unwrap();
+    if (-4..6).contains(&exponent) {
+        let text = format!("{value:.*}", (5 - exponent) as usize);
+        return if text.contains('.') {
+            text.trim_end_matches('0').trim_end_matches('.').to_string()
+        } else {
+            text
+        };
+    }
+    let mantissa = if mantissa.contains('.') {
+        mantissa.trim_end_matches('0').trim_end_matches('.')
+    } else {
+        mantissa
+    };
+    format!(
+        "{mantissa}e{}{:02}",
+        if exponent < 0 { '-' } else { '+' },
+        exponent.abs()
+    )
+}
+
 pub struct Scalar<'a> {
     pub value: f64,
     pub label: &'a str,
@@ -129,12 +154,17 @@ impl DisplayValue for f64 {
 
 impl DisplayValue for Scalar<'_> {
     fn send(self, record: bool) -> c_int {
-        builtin(
-            "tsugumi:scalar",
-            json!({"value": self.value, "label": self.label}),
-            &[],
-            record,
-        )
+        let number = if self.value.is_finite() {
+            format_g6(self.value)
+        } else {
+            "\u{2014}".to_string()
+        };
+        let text = if self.label.is_empty() {
+            number
+        } else {
+            format!("**{}**: {number}", self.label)
+        };
+        Markdown(&text).send(record)
     }
 }
 

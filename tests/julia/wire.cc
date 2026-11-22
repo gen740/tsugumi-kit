@@ -275,7 +275,7 @@ extern "C" auto check_display(tsugumi_bytes bytes, int record, unsigned index)
     -> void {
   constexpr std::array<std::string_view, 11> modules{
       "tsugumi:text",       "tsugumi:markdown",
-      "tsugumi:scalar",     "tsugumi:table",
+      "tsugumi:markdown",   "tsugumi:table",
       "tsugumi:image",      "tsugumi:points",
       "tsugumi:line-chart", "tsugumi:plotly",
       "tsugumi:vega-lite",  "custom",

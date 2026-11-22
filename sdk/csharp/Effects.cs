@@ -77,11 +77,11 @@ public static class Effects
     public static int Display(double value, bool record = false) => Display(new Scalar(value), record);
 
     public static int Display(Scalar scalar, bool record = false) =>
-        Display(new Module("tsugumi:scalar", JsonSerializer.Serialize(new
-        {
-            label = scalar.Label,
-            value = double.IsFinite(scalar.Value) ? (double?)scalar.Value : null,
-        }, ViewJson)), record);
+        Display(new Markdown(
+            (scalar.Label.Length == 0 ? "" : $"**{scalar.Label}**: ") +
+            (double.IsFinite(scalar.Value)
+                ? scalar.Value.ToString("G6", System.Globalization.CultureInfo.InvariantCulture)
+                : "\u2014")), record);
 
     public static int Display(Table table, bool record = false) =>
         Display(new Module("tsugumi:table", JsonSerializer.Serialize(new

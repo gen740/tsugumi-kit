@@ -72,7 +72,8 @@ module Tsugumi
 
   def self.scalar_view(value, label = nil)
     number = Float(value)
-    View.new('tsugumi:scalar', {value: number.finite? ? number : nil, label: label || ''})
+    text = number.finite? ? format('%.6g', number) : "\u2014"
+    View.new('tsugumi:markdown', {text: label.nil? || label.empty? ? text : "**#{label}**: #{text}"})
   end
 
   def self.table_view(table)

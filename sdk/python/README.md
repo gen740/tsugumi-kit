@@ -39,7 +39,7 @@ assign its unchanged path to the matching output type.
 
 `tsugumi.display(value, record=True)` records that display update. With the
 flag omitted the display is live only. The SDK bundles the `text`, `markdown`,
-`scalar`, `table`, `image`, and `plotly` view modules. Forward the builder's
+`table`, `image`, and `plotly` view modules. Forward the builder's
 `run.views` as the top-level Card `views` alongside `run`. Pass a `views` map
 to `pythonCard` to add or override entries in `run.views`.
 

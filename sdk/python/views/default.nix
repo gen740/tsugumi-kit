@@ -35,7 +35,6 @@ in
 lib.genAttrs [
   "text"
   "markdown"
-  "scalar"
   "table"
   "image"
   "plotly"
