@@ -1,6 +1,6 @@
 # Convert a temperature
 
-An Input Card supplies degrees Celsius to a C++ Card that returns degrees Fahrenheit. **Targets unreleased Card ABI 9.** The C++ Card will not build in released Tsugumi until the ABI 9 PR lands. The builder injection in `default.nix` is provisional.
+An Input Card supplies degrees Celsius to a C++ Card that returns degrees Fahrenheit. **Targets unreleased Card ABI 9, revision 2.** The C++ Card will not build in released Tsugumi until the ABI 9 PR lands.
 
 ```text
 settings.celsius → convert.celsius

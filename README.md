@@ -13,7 +13,7 @@ one you write yourself.
 | Term | Meaning |
 | --- | --- |
 | **Card ABI** | The contract between Tsugumi's core and an SDK: `tsugumi_main` and the fixed `CardInput` / `CardResult` FlatBuffers and the host effects table. |
-| **_language_ SDK** (C++ SDK, Python SDK, …) | One swappable part for one language: the Nix builder that turns a Card's source and contract into `lib/main.so`, the code generator for the typed entry (`card.hh` and `tsugumi_main`), the runtime library (`card::display::send`, `cancelled()`, `remaining_ms()`, an embedded interpreter where needed) and its documentation. |
+| **_language_ SDK** (C++ SDK, Python SDK, …) | One swappable part for one language: the Nix builder that turns a Card's source and schemas into `lib/main.so`, the code generator for the typed entry (`card.hh` and `tsugumi_main`), the runtime library (`card::display::send`, `cancelled()`, `remaining_ms()`, an embedded interpreter where needed) and its documentation. |
 | **tsugumi-kit** | This repository: the default SDKs and the example templates. |
 
 "SDK" always means one language's part. It never refers to this repository as a
@@ -32,19 +32,15 @@ whole or to Tsugumi's worker, which belongs to the core.
 | `sdk/cpp/` | C++ Card code generator, adapter and static runtime. |
 | `default.nix` | The SDK set for a given nixpkgs: `import ./. { inherit pkgs; }`. |
 | `nix/` | Flake outputs, including the C++ Card builder and runtime package. |
-| `tests/` | Example ABI 9 Card, fake host and compatibility checks. |
+| `tests/` | Example ABI 9 Card, fake host and SDK checks. |
 
 ## Entry
 
 `default.nix` takes `{ pkgs }` and returns the SDK set built with that
-nixpkgs. The Tsugumi core imports it with the project's `pkgs`, so a Card
-builds with the project's pin rather than the kit's. The set holds each
-builder (`cppCard`, `pythonCard`, …), each SDK attribute set with its
-`views`, the `cppRuntime` package and `bind { contract, definitionDir; }`,
-which returns the SDK attribute sets with every builder bound to that
-Card's contract. The core passes that result to the Card's `default.nix`
-as `inputs.tsugumi`. The flake's `lib.${system}` is the same set built with
-the kit's own nixpkgs.
+nixpkgs. The Tsugumi core imports it with the project's `pkgs` and passes the
+result as `inputs.tsugumi`. Each Card passes its `schemas` directory
+explicitly to its SDK builder. The flake's `lib.${system}` is the same SDK set
+built with the kit's own nixpkgs. [Card SDK contract](docs/sdk-contract.md)
 
 ## Runtime tools
 
@@ -52,12 +48,13 @@ Each Card builder accepts `tools`, a list of nixpkgs packages whose executable
 files are installed into the Card's `bin` directory. For example:
 
 ```nix
-{ inputs, pkgs, ... }:
+{ pkgs, params, inputs, schemas }:
 let
   sdk = inputs.tsugumi.cppSdk;
 in
 {
   run = sdk.cppCard {
+    inherit schemas;
     src = ./src;
     tools = [ pkgs.coreutils ];
   };
