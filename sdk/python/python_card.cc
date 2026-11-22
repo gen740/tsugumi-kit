@@ -42,12 +42,10 @@ class ReleaseGil {
 };
 
 auto Display(PyObject*, PyObject* args) -> PyObject* {
-  const char* module_id;
-  const char* config;
+  const char* view;
   PyObject* entries;
   int record;
-  if (!PyArg_ParseTuple(args, "ssO!p", &module_id, &config, &PyTuple_Type,
-                        &entries, &record))
+  if (!PyArg_ParseTuple(args, "sO!p", &view, &PyTuple_Type, &entries, &record))
     return nullptr;
   int status = 1;
   try {
@@ -67,7 +65,7 @@ auto Display(PyObject*, PyObject* args) -> PyObject* {
     }
     // The callback can block while a different Card thread needs the GIL.
     const ReleaseGil release;
-    status = card::display(card::Module{module_id, config, blobs}, record);
+    status = card::display(card::View{view, blobs}, record);
   } catch (const std::bad_alloc&) {
     return PyErr_NoMemory();
   } catch (...) {

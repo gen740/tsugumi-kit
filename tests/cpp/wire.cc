@@ -91,7 +91,7 @@ extern "C" auto check_cpp_failure(tsugumi_bytes result, int mode) -> void {
 extern "C" auto check_display(tsugumi_bytes bytes, int record, unsigned index)
     -> void {
   struct Sample {
-    std::string_view module;
+    std::string_view view;
     std::string_view config;
     size_t blobs;
     int record = 0;
@@ -108,10 +108,10 @@ extern "C" auto check_display(tsugumi_bytes bytes, int record, unsigned index)
   CHECK(index < samples.size());
   const auto& display = Decode<CardDisplay>(bytes);
   const auto& sample = samples[index];
-  CHECK(display.module_()->string_view() == sample.module);
-  CHECK(display.config()->string_view() == sample.config);
-  CHECK(display.blobs() && display.blobs()->size() == sample.blobs);
+  CHECK(display.view()->string_view() == sample.view);
+  CHECK(ConfigText(display) == sample.config);
+  CHECK(display.blobs() && display.blobs()->size() == sample.blobs + 1);
   CHECK(record == sample.record);
-  if (index == 4) CheckBlob(display, 0, "image", {0, 13, 255});
-  if (index == 5) CheckBlob(display, 0, "sample", {0, 13, 255});
+  if (index == 4) CheckBlob(display, 1, "image", {0, 13, 255});
+  if (index == 5) CheckBlob(display, 1, "sample", {0, 13, 255});
 }

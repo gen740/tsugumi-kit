@@ -13,6 +13,6 @@ channel,counts
 
 With the default `minimum` of 10, `filter.filtered` is a new File containing the header and rows `2,10` and `3,17`. The Card records a table preview of the first ten matching rows and forwards the original File unchanged on `filter.original`. If no rows match, the new file contains just the header.
 
-The Card's `default.nix` exposes the C++ SDK's bundled `views`, including the `table` module used for the preview.
+The Card's `default.nix` exposes the C++ SDK's bundled `views`, including the `table` view used for the preview.
 
 Import this folder using the Git subdirectory `templates/filter-counts`. [Template guide](../../docs/templates.md) · [C++ source](filter/src/card.cc)

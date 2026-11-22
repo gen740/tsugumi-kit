@@ -1,4 +1,4 @@
-"""Encode values for the default view modules."""
+"""Encode values for the bundled views as a view name and named blobs."""
 
 import json
 import math
@@ -13,8 +13,12 @@ import _tsugumi_host as _host
 
 @dataclass(frozen=True)
 class Module:
+    """A display for the entry ``name`` in the Card's views.
+
+    The view module defines the blob names and bytes, such as a ``config`` blob.
+    """
+
     name: str
-    config: Mapping
     blobs: Mapping[str, bytes] = field(default_factory=dict)
 
 
@@ -53,21 +57,28 @@ class Plotly:
     config: Mapping | _PlotlyFigure
 
 
+_JSON = {"ensure_ascii": False, "separators": (",", ":"), "sort_keys": True}
+
+
+def _config(name, config, blobs=None, encoder=None):
+    """Select a bundled view, which reads a "config" blob of UTF-8 JSON.
+
+    encoder returns a JSON encoder class for values the standard one rejects.
+    """
+    try:
+        text = json.dumps(dict(config), allow_nan=False, **_JSON)
+    except (TypeError, ValueError):
+        if encoder is None:
+            raise
+        text = json.dumps(dict(config), cls=encoder(), **_JSON)
+    return Module(name, {"config": text.encode(), **(blobs or {})})
+
+
 def display(value, *, record=False):
     """Display a value live, with optional recording for this update."""
     module = _as_module(value)
-    options = {"ensure_ascii": False, "separators": (",", ":"), "sort_keys": True}
-    payload = dict(module.config)
-    try:
-        config = json.dumps(payload, allow_nan=False, **options)
-    except (TypeError, ValueError):
-        if not isinstance(value, Plotly):
-            raise
-        # Plotly's encoder also handles NumPy arrays, dates and non-finite values.
-        from plotly.utils import PlotlyJSONEncoder
-        config = json.dumps(payload, cls=PlotlyJSONEncoder, **options)
-    blobs = tuple((name, bytes(data)) for name, data in module.blobs.items())
-    _host.display(module.name, config, blobs, record)
+    blobs = tuple((str(name), bytes(data)) for name, data in module.blobs.items())
+    _host.display(module.name, blobs, record)
 
 
 @singledispatch
@@ -82,12 +93,12 @@ def _module(value: Module):
 
 @_as_module.register
 def _text(value: str):
-    return Module("text", {"text": value})
+    return _config("text", {"text": value})
 
 
 @_as_module.register
 def _markdown(value: Markdown):
-    return Module("markdown", {"text": value.text})
+    return _config("markdown", {"text": value.text})
 
 
 @_as_module.register(Real)
@@ -99,7 +110,7 @@ def _number(value):
 def _scalar(value: Scalar):
     number = float(value.value)
     text = format(number, ".6g") if math.isfinite(number) else "\u2014"
-    return Module("markdown", {"text": f"**{value.label}**: {text}" if value.label else text})
+    return _config("markdown", {"text": f"**{value.label}**: {text}" if value.label else text})
 
 
 @_as_module.register
@@ -108,13 +119,13 @@ def _table(value: Table):
     rows = [list(map(str, row)) for row in value.rows]
     if any(len(row) != len(columns) for row in rows):
         raise ValueError("Display table rows must match the column count")
-    return Module("table", {"columns": columns, "rows": rows})
+    return _config("table", {"columns": columns, "rows": rows})
 
 
 @_as_module.register
 def _image(value: Image):
-    return Module("image", {"media_type": value.media_type, "alt": value.alt},
-                  {"image": value.data})
+    return _config("image", {"media_type": value.media_type, "alt": value.alt},
+                   {"image": value.data})
 
 
 @_as_module.register
@@ -122,4 +133,10 @@ def _plotly(value: Plotly):
     config = value.config
     if not isinstance(config, Mapping):
         config = config.to_plotly_json()
-    return Module("plotly", config)
+    return _config("plotly", config, encoder=_plotly_encoder)
+
+
+def _plotly_encoder():
+    # Plotly's encoder also handles NumPy arrays, dates and non-finite values.
+    from plotly.utils import PlotlyJSONEncoder
+    return PlotlyJSONEncoder

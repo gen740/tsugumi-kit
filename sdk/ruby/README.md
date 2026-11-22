@@ -34,7 +34,9 @@ end
 | Point cloud | `Tsugumi::Points.new(x, y, z, colors)`, with optional packed RGB integers |
 | Line chart | `Tsugumi::LineChart.new([{id:, label:, x:, y:}, ...])` |
 | Plotly and Vega-Lite | `Tsugumi::Plotly.new(config)`, `Tsugumi::VegaLite.new(config)` |
-| Custom view | `Tsugumi::View.new(module_id, config, blobs)`, with optional named binary Strings |
+| Custom view | `Tsugumi::View.new(view, blobs)`, with named binary Strings whose names and bytes the view module defines |
+
+The other values send a `config` blob of UTF-8 JSON, followed by any data blobs.
 
 Ruby threads can send displays after `main` returns. `Tsugumi.cancelled` and `Tsugumi.remaining_ms` read the active call's state from any Ruby thread. Between calls they return `true` and `0`.
 

@@ -9,7 +9,7 @@
     }:
     {
       checks.cppAbi9 = pkgs.callPackage ./cpp-check.nix {
-        cppCard = self.lib.${system}.cppCard;
+        inherit (self.lib.${system}) cppCard view;
         runtime = config.packages.cppRuntime;
       };
     };

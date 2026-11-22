@@ -16,12 +16,15 @@
 
 namespace tsugumi::legacy_display {
 
-// R and Julia still emit the ABI 9 legacy display names and payloads.
+// R and Julia emit the tsugumi: view names. Their config is UTF-8 JSON in a
+// "config" blob ahead of the data blobs.
 inline auto Emit(std::string_view kind, const nlohmann::json& config,
-                 bool record, std::span<const card::Blob> blobs = {}) -> int {
-  return card::display(
-      card::Module{"tsugumi:" + std::string(kind), config.dump(), blobs},
-      record);
+                 bool record, std::span<const card::Blob> data = {}) -> int {
+  const auto view = "tsugumi:" + std::string(kind);
+  const auto text = config.dump();
+  std::vector<card::Blob> blobs{{"config", card::text_bytes(text)}};
+  blobs.insert(blobs.end(), data.begin(), data.end());
+  return card::display(card::View{view, blobs}, record);
 }
 
 inline auto EmitImage(std::string_view media_type, std::string_view alt,

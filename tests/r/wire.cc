@@ -72,6 +72,14 @@ auto Failure(tsugumi_bytes bytes, FailureKind kind) -> const CardFailure& {
   return *result.failure();
 }
 
+auto ConfigText(const CardDisplay& display) -> std::string_view {
+  CHECK(display.blobs() && display.blobs()->size());
+  const auto* blob = display.blobs()->Get(0);
+  CHECK(blob->name()->string_view() == "config" && blob->bytes());
+  return {reinterpret_cast<const char*>(blob->bytes()->data()),
+          blob->bytes()->size()};
+}
+
 auto CheckBlob(const CardDisplay& display, unsigned index,
                std::string_view name, const std::vector<uint8_t>& bytes)
     -> void {
@@ -239,7 +247,7 @@ extern "C" auto check_card_failure(tsugumi_bytes bytes, int mode) -> void {
 extern "C" auto check_display(tsugumi_bytes bytes, int record, unsigned index)
     -> void {
   struct Sample {
-    std::string_view module;
+    std::string_view view;
     std::string_view config;
     size_t blobs;
     int record = 0;
@@ -263,25 +271,25 @@ extern "C" auto check_display(tsugumi_bytes bytes, int record, unsigned index)
   CHECK(index < samples.size());
   const auto& display = Decode<CardDisplay>(bytes);
   const auto& sample = samples[index];
-  CHECK(display.module_()->string_view() == sample.module);
-  if (display.config()->string_view() != sample.config)
+  CHECK(display.view()->string_view() == sample.view);
+  if (ConfigText(display) != sample.config)
     fprintf(stderr, "Display %u config: %s\n", index,
-            display.config()->c_str());
-  CHECK(display.config()->string_view() == sample.config);
-  CHECK(display.blobs() && display.blobs()->size() == sample.blobs);
+            std::string(ConfigText(display)).c_str());
+  CHECK(ConfigText(display) == sample.config);
+  CHECK(display.blobs() && display.blobs()->size() == sample.blobs + 1);
   CHECK(record == sample.record);
-  if (index == 4) CheckBlob(display, 0, "image", SampleBytes());
+  if (index == 4) CheckBlob(display, 1, "image", SampleBytes());
   if (index == 5) {
-    CheckBlob(display, 0, "x", {0, 0, 128, 63});
-    CheckBlob(display, 1, "y", {0, 0, 128, 63});
-    CheckBlob(display, 2, "z", {0, 0, 128, 63});
-    CheckBlob(display, 3, "colors", {86, 52, 18, 0});
+    CheckBlob(display, 1, "x", {0, 0, 128, 63});
+    CheckBlob(display, 2, "y", {0, 0, 128, 63});
+    CheckBlob(display, 3, "z", {0, 0, 128, 63});
+    CheckBlob(display, 4, "colors", {86, 52, 18, 0});
   }
   if (index == 6) {
-    CheckBlob(display, 0, "x", {0, 0, 0, 0, 0, 0, 0, 64});
-    CheckBlob(display, 1, "y", {0, 0, 0, 0, 0, 0, 0, 64});
+    CheckBlob(display, 1, "x", {0, 0, 0, 0, 0, 0, 0, 64});
+    CheckBlob(display, 2, "y", {0, 0, 0, 0, 0, 0, 0, 64});
   }
-  if (index == 9) CheckBlob(display, 0, "sample", SampleBytes());
+  if (index == 9) CheckBlob(display, 1, "sample", SampleBytes());
 }
 
 extern "C" auto reset_scratch() -> void {

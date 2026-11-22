@@ -75,9 +75,9 @@ auto Display(const Json& request, bool record) -> int {
       storage.push_back(FromBase64(bytes));
       views.push_back({name, storage.back()});
     }
-    return card::display(card::Module{value.at("module").get<std::string>(),
-                                      value.at("config").dump(), views},
-                         record);
+    return card::display(
+        card::View{value.at("view").get_ref<const std::string&>(), views},
+        record);
   }
   throw std::invalid_argument("Unknown display type");
 }

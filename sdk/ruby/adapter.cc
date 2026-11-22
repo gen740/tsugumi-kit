@@ -17,9 +17,8 @@ auto AsString(ruby_bytes bytes) -> std::string_view {
 
 }  // namespace
 
-extern "C" auto tsugumi_ruby_display(ruby_bytes module, ruby_bytes config,
-                                     const ruby_blob* blobs, size_t count,
-                                     int record) -> int {
+extern "C" auto tsugumi_ruby_display(ruby_bytes view, const ruby_blob* blobs,
+                                     size_t count, int record) -> int {
   try {
     std::vector<card::Blob> data;
     data.reserve(count);
@@ -28,8 +27,7 @@ extern "C" auto tsugumi_ruby_display(ruby_bytes module, ruby_bytes config,
                       {reinterpret_cast<const uint8_t*>(blob.bytes.data),
                        blob.bytes.size}});
     }
-    return card::display(card::Module{AsString(module), AsString(config), data},
-                         record != 0);
+    return card::display(card::View{AsString(view), data}, record != 0);
   } catch (...) {
     // Never unwind through MRI's C callback.
     return 1;

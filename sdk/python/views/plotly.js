@@ -1,10 +1,13 @@
 import Plotly from './plotly.cjs'
 
-export default async function mount(root, data) {
+const decoder = new TextDecoder()
+const parse = blobs => JSON.parse(decoder.decode(blobs.config))
+
+export default async function mount(root, blobs) {
   const chart = document.createElement('div')
   root.replaceChildren(chart)
 
-  let figure = JSON.parse(data.config)
+  let figure = parse(blobs)
   let pending = false
   let drawing = false
   async function draw() {
@@ -29,7 +32,7 @@ export default async function mount(root, data) {
   }
 
   root.addEventListener('tsugumi:data', event => {
-    figure = JSON.parse(event.detail.config)
+    figure = parse(event.detail)
     void draw()
   })
 

@@ -24,14 +24,15 @@ auto DisplaySamples() -> bool {
   const std::vector<std::string> columns{"n"};
   const std::vector<std::vector<std::string>> rows{{"1"}};
   const uint8_t bytes[] = {0, 13, 255};
-  const card::Blob blobs[] = {{"sample", bytes}};
+  const card::Blob blobs[] = {{"config", card::text_bytes("mode=fast")},
+                              {"sample", bytes}};
 
   return card::display("résumé\n\"") == 0 &&
          card::display(card::Markdown{"**text**"}, true) == 0 &&
          card::display(2.5) == 0 &&
          card::display(card::Table{columns, rows}) == 0 &&
          card::display(card::Image{"image/png", bytes, "sample"}) == 0 &&
-         card::display(card::Module{"custom", "mode=fast", blobs}, true) == 0;
+         card::display(card::View{"custom", blobs}, true) == 0;
 }
 
 }  // namespace

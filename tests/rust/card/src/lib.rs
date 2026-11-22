@@ -43,12 +43,17 @@ fn display_samples() -> Result<()> {
     display!(Plotly(r#"{"data":[]}"#))?;
     display!(VegaLite(r#"{"mark":"point"}"#))?;
     let module = Module {
-        module: "custom",
-        config: r#"{"key":1}"#,
-        blobs: &[Blob {
-            name: "sample",
-            bytes: &image,
-        }],
+        view: "custom",
+        blobs: &[
+            Blob {
+                name: "config",
+                bytes: br#"{"key":1}"#,
+            },
+            Blob {
+                name: "sample",
+                bytes: &image,
+            },
+        ],
     };
     display(module, true)
 }

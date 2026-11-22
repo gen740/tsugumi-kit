@@ -8,7 +8,7 @@ use crate::wire::tsugumi::card::{
     CardDisplay, CardDisplayArgs, CardDisplayBlob, CardDisplayBlobArgs,
 };
 
-/// A value that can be sent to a view module.
+/// A value that can be sent to a view.
 pub trait DisplayValue {
     fn send(self, record: bool) -> c_int;
 }
@@ -43,17 +43,17 @@ pub struct Blob<'a> {
     pub bytes: &'a [u8],
 }
 
+/// A display for the entry `view` in the Card's views. The view module defines
+/// the blob names and bytes, such as a `config` blob.
 pub struct Module<'a> {
-    pub module: &'a str,
-    pub config: &'a str,
+    pub view: &'a str,
     pub blobs: &'a [Blob<'a>],
 }
 
 impl DisplayValue for Module<'_> {
     fn send(self, record: bool) -> c_int {
         let mut builder = FlatBufferBuilder::new();
-        let module = builder.create_string(self.module);
-        let config = builder.create_string(self.config);
+        let view = builder.create_string(self.view);
         let blobs: Vec<_> = self
             .blobs
             .iter()
@@ -73,8 +73,7 @@ impl DisplayValue for Module<'_> {
         let display = CardDisplay::create(
             &mut builder,
             &CardDisplayArgs {
-                module: Some(module),
-                config: Some(config),
+                view: Some(view),
                 blobs: Some(blobs),
             },
         );
@@ -83,13 +82,23 @@ impl DisplayValue for Module<'_> {
     }
 }
 
-fn builtin(module: &str, config: Value, blobs: &[Blob<'_>], record: bool) -> c_int {
-    Module {
-        module,
-        config: &config.to_string(),
-        blobs,
-    }
-    .send(record)
+/// Send a tsugumi: view its config as UTF-8 JSON in a "config" blob, ahead of
+/// the data blobs.
+fn with_config(view: &str, config: &str, blobs: &[Blob<'_>], record: bool) -> c_int {
+    let mut all = Vec::with_capacity(blobs.len() + 1);
+    all.push(Blob {
+        name: "config",
+        bytes: config.as_bytes(),
+    });
+    all.extend(blobs.iter().map(|blob| Blob {
+        name: blob.name,
+        bytes: blob.bytes,
+    }));
+    Module { view, blobs: &all }.send(record)
+}
+
+fn builtin(view: &str, config: Value, blobs: &[Blob<'_>], record: bool) -> c_int {
+    with_config(view, &config.to_string(), blobs, record)
 }
 
 impl DisplayValue for &str {
@@ -306,22 +315,12 @@ pub struct VegaLite<'a>(pub &'a str);
 
 impl DisplayValue for Plotly<'_> {
     fn send(self, record: bool) -> c_int {
-        Module {
-            module: "tsugumi:plotly",
-            config: self.0,
-            blobs: &[],
-        }
-        .send(record)
+        with_config("tsugumi:plotly", self.0, &[], record)
     }
 }
 
 impl DisplayValue for VegaLite<'_> {
     fn send(self, record: bool) -> c_int {
-        Module {
-            module: "tsugumi:vega-lite",
-            config: self.0,
-            blobs: &[],
-        }
-        .send(record)
+        with_config("tsugumi:vega-lite", self.0, &[], record)
     }
 }

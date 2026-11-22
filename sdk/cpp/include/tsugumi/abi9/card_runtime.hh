@@ -51,11 +51,17 @@ struct Blob {
   std::span<const uint8_t> bytes;
 };
 
-struct Module {
-  std::string_view module;
-  std::string_view config;
+// A display for the view named view in the Card's views map. The view module
+// defines its blob names and bytes.
+struct View {
+  std::string_view view;
   std::span<const Blob> blobs = {};
 };
+
+// The bytes of text, for example a view's config blob.
+inline auto text_bytes(std::string_view text) -> std::span<const uint8_t> {
+  return {reinterpret_cast<const uint8_t*>(text.data()), text.size()};
+}
 
 auto display(std::string_view text, bool record = false) -> int;
 auto display(Markdown markdown, bool record = false) -> int;
@@ -63,7 +69,7 @@ auto display(double value, bool record = false) -> int;
 auto display(Scalar scalar, bool record = false) -> int;
 auto display(Table table, bool record = false) -> int;
 auto display(Image image, bool record = false) -> int;
-auto display(Module module, bool record = false) -> int;
+auto display(View view, bool record = false) -> int;
 
 auto cancelled() -> bool;
 auto remaining_ms() -> int64_t;

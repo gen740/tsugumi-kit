@@ -41,15 +41,18 @@ assign its unchanged path to the matching output type.
 flag omitted the display is live only. The SDK bundles the `text`, `markdown`,
 `table`, `image`, and `plotly` view modules. Forward the builder's
 `run.views` as the top-level Card `views` alongside `run`. Pass a `views` map
-to `pythonCard` to add or override entries in `run.views`.
+to `pythonCard` to add or override entries in `run.views`. Each view must
+declare `passthru.tsugumiView = { kind = "js" | "wasm"; entry = ...; }`, which
+`tsugumi-kit.lib.${system}.view { kind; src; entry; }` sets.
 
 Call `tsugumi.display(tsugumi.Plotly(fig))` with a Plotly figure, or pass a
 figure dictionary to `tsugumi.Plotly`. Add `packages = ps: [ ps.plotly ];` to
 the Card to construct figures in Python. A JSON-compatible dictionary works
 without that Python dependency. The view module contains Plotly.js.
 
-Use `tsugumi.Module(name, config, blobs)` to select a custom entry in the Card's
-`views`. The SDK sets `MPLCONFIGDIR` under `HOME` before importing the Card.
+Use `tsugumi.Module(name, blobs)` to select a custom entry in the Card's
+`views`. `blobs` maps names to bytes, and the view module defines them. The
+bundled views read a `config` blob of UTF-8 JSON. The SDK sets `MPLCONFIGDIR` under `HOME` before importing the Card.
 With Matplotlib installed, use
 `tsugumi.display(tsugumi.mpl.figure(fig))` after importing `tsugumi.mpl`.
 Card threads can display between calls. Between calls

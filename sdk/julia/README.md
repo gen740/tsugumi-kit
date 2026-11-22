@@ -40,7 +40,10 @@ A `[ubyte]` field uses standard padded base64, with `base64encode` and
 
 `display(value; record=false)` accepts strings, real scalars, and the SDK types
 `Markdown`, `Scalar`, `Table`, `Image`, `Points`, `LineChart`, `Plotly`,
-`VegaLite`, and `View`. Tasks scheduled on a separate Julia thread can keep
+`VegaLite`, and `View`. `View(view; blobs)` selects the entry named `view` in
+the Card's views with a `Dict{String,Vector{UInt8}}` of blobs that its module
+defines. The other types send a `config` blob of UTF-8 JSON, followed by any
+data blobs. Tasks scheduled on a separate Julia thread can keep
 sending displays after `main` returns. Outside a call, `cancelled()` returns true and
 `remaining_ms()` returns 0. Throw `CardFailure(:kind, "message"; cell="name")` to
 set the failure kind and optional cell. Returning a `CardFailure` reports the

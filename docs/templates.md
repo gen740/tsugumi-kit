@@ -16,6 +16,8 @@ filter-counts/
     src/card.cc
 ```
 
+A Card that displays values exposes `views` from its `default.nix`. Each display names one of those views and carries named blobs that the view's module defines. Each view is a derivation that declares how the core loads it, with `passthru.tsugumiView = { kind = "js" | "wasm"; entry = "<file in $out>"; }`. Both C++ templates forward the views bundled with the C++ SDK, which already declare it. To add a view of your own, build it with `tsugumi-kit.lib.${system}.view { kind; src; entry; }`. See [Display a value](cpp-sdk.md#display-a-value).
+
 A template may include a `layout.json` fragment with positions for its Cards. A graph's **connections** specify which output port feeds which input port. Layout coordinates only tell the UI where to draw the Cards. In the temperature example, both definition directories, the internal wire and the layout travel together.
 
 On copy, the core allocates fresh Card IDs and remaps references in the copied graph and layout. Copying the temperature pair twice should produce two independent pairs, each with its own internal wire. Connect ports at the boundary of each copy to the rest of your project.

@@ -55,6 +55,14 @@ assert
     "text"
   ];
 assert custom.views == card.views // overrides;
+assert lib.all (
+  view:
+  view.tsugumiView == {
+    kind = "js";
+    entry = "index.js";
+  }
+) (builtins.attrValues card.views);
+assert !(builtins.tryEval (pythonCard (args // { views.bad = card; })).views.bad).success;
 runCommandCC "tsugumi-python-abi9-check"
   {
     nativeBuildInputs = [ flatbuffers ];
@@ -64,8 +72,10 @@ runCommandCC "tsugumi-python-abi9-check"
     card=${card}/lib/main.so
     tests=${host}
     include=${runtime}/include
-    for view in ${lib.escapeShellArgs (map toString (builtins.attrValues card.views))}; do
-      test -s "$view/index.js"
+    for view in ${
+      lib.escapeShellArgs (lib.mapAttrsToList (_: view: "${view}/${view.tsugumiView.entry}") card.views)
+    }; do
+      test -s "$view"
     done
 
     for schema in _inputs _outputs _params; do

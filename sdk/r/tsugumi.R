@@ -63,13 +63,14 @@ line_chart <- function(series) {
 }
 plotly <- function(spec) .tsugumi_view("plotly", spec)
 vega_lite <- function(spec) .tsugumi_view("vega-lite", spec)
-view_module <- function(module, config = NULL, blobs = list()) {
+# The view module defines the blob names and bytes, such as a "config" blob.
+view_module <- function(view, blobs = list()) {
   if (length(blobs) && (is.null(names(blobs)) || any(!nzchar(names(blobs))))) {
     stop("blobs must be named")
   }
   encoded <- lapply(blobs, jsonlite::base64_enc)
   if (!length(encoded)) encoded <- setNames(list(), character())
-  .tsugumi_view("module", list(module = module, config = config, blobs = encoded))
+  .tsugumi_view("module", list(view = view, blobs = encoded))
 }
 
 cancelled <- function() .Call("tsugumi_r_cancelled")

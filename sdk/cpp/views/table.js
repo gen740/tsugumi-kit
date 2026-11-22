@@ -1,10 +1,10 @@
 import { onData } from './data.js'
 
-export default function mount(root, data) {
+export default function mount(root, blobs) {
   const table = document.createElement('table')
   table.style.cssText = 'border-spacing:12px 4px;white-space:pre-wrap;text-align:left'
   root.replaceChildren(table)
-  onData(root, data, ({ columns, rows }) => {
+  onData(root, blobs, ({ columns, rows }) => {
     table.replaceChildren()
     const header = table.createTHead().insertRow()
     for (const name of columns) {

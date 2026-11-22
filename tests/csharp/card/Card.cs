@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Runtime.CompilerServices;
+using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Win32.SafeHandles;
 using Newtonsoft.Json;
@@ -124,7 +125,7 @@ public static class Card
             Display(new LineChart([new("id", "line", [2], [-0.5])])) != 0 ||
             Display(new Plotly("""{"data":[]}""")) != 0 ||
             Display(new VegaLite("""{"mark":"point"}""")) != 0 ||
-            Display(new Module("custom", """{"key":1}""", [new("sample", bytes)]), record: true) != 0)
+            Display(new Module("custom", [new("config", Encoding.UTF8.GetBytes("""{"key":1}""")), new("sample", bytes)]), record: true) != 0)
             throw new InvalidOperationException("Display failed");
     }
 }

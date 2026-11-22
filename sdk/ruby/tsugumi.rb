@@ -43,7 +43,9 @@ module Tsugumi
   LineChart = Struct.new(:series)
   Plotly = Struct.new(:config)
   VegaLite = Struct.new(:config)
-  View = Struct.new(:module_id, :config, :blobs)
+  # A display for the entry view in the Card's views. The view module defines the
+  # blob names and binary String bytes, such as a 'config' blob.
+  View = Struct.new(:view, :blobs)
 
   def self.cancelled = TsugumiHost.cancelled
   def self.remaining_ms = TsugumiHost.remaining_ms
@@ -52,28 +54,34 @@ module Tsugumi
 
   def self.display(value, record: false)
     view = case value
-           when String then View.new('tsugumi:text', {text: value})
-           when Markdown then View.new('tsugumi:markdown', {text: value.text})
+           when String then configured('tsugumi:text', {text: value})
+           when Markdown then configured('tsugumi:markdown', {text: value.text})
            when Numeric then scalar_view(value)
            when Scalar then scalar_view(value.value, value.label)
            when Table then table_view(value)
            when Image
-             View.new('tsugumi:image', {media_type: value.media_type || 'image/png', alt: value.alt || ''},
-                      {'image' => value.bytes})
+             configured('tsugumi:image', {media_type: value.media_type || 'image/png', alt: value.alt || ''},
+                        {'image' => value.bytes})
            when Points then points_view(value)
            when LineChart then chart_view(value.series)
-           when Plotly then View.new('tsugumi:plotly', value.config)
-           when VegaLite then View.new('tsugumi:vega-lite', value.config)
+           when Plotly then configured('tsugumi:plotly', value.config)
+           when VegaLite then configured('tsugumi:vega-lite', value.config)
            when View then value
            else raise ArgumentError, "cannot display #{value.class}"
            end
-    TsugumiHost.display(view.module_id, JSON.generate(view.config), (view.blobs || {}).to_a, record)
+    TsugumiHost.display(view.view, (view.blobs || {}).to_a, record)
+  end
+
+  # A tsugumi: view reads its config as UTF-8 JSON in a 'config' blob, ahead of
+  # the data blobs.
+  def self.configured(name, config, blobs = {})
+    View.new(name, {'config' => JSON.generate(config).b}.merge(blobs))
   end
 
   def self.scalar_view(value, label = nil)
     number = Float(value)
     text = number.finite? ? format('%.6g', number) : "\u2014"
-    View.new('tsugumi:markdown', {text: label.nil? || label.empty? ? text : "**#{label}**: #{text}"})
+    configured('tsugumi:markdown', {text: label.nil? || label.empty? ? text : "**#{label}**: #{text}"})
   end
 
   def self.table_view(table)
@@ -82,7 +90,7 @@ module Tsugumi
       raise ArgumentError, 'table row width differs from columns' unless row.length == columns.length
       row.map { |cell| cell.is_a?(String) ? cell : JSON.generate(json_value(cell)) }
     end
-    View.new('tsugumi:table', {columns: columns, rows: rows})
+    configured('tsugumi:table', {columns: columns, rows: rows})
   end
 
   def self.points_view(points)
@@ -93,9 +101,9 @@ module Tsugumi
            colors.all? { |color| color.is_a?(Integer) && color.between?(0, 0xffffff) }
       raise ArgumentError, 'points require matching x, y, z and optional RGB colors'
     end
-    View.new('tsugumi:points', {count: count},
-             {'x' => points.x.pack('e*'), 'y' => points.y.pack('e*'),
-              'z' => points.z.pack('e*'), 'colors' => colors.pack('L<*')})
+    configured('tsugumi:points', {count: count},
+               {'x' => points.x.pack('e*'), 'y' => points.y.pack('e*'),
+                'z' => points.z.pack('e*'), 'colors' => colors.pack('L<*')})
   end
 
   def self.chart_view(series)
@@ -114,7 +122,7 @@ module Tsugumi
       y.concat(ys)
       config
     end
-    View.new('tsugumi:line-chart', {series: rows}, {'x' => x.pack('E*'), 'y' => y.pack('E*')})
+    configured('tsugumi:line-chart', {series: rows}, {'x' => x.pack('E*'), 'y' => y.pack('E*')})
   end
 
   def self.json_value(value, remaining_depth = 100)

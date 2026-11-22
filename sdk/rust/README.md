@@ -44,6 +44,9 @@ produce `output_invalid`.
 `f64`, and the SDK's
 `Scalar`, `Markdown`, `Table`, `Image`, `Points`, `LineChart`, `Plotly`,
 `VegaLite`, and `Module` types, and return `tsugumi::Result<()>`.
+`Module { view, blobs }` selects the entry named `view` in the Card's views with
+named blobs that its module defines. The other types send a `config` blob of
+UTF-8 JSON, followed by any data blobs.
 A Card-owned thread can send displays after `run` returns. Between calls
 `cancelled()` returns `true` and `remaining_ms()` returns `0`.
 

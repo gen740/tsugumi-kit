@@ -57,9 +57,11 @@ running the Card again. Keep files needed across calls under `HOME`.
 Call `display(value, record = FALSE)` for text, a number, a data frame or a
 matrix. The constructors `markdown(text)`, `scalar(value, label)`,
 `image(bytes, media_type, alt)`, `points(x, y, z, colors)`,
-`line_chart(series)`, `plotly(spec)`, `vega_lite(spec)` and
-`view_module(module, config, blobs)` select other view modules. Pass
-`record = TRUE` to keep an individual display in history.
+`line_chart(series)`, `plotly(spec)` and `vega_lite(spec)` select other views.
+`view_module(view, blobs)` selects the entry named `view` in the Card's `views`
+with a named list of raw vectors as its blobs. The view module defines the blob
+names and bytes, for example a `config` blob. Pass `record = TRUE` to keep an
+individual display in history.
 
 Use `cancelled()` to poll the host and `remaining_ms()` to read its deadline
 budget in milliseconds. If the host's query fails, these return `TRUE` and

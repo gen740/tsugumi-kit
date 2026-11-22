@@ -47,7 +47,10 @@ output contains regular files. A File or Directory input may be forwarded
 by returning its path unchanged.
 
 `Effects.Display` supports text, scalar values, markdown, tables, images,
-points, line charts, Plotly, Vega-Lite, and custom modules. Pass
+points, line charts, Plotly, Vega-Lite, and custom views.
+`new Module(view, blobs)` selects the entry named `view` in the Card's views
+with named blobs that its module defines. The other types send a `config` blob
+of UTF-8 JSON, followed by any data blobs. Pass
 `record: true` to record the display. The return value is zero when the host
 accepts it. A background thread can keep displaying between calls.
 `Effects.Cancelled()` and `Effects.RemainingMilliseconds()` can be queried

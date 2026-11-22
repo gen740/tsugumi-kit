@@ -70,13 +70,13 @@ end
 struct VegaLite
     config::Any
 end
+# A display for a named entry in the Card's views. The view module defines the
+# blob names and bytes, such as a "config" blob.
 struct View
-    module_id::String
-    config::Any
+    view::String
     blobs::Dict{String,Vector{UInt8}}
 end
-View(module_id::AbstractString, config; blobs=Dict{String,Vector{UInt8}}()) =
-    View(module_id, config, blobs)
+View(view::AbstractString; blobs=Dict{String,Vector{UInt8}}()) = View(view, blobs)
 
 function emit(kind, value, record::Bool)
     data = JSON.json(value)

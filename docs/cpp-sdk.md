@@ -50,7 +50,7 @@ To construct the injected builder, use `tsugumi-kit.lib.${system}.cppCard { inhe
 
 ## Display a value
 
-`card::display(value)` selects the view by C++ type and shows it live. To keep that particular display in history, pass `true` as the second argument. The flag defaults to `false` on **every call**. For example, `card::display("Reading input")` is live only and `card::display(card::Scalar{42, "rows"}, true)` records the number as markdown. Each recorded display appends a row with its module, config, blobs, arrival time, run and Card.
+`card::display(value)` selects the view by C++ type and shows it live. To keep that particular display in history, pass `true` as the second argument. The flag defaults to `false` on **every call**. For example, `card::display("Reading input")` is live only and `card::display(card::Scalar{42, "rows"}, true)` records the number as markdown. Each recorded display appends a row with its view name, blobs, arrival time, run and Card.
 
 | Value accepted by the SDK | View name | Display |
 | --- | --- | --- |
@@ -59,11 +59,31 @@ To construct the injected builder, use `tsugumi-kit.lib.${system}.cppCard { inhe
 | `double`, `card::Scalar` | `markdown` | A number with 6 significant digits, shown as `**label**: value` when it has a label |
 | `card::Table` | `table` | Column names and rows of strings |
 | `card::Image` | `image` | Media type, image bytes and optional alt text |
-| `card::Module` | The supplied name | A custom view's config and optional named blobs |
+| `card::View` | The supplied name | The supplied named blobs, whose names and bytes the view module defines |
 
-`cppCard` bundles the five basic views as JavaScript modules pending the Wasm implementations. The top-level Card `views` maps view names to module derivations. The name emitted by `card::display` selects an entry in that map.
+A display carries only a view name and named blobs. The name selects an entry in the top-level Card `views` map, and the module behind that entry defines what its blobs mean. The four SDK views read a blob named `config` that holds UTF-8 JSON, and `image` also reads its bytes from a blob named `image`. For a custom view, build the blobs yourself. `card::text_bytes(text)` returns a string's bytes without copying them, for example for a `config` blob:
 
-Pass `views = { ... };` to `cppCard` to add or override entries in `run.views`, or set `views = run.views // { ... };` in the Card definition. A JS module derivation supplies `$out/index.js` with a default export `mount(root, data)`. The host provides `{ config, blobs }` and dispatches `tsugumi:data` on `root` with replacement data in the event's `detail`. The module defines the config format. The five SDK views use JSON strings, and the host supplies named blobs as `Uint8Array` values.
+```cpp
+const card::Blob blobs[] = {{"config", card::text_bytes("mode=fast")},
+                            {"sample", bytes}};
+card::display(card::View{"custom", blobs});
+```
+
+`cppCard` bundles the four basic views as JavaScript modules pending the Wasm implementations. Pass `views = { ... };` to `cppCard` to add or override entries in `run.views`, or set `views = run.views // { ... };` in the Card definition.
+
+Every view derivation declares how the core loads it in `passthru.tsugumiView = { kind = "js" | "wasm"; entry = "<file in $out>"; }`. The core routes by `kind` and does not inspect the module. `tsugumi-kit.lib.${system}.view { kind; src; entry; }` copies the directory `src` to `$out`, checks that `entry` is a file there and sets that attribute. `cppCard` rejects a view without it.
+
+```nix
+views = run.views // {
+  custom = tsugumi-kit.lib.${system}.view {
+    kind = "js";
+    src = ./views/custom;
+    entry = "index.js";
+  };
+};
+```
+
+A JS module's default export is `mount(root, blobs)`, where `blobs` maps each blob name to a `Uint8Array`. The host dispatches `CustomEvent('tsugumi:data', { detail: blobs })` on `root` with each replacement display.
 
 Keep backing strings and arrays alive until `display` returns. A zero status indicates success.
 

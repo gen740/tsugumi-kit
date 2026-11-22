@@ -18,7 +18,7 @@ display_samples <- function(bytes) {
   display(line_chart(list(list(id = "id", label = "line", x = 2, y = 2))))
   display(plotly(list(data = list())))
   display(vega_lite(list(mark = "point")))
-  display(view_module("custom", list(key = 1), list(sample = bytes)), record = TRUE)
+  display(view_module("custom", list(config = charToRaw('{"key":1}'), sample = bytes)), record = TRUE)
 }
 
 main <- function(input) {

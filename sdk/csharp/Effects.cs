@@ -3,6 +3,7 @@ using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using Google.FlatBuffers;
@@ -20,7 +21,9 @@ public sealed record LineChart(Series[] Series);
 public sealed record Plotly(string Config);
 public sealed record VegaLite(string Config);
 public sealed record Blob(string Name, byte[] Bytes);
-public sealed record Module(string Id, string Config, Blob[]? Blobs = null);
+// A display for the entry View in the Card's views. The view module defines the
+// blob names and bytes, such as a "config" blob.
+public sealed record Module(string View, Blob[]? Blobs = null);
 
 public static class Effects
 {
@@ -53,8 +56,7 @@ public static class Effects
         }).ToList();
         builder.Finish(Wire.CardDisplay.Pack(builder, new()
         {
-            Module = module.Id,
-            Config = module.Config,
+            View = module.View,
             Blobs = blobs,
         }).Value);
         var bytes = builder.SizedByteArray();
@@ -68,11 +70,16 @@ public static class Effects
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
 
+    // A tsugumi: view reads its config as UTF-8 JSON in a "config" blob, ahead of
+    // the data blobs.
+    private static Module Configured(string view, string config, Blob[]? blobs = null) =>
+        new(view, [new("config", Encoding.UTF8.GetBytes(config)), .. blobs ?? []]);
+
     public static int Display(string text, bool record = false) =>
-        Display(new Module("tsugumi:text", JsonSerializer.Serialize(new { text }, ViewJson)), record);
+        Display(Configured("tsugumi:text", JsonSerializer.Serialize(new { text }, ViewJson)), record);
 
     public static int Display(Markdown markdown, bool record = false) =>
-        Display(new Module("tsugumi:markdown", JsonSerializer.Serialize(new { text = markdown.Text }, ViewJson)), record);
+        Display(Configured("tsugumi:markdown", JsonSerializer.Serialize(new { text = markdown.Text }, ViewJson)), record);
 
     public static int Display(double value, bool record = false) => Display(new Scalar(value), record);
 
@@ -84,14 +91,14 @@ public static class Effects
                 : "\u2014")), record);
 
     public static int Display(Table table, bool record = false) =>
-        Display(new Module("tsugumi:table", JsonSerializer.Serialize(new
+        Display(Configured("tsugumi:table", JsonSerializer.Serialize(new
         {
             columns = table.Columns,
             rows = table.Rows,
         }, ViewJson)), record);
 
     public static int Display(Image image, bool record = false) =>
-        Display(new Module("tsugumi:image", JsonSerializer.Serialize(new
+        Display(Configured("tsugumi:image", JsonSerializer.Serialize(new
         {
             alt = image.Alt,
             media_type = image.MediaType,
@@ -105,7 +112,7 @@ public static class Effects
             (colors.Length != 0 && colors.Length != count))
             return 1;
 
-        return Display(new Module("tsugumi:points", JsonSerializer.Serialize(new { count }, ViewJson),
+        return Display(Configured("tsugumi:points", JsonSerializer.Serialize(new { count }, ViewJson),
         [
             new("x", LittleEndian(points.X, sizeof(float), BinaryPrimitives.WriteSingleLittleEndian)),
             new("y", LittleEndian(points.Y, sizeof(float), BinaryPrimitives.WriteSingleLittleEndian)),
@@ -128,7 +135,7 @@ public static class Effects
         }
         var x = chart.Series.SelectMany(row => row.X).ToArray();
         var y = chart.Series.SelectMany(row => row.Y).ToArray();
-        return Display(new Module("tsugumi:line-chart", JsonSerializer.Serialize(new { series }, ViewJson),
+        return Display(Configured("tsugumi:line-chart", JsonSerializer.Serialize(new { series }, ViewJson),
         [
             new("x", LittleEndian(x, sizeof(double), BinaryPrimitives.WriteDoubleLittleEndian)),
             new("y", LittleEndian(y, sizeof(double), BinaryPrimitives.WriteDoubleLittleEndian)),
@@ -136,10 +143,10 @@ public static class Effects
     }
 
     public static int Display(Plotly plot, bool record = false) =>
-        Display(new Module("tsugumi:plotly", plot.Config), record);
+        Display(Configured("tsugumi:plotly", plot.Config), record);
 
     public static int Display(VegaLite plot, bool record = false) =>
-        Display(new Module("tsugumi:vega-lite", plot.Config), record);
+        Display(Configured("tsugumi:vega-lite", plot.Config), record);
 
     private sealed record ChartSeries(int count, string id, string label, int offset);
     private delegate void WriteValue<T>(Span<byte> bytes, T value);

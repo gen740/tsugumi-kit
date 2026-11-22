@@ -273,7 +273,7 @@ extern "C" auto check_card_failure(tsugumi_bytes result, int mode) -> void {
 
 extern "C" auto check_display(tsugumi_bytes bytes, int record, unsigned index)
     -> void {
-  constexpr std::array<std::string_view, 11> modules{
+  constexpr std::array<std::string_view, 11> views{
       "tsugumi:text",       "tsugumi:markdown",
       "tsugumi:markdown",   "tsugumi:table",
       "tsugumi:image",      "tsugumi:points",
@@ -281,23 +281,27 @@ extern "C" auto check_display(tsugumi_bytes bytes, int record, unsigned index)
       "tsugumi:vega-lite",  "custom",
       "tsugumi:text"};
   const auto& display = Wire<CardDisplay>(bytes);
-  CHECK(index < modules.size());
-  CHECK(display.module_()->string_view() == modules[index]);
+  CHECK(index < views.size());
+  CHECK(display.view()->string_view() == views[index]);
   CHECK(record == (index == 1 || index == 9));
-  if (index == 0)
-    CHECK(display.config()->string_view() == R"({"text":"résumé\n\""})");
-  if (index == 3)
-    CHECK(display.config()->string_view() ==
-          R"({"columns":["n"],"rows":[["1"]]})");
+  // Every display starts with its "config" blob.
+  const auto blob = [&](unsigned i, std::string_view name) {
+    CHECK(display.blobs() && i < display.blobs()->size());
+    const auto* entry = display.blobs()->Get(i);
+    CHECK(entry->name()->string_view() == name && entry->bytes());
+    return std::string_view{
+        reinterpret_cast<const char*>(entry->bytes()->data()),
+        entry->bytes()->size()};
+  };
+  const auto config = blob(0, "config");
+  if (index == 0) CHECK(config == R"({"text":"résumé\n\""})");
+  if (index == 3) CHECK(config == R"({"columns":["n"],"rows":[["1"]]})");
   if (index == 9) {
-    CHECK(display.config()->string_view() == R"({"key":1})");
-    CHECK(display.blobs()->size() == 1);
-    const auto* blob = display.blobs()->Get(0);
-    CHECK(blob->name()->string_view() == "sample");
-    CHECK(std::ranges::equal(*blob->bytes(), std::array{0, 13, 255}));
+    CHECK(config == R"({"key":1})");
+    CHECK(display.blobs()->size() == 2);
+    CHECK(blob(1, "sample") == std::string_view("\x00\x0d\xff", 3));
   }
-  if (index == 10)
-    CHECK(display.config()->string_view() == R"({"text":"outside"})");
+  if (index == 10) CHECK(config == R"({"text":"outside"})");
 }
 
 namespace {

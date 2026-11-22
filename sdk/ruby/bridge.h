@@ -19,8 +19,8 @@ typedef struct ruby_blob {
 
 /* The caller owns the returned string and frees it with free(). */
 char* tsugumi_ruby_invoke(ruby_bytes input);
-int tsugumi_ruby_display(ruby_bytes module, ruby_bytes config,
-                         const ruby_blob* blobs, size_t count, int record);
+int tsugumi_ruby_display(ruby_bytes view, const ruby_blob* blobs, size_t count,
+                         int record);
 int tsugumi_ruby_cancelled(int* value);
 int tsugumi_ruby_remaining_ms(int64_t* value);
 

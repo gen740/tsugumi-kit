@@ -28,36 +28,42 @@ namespace {
 
 using nlohmann::json;
 
+// The bundled views read their settings from a "config" blob of UTF-8 JSON.
+auto display_config(std::string_view view, const json& config, bool record,
+                    std::span<const Blob> data = {}) -> int {
+  const auto text = config.dump();
+  std::vector<Blob> blobs{{"config", text_bytes(text)}};
+  blobs.insert(blobs.end(), data.begin(), data.end());
+  return display(View{view, blobs}, record);
+}
+
 }  // namespace
 
-auto display(Module module, bool record) -> int {
+auto display(View view, bool record) -> int {
   using Tsugumi::Card::CardDisplayBlob;
   using Tsugumi::Card::CreateCardDisplay;
   using Tsugumi::Card::CreateCardDisplayBlob;
   flatbuffers::FlatBufferBuilder builder;
   std::vector<flatbuffers::Offset<CardDisplayBlob>> blobs;
-  blobs.reserve(module.blobs.size());
-  for (const auto& blob : module.blobs) {
+  blobs.reserve(view.blobs.size());
+  for (const auto& blob : view.blobs) {
     const auto name = builder.CreateString(blob.name);
     const auto bytes =
         builder.CreateVector(blob.bytes.data(), blob.bytes.size());
     blobs.push_back(CreateCardDisplayBlob(builder, name, bytes));
   }
-  const auto id = builder.CreateString(module.module);
-  const auto config = builder.CreateString(module.config);
-  builder.Finish(
-      CreateCardDisplay(builder, id, config, builder.CreateVector(blobs)));
+  const auto name = builder.CreateString(view.view);
+  builder.Finish(CreateCardDisplay(builder, name, builder.CreateVector(blobs)));
   return tsugumi::abi9::SendDisplay(
       {builder.GetBufferPointer(), builder.GetSize()}, record);
 }
 
 auto display(std::string_view text, bool record) -> int {
-  return display(Module{"text", json{{"text", text}}.dump()}, record);
+  return display_config("text", {{"text", text}}, record);
 }
 
 auto display(Markdown markdown, bool record) -> int {
-  return display(Module{"markdown", json{{"text", markdown.text}}.dump()},
-                 record);
+  return display_config("markdown", {{"text", markdown.text}}, record);
 }
 
 auto display(double value, bool record) -> int {
@@ -75,15 +81,15 @@ auto display(Scalar scalar, bool record) -> int {
 }
 
 auto display(Table table, bool record) -> int {
-  const auto config = json{{"columns", table.columns}, {"rows", table.rows}};
-  return display(Module{"table", config.dump()}, record);
+  return display_config(
+      "table", {{"columns", table.columns}, {"rows", table.rows}}, record);
 }
 
 auto display(Image image, bool record) -> int {
-  const auto config =
-      json{{"media_type", image.media_type}, {"alt", image.alt}};
   const Blob blobs[] = {{"image", image.bytes}};
-  return display(Module{"image", config.dump(), blobs}, record);
+  return display_config("image",
+                        {{"media_type", image.media_type}, {"alt", image.alt}},
+                        record, blobs);
 }
 
 }  // namespace card

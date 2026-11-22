@@ -11,6 +11,7 @@
       { pkgs, config, ... }:
       {
         inherit (pkgs.callPackage ./cpp-card.nix { runtime = config.packages.cppRuntime; }) cppCard;
+        inherit (import ./view.nix { inherit (pkgs) lib runCommand; }) view;
       }
     )
   );

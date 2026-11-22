@@ -10,6 +10,7 @@
   runtime,
 }:
 let
+  viewLib = import ./view.nix { inherit lib runCommand; };
   builtinViews = import ../sdk/cpp/views {
     inherit
       lib
@@ -17,6 +18,7 @@ let
       fetchurl
       runCommand
       ;
+    inherit (viewLib) view;
   };
   buildCard =
     {
@@ -52,7 +54,7 @@ let
       {
         passthru = {
           inherit generated;
-          views = builtinViews // views;
+          views = viewLib.checkViews "cppCard" (builtinViews // views);
         };
         buildInputs = [ flatbuffers ] ++ buildInputs;
       }

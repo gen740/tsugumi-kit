@@ -23,11 +23,9 @@ static ruby_bytes bytes(VALUE value) {
   return (ruby_bytes){RSTRING_PTR(value), (size_t)RSTRING_LEN(value)};
 }
 
-static VALUE display(VALUE self, VALUE module, VALUE config, VALUE pairs,
-                     VALUE record) {
+static VALUE display(VALUE self, VALUE view, VALUE pairs, VALUE record) {
   (void)self;
-  Check_Type(module, T_STRING);
-  Check_Type(config, T_STRING);
+  Check_Type(view, T_STRING);
   Check_Type(pairs, T_ARRAY);
   long count = RARRAY_LEN(pairs);
   if (count < 0 || (size_t)count > PTRDIFF_MAX / sizeof(ruby_blob))
@@ -47,8 +45,8 @@ static VALUE display(VALUE self, VALUE module, VALUE config, VALUE pairs,
     blobs[i] =
         (ruby_blob){bytes(rb_ary_entry(pair, 0)), bytes(rb_ary_entry(pair, 1))};
   }
-  const int status = tsugumi_ruby_display(bytes(module), bytes(config), blobs,
-                                          (size_t)count, RTEST(record));
+  const int status =
+      tsugumi_ruby_display(bytes(view), blobs, (size_t)count, RTEST(record));
   free(blobs);
   if (status) rb_raise(rb_eRuntimeError, "display was rejected");
   return Qnil;
@@ -73,7 +71,7 @@ static VALUE remaining_ms(VALUE self) {
 static VALUE initialize(VALUE unused) {
   (void)unused;
   VALUE host = rb_define_module("TsugumiHost");
-  rb_define_singleton_method(host, "display", display, 4);
+  rb_define_singleton_method(host, "display", display, 3);
   rb_define_singleton_method(host, "cancelled", cancelled, 0);
   rb_define_singleton_method(host, "remaining_ms", remaining_ms, 0);
   rb_enc_set_default_external(rb_enc_from_encoding(rb_utf8_encoding()));

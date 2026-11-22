@@ -57,13 +57,14 @@ type Blob struct {
 	Bytes []byte
 }
 
+// Module is a display for the entry View in the Card's views. The view module
+// defines the blob names and bytes, such as a "config" blob.
 type Module struct {
-	Module string
-	Config json.RawMessage
-	Blobs  []Blob
+	View  string
+	Blobs []Blob
 }
 
-// Display sends a value to a view module, including between run calls.
+// Display sends a value to a view, including between run calls.
 // Omit record or pass false for a live-only display.
 func Display(value any, record ...bool) error {
 	if len(record) > 1 {
@@ -79,7 +80,7 @@ func Display(value any, record ...bool) error {
 	for _, blob := range module.Blobs {
 		blobs = append(blobs, &wire.CardDisplayBlobT{Name: blob.Name, Bytes: blob.Bytes})
 	}
-	display := wire.CardDisplayT{Module: module.Module, Config: string(module.Config), Blobs: blobs}
+	display := wire.CardDisplayT{View: module.View, Blobs: blobs}
 	builder.Finish(display.Pack(builder))
 	bytes := builder.FinishedBytes()
 	recordFlag := C.int(0)
@@ -92,9 +93,15 @@ func Display(value any, record ...bool) error {
 	return nil
 }
 
+// configuredModule selects a tsugumi: view, with its config as UTF-8 JSON in a
+// "config" blob ahead of the data blobs.
 func configuredModule(name string, config any, blobs ...Blob) (Module, error) {
 	bytes, err := json.Marshal(config)
-	return Module{Module: "tsugumi:" + name, Config: bytes, Blobs: blobs}, err
+	return rawModule(name, bytes, blobs...), err
+}
+
+func rawModule(name string, config []byte, blobs ...Blob) Module {
+	return Module{View: "tsugumi:" + name, Blobs: append([]Blob{{"config", config}}, blobs...)}
 }
 
 func scalarValue(value float64) string {
@@ -151,9 +158,9 @@ func displayModule(value any) (Module, error) {
 	case LineChart:
 		return lineChartModule(value)
 	case Plotly:
-		return Module{Module: "tsugumi:plotly", Config: json.RawMessage(value)}, nil
+		return rawModule("plotly", value), nil
 	case VegaLite:
-		return Module{Module: "tsugumi:vega-lite", Config: json.RawMessage(value)}, nil
+		return rawModule("vega-lite", value), nil
 	case Module:
 		return value, nil
 	default:

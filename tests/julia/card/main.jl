@@ -67,7 +67,7 @@ function main(input)
         display(LineChart([(id="id", label="line", x=[2], y=[2])]))
         display(Plotly((; data=[])))
         display(VegaLite((; mark="point")))
-        display(View("custom", (; key=1); blobs=Dict("sample"=>UInt8[0, 13, 255])); record=true)
+        display(View("custom"; blobs=Dict("config"=>Vector{UInt8}("{\"key\":1}"), "sample"=>UInt8[0, 13, 255])); record=true)
         fd = input.params["fd"]
         # The embedding thread owns the interactive pool in this fixture.
         Threads.@spawn :default begin

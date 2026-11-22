@@ -97,9 +97,8 @@ auto Emit(std::string_view kind, const Json& value, bool record) -> int {
       storage.push_back(bytes.get<std::vector<uint8_t>>());
       blobs.push_back({name, storage.back()});
     }
-    return card::display(card::Module{Field<std::string>(value, "module_id"),
-                                      value.at("config").dump(), blobs},
-                         record);
+    const auto view = Field<std::string>(value, "view");
+    return card::display(card::View{view, blobs}, record);
   }
   return 1;
 }

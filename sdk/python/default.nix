@@ -17,6 +17,7 @@
   views ? { },
 }:
 let
+  viewLib = import ../../nix/view.nix { inherit lib runCommand; };
   inherit (stdenv.hostPlatform) isDarwin;
   pythonEnv = python.withPackages (ps: [ ps.flatbuffers ] ++ packages ps);
   libpython = "${python}/lib/libpython${python.pythonVersion}${stdenv.hostPlatform.extensions.sharedLibrary}";
@@ -47,16 +48,18 @@ let
 in
 runCommandCC "tsugumi-python-card"
   {
-    passthru.views =
-      (import ./views {
+    passthru.views = viewLib.checkViews "pythonCard" (
+      import ./views {
         inherit
           lib
           esbuild
           fetchurl
           runCommand
           ;
-      })
-      // views;
+        inherit (viewLib) view;
+      }
+      // views
+    );
     buildInputs = [
       flatbuffers
       python

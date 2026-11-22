@@ -84,7 +84,7 @@ def _show():
     figure = go.Figure(go.Scatter(x=[date(2026, 11, 22)], y=[2]))
     figure.layout.template = None
     tsugumi.display(tsugumi.Plotly(figure), record=True)
-    tsugumi.display(tsugumi.Module("custom", {"key": 1}, {"sample": data}), record=True)
+    tsugumi.display(tsugumi.Module("custom", {"config": b'{"key":1}', "sample": data}), record=True)
 
 
 def run(input: Input) -> Output:

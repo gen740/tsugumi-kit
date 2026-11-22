@@ -5,6 +5,7 @@
   flatbuffers,
   zlib,
   cppCard,
+  view,
   runtime,
 }:
 let
@@ -56,6 +57,8 @@ let
     src = ../tests/card/src;
     views = overrides;
   };
+  routes = lib.mapAttrsToList (_: view: view.tsugumiView) definition.views;
+  fails = value: !(builtins.tryEval value).success;
   inherit (stdenv.hostPlatform) isDarwin;
 in
 assert
@@ -75,6 +78,37 @@ assert
     "text"
   ];
 assert custom.views == card.views // overrides;
+assert lib.all (
+  route:
+  route == {
+    kind = "js";
+    entry = "index.js";
+  }
+) routes;
+assert
+  (view {
+    kind = "wasm";
+    src = ../tests/card/src;
+    entry = "main.cc";
+  }).tsugumiView == {
+    kind = "wasm";
+    entry = "main.cc";
+  };
+assert fails (view {
+  kind = "html";
+  src = ../tests/card/src;
+  entry = "main.cc";
+});
+assert fails (view {
+  kind = "js";
+  src = ../tests/card/src;
+  entry = "../default.nix";
+});
+assert fails
+  (bound {
+    src = ../tests/card/src;
+    views.bad = card;
+  }).views.bad;
 assert checkTemplate ../templates/filter-counts/filter;
 assert checkTemplate ../templates/temperature-conversion/convert;
 runCommandCC "tsugumi-cpp-abi9-check"
@@ -85,8 +119,12 @@ runCommandCC "tsugumi-cpp-abi9-check"
     card=${card}/lib/main.so
     tests=${tests}
     include=${runtime}/include
-    for view in ${lib.escapeShellArgs (map toString (builtins.attrValues definition.views))}; do
-      test -s "$view/index.js"
+    for view in ${
+      lib.escapeShellArgs (
+        lib.mapAttrsToList (_: view: "${view}/${view.tsugumiView.entry}") definition.views
+      )
+    }; do
+      test -s "$view"
     done
 
     $CC -std=c11 -D_DEFAULT_SOURCE -Wall -Wextra -Werror -I"$include" -c "$tests/cpp/fake_host.c"

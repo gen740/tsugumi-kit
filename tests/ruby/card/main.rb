@@ -12,7 +12,7 @@ def show_values(fd)
   Tsugumi.display(Tsugumi::LineChart.new([{id: 'id', x: [2.0], y: [-3.5], label: 'line'}]))
   Tsugumi.display(Tsugumi::Plotly.new({data: []}))
   Tsugumi.display(Tsugumi::VegaLite.new({mark: 'point'}))
-  Tsugumi.display(Tsugumi::View.new('custom', {key: 1}, {'sample' => binary}), record: true)
+  Tsugumi.display(Tsugumi::View.new('custom', {'config' => '{"key":1}'.b, 'sample' => binary}), record: true)
 
   Thread.new do
     IO.for_fd(fd, autoclose: false).read(1)

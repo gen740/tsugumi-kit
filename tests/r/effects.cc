@@ -3,7 +3,9 @@
 #include <Rinternals.h>
 #include <unistd.h>
 
+#include <string_view>
 #include <thread>
+#include <vector>
 
 #include "tsugumi/protocol/card_generated.h"
 #include "wire.h"
@@ -54,11 +56,13 @@ extern "C" auto start_effects(SEXP input_fd) -> SEXP {
 
     using namespace Tsugumi::Card;
     flatbuffers::FlatBufferBuilder buffer;
-    const auto module = buffer.CreateString("tsugumi:text");
-    const auto config = buffer.CreateString(R"({"text":"outside"})");
-    const std::vector<flatbuffers::Offset<CardDisplayBlob>> blobs;
-    buffer.Finish(
-        CreateCardDisplay(buffer, module, config, buffer.CreateVector(blobs)));
+    const auto view = buffer.CreateString("tsugumi:text");
+    const std::string_view config = R"({"text":"outside"})";
+    const std::vector blobs{CreateCardDisplayBlob(
+        buffer, buffer.CreateString("config"),
+        buffer.CreateVector(reinterpret_cast<const uint8_t*>(config.data()),
+                            config.size()))};
+    buffer.Finish(CreateCardDisplay(buffer, view, buffer.CreateVector(blobs)));
     CHECK(display({buffer.GetBufferPointer(), buffer.GetSize()}, 0) == 0);
   });
   return R_NilValue;

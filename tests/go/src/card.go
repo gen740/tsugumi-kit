@@ -32,7 +32,7 @@ func displaySamples() error {
 		}}},
 		{value: tsugumi.Plotly(`{"data":[]}`)},
 		{value: tsugumi.VegaLite(`{"mark":"point"}`)},
-		{tsugumi.Module{Module: "custom", Config: []byte(`{"key":1}`), Blobs: []tsugumi.Blob{{Name: "sample", Bytes: bytes}}}, true},
+		{tsugumi.Module{View: "custom", Blobs: []tsugumi.Blob{{Name: "config", Bytes: []byte(`{"key":1}`)}, {Name: "sample", Bytes: bytes}}}, true},
 	}
 	for _, sample := range samples {
 		var err error

@@ -3,6 +3,7 @@
   runCommand,
   fetchurl,
   esbuild,
+  view,
 }:
 let
   commonmark = fetchurl {
@@ -17,20 +18,25 @@ let
 
   bundle =
     name:
-    runCommand "tsugumi-python-view-${name}" { nativeBuildInputs = [ esbuild ]; } ''
-      mkdir -p "$out"
-      cp ${./.}/{${name},data}.js .
-      ${lib.optionalString (name == "markdown") ''
-        tar -xOf ${commonmark} package/dist/commonmark.js > commonmark.cjs
-        tar -xOf ${commonmark} package/LICENSE > "$out/LICENSE"
-      ''}
-      ${lib.optionalString (name == "plotly") ''
-        tar -xOf ${plotly} package/plotly.min.js > plotly.cjs
-        tar -xOf ${plotly} package/LICENSE > "$out/LICENSE"
-      ''}
-      esbuild ${name}.js --bundle --format=esm --platform=browser --target=es2022 \
-        --minify --outfile="$out/index.js"
-    '';
+    view {
+      name = "tsugumi-python-view-${name}";
+      kind = "js";
+      entry = "index.js";
+      src = runCommand "tsugumi-python-view-${name}-bundle" { nativeBuildInputs = [ esbuild ]; } ''
+        mkdir -p "$out"
+        cp ${./.}/{${name},data}.js .
+        ${lib.optionalString (name == "markdown") ''
+          tar -xOf ${commonmark} package/dist/commonmark.js > commonmark.cjs
+          tar -xOf ${commonmark} package/LICENSE > "$out/LICENSE"
+        ''}
+        ${lib.optionalString (name == "plotly") ''
+          tar -xOf ${plotly} package/plotly.min.js > plotly.cjs
+          tar -xOf ${plotly} package/LICENSE > "$out/LICENSE"
+        ''}
+        esbuild ${name}.js --bundle --format=esm --platform=browser --target=es2022 \
+          --minify --outfile="$out/index.js"
+      '';
+    };
 in
 lib.genAttrs [
   "text"
