@@ -1,3 +1,5 @@
+require 'pathname'
+
 def show_values(fd)
   raise 'cancelled during the call' if Thread.new { Tsugumi.cancelled }.value
   raise 'missing deadline' unless Tsugumi.remaining_ms == 500
@@ -37,6 +39,9 @@ end
 
 def main(input)
   @calls = (@calls || 0) + 1
+  unless input.params.values_at('unread', 'high', 'low') == %w[NaN Infinity -Infinity]
+    raise 'expected non-finite parameter defaults'
+  end
   case input.params.fetch('mode')
   when 1 then show_values(input.params.fetch('fd'))
   when 2 then raise 'interpreter state was lost' unless @calls > 1
@@ -53,7 +58,9 @@ def main(input)
     recursive = []
     recursive << recursive
     return {rows: recursive}
+  when 14 then input.fetch(:unwired)
   end
+  raise 'an unwired input should be absent' unless input[:unwired].nil?
 
   fallback = Object.new
   if input[:file]
@@ -65,27 +72,40 @@ def main(input)
     begin
       input.fetch(:file)
       raise 'fetch accepted a missing port without a fallback'
-    rescue KeyError
+    rescue Tsugumi::Failure => error
+      raise 'expected input_missing' unless error.kind == :input_missing && error.message == 'Missing input file'
     end
   end
 
-  rows = input.rows.fetch('rows')
+  number = input.fetch(:number)
+  rows = input.fetch(:rows).fetch('rows')
   raise 'expected non-finite tokens' unless rows.first.fetch('readings') == %w[NaN Infinity -Infinity]
   raise 'expected bytes' unless Tsugumi.decode_bytes(rows.first.fetch('bytes')) == "\x00\xff".b
   rows.first['bytes'] = Tsugumi.bytes("\x00\x0d\xff".b)
   rows.first['readings'] = [Float::NAN, Float::INFINITY, -Float::INFINITY]
-  rows.first['choice'] = {type: 'Count', value: {value: 12}}
+  rows.first['choice'] = {type: 'Count', value: {value: 12, default: 3, _hidden: 4}}
+  raise 'expected keyword names' unless rows.first.fetch('tone') == 'delete' &&
+                                        rows.first.fetch('history').first.fetch('value').fetch('default') == 5
   flags = rows.first.fetch('position').fetch('flags')
+  raise 'expected an absent optional struct' unless rows.first.fetch('center').nil?
   raise 'expected a fixed array of booleans' unless flags == [true, false, false, true]
   flags.rotate!
-  output = {number: {value: input.number.fetch('value') + 2}, rows: {rows: rows}}
-  if (path = input.path(:file))
+  output = {number: {value: number.fetch('value') + 2}, rows: {rows: rows}}
+  if (path = input[:file])
     File.write('ruby-output.data', File.read(path).upcase)
-    output[:file] = {value: 'ruby-output.data'}
-    output[:original] = {value: path}
+    output[:file] = Pathname('ruby-output.data')
+    output[:original] = path
   end
-  if (path = input.path(:directory))
-    output[:directory] = {value: path}
+  output[:directory] = input[:directory]
+  if (arrival = input[:arrival])
+    value = arrival.fetch('value')
+    output[:arrival] = case arrival.fetch('type')
+                       when 'Temperature' then {type: 'Temperature', value: {value: value.fetch('value') + 1}}
+                       when 'Reading' then {type: 'Reading', value: {name: value.fetch('name')}}
+                       end
+  end
+  if (keyword = input[:class])
+    output[:switch] = {value: keyword.fetch('value') + 1}
   end
   output
 end

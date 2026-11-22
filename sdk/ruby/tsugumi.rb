@@ -11,6 +11,7 @@ module Tsugumi
     end
   end
 
+  # Every input may be absent: an unconnected input never arrives.
   class Inputs
     attr_reader :params
 
@@ -19,19 +20,15 @@ module Tsugumi
       @params = params
     end
 
+    # An optional input, or nil when it is absent.
     def [](name) = @ports[name.to_s]
-    def fetch(name, ...) = @ports.fetch(name.to_s, ...)
-    def path(name) = self[name]&.fetch('value')
 
-    private
-
-    def method_missing(name, *args)
-      return self[name] if args.empty? && @ports.key?(name.to_s)
-      super
-    end
-
-    def respond_to_missing?(name, include_private = false)
-      @ports.key?(name.to_s) || super
+    # A needed input. Without a fallback, an absent input fails the call with
+    # input_missing naming the port.
+    def fetch(name, *fallback, &block)
+      name = name.to_s
+      return @ports.fetch(name, *fallback, &block) if @ports.key?(name) || !fallback.empty? || block
+      raise Failure.new(:input_missing, "Missing input #{name}")
     end
   end
 
@@ -143,6 +140,9 @@ module Tsugumi
       return value.positive? ? 'Infinity' : '-Infinity' if value.infinite?
       value
     else
+      # Pathname and other path objects become the Path port's string.
+      return json_value(value.to_path, remaining_depth) if value.respond_to?(:to_path)
+
       object = value.to_h if value.respond_to?(:to_h)
       raise ArgumentError, "expected a value or #to_h for #{value.class}" unless object.is_a?(Hash)
       json_value(object, remaining_depth)

@@ -1,0 +1,54 @@
+attribute "tsugumi";
+
+namespace outputs.number;
+table Number { value:long; }
+
+namespace outputs.rows;
+enum Tone:ubyte { Default, Warm, delete }
+struct Position (force_align: 32) { point:[double:2]; flags:[bool:4]; }
+table Node { value:int; children:[Node]; }
+table Word { text:string (required); }
+table Count { value:int; default:int; _hidden:int; }
+union Choice { Word, Count }
+table Row {
+  label:string (required);
+  magnitude:double;
+  bytes:[ubyte];
+  tone:Tone;
+  optional:uint = null;
+  position:Position (required);
+  choice:Choice;
+  history:[Choice];
+  readings:[double];
+  tree:Node;
+  center:Position;
+}
+table Rows { rows:[Row] (required); }
+
+namespace outputs.arrival.tsugumi.merge.t0;
+table Temperature { value:double; }
+
+namespace outputs.arrival.tsugumi.merge.t1;
+table Reading { name:string (required); }
+
+namespace outputs.arrival.tsugumi.merge;
+table TemperatureBox { bytes:[ubyte] (id: 0, nested_flatbuffer: "outputs.arrival.tsugumi.merge.t0.Temperature"); }
+table ReadingBox { bytes:[ubyte] (id: 0, nested_flatbuffer: "outputs.arrival.tsugumi.merge.t1.Reading"); }
+union Arrival { TemperatureBox, ReadingBox }
+table Merged { value:Arrival (id: 1); }
+
+namespace outputs.class.template;
+table union { value:int; }
+
+namespace outputs;
+table Outputs {
+  number:outputs.number.Number (id: 0, required);
+  rows:outputs.rows.Rows (id: 1, required);
+  file:string (id: 2, tsugumi: "path");
+  original:string (id: 3, tsugumi: "path");
+  directory:string (id: 4, tsugumi: "path");
+  arrival:outputs.arrival.tsugumi.merge.Merged (id: 5);
+  switch:outputs.class.template.union (id: 6);
+}
+
+root_type Outputs;

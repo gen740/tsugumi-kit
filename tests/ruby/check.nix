@@ -1,31 +1,55 @@
 {
+  pkgs,
   lib,
   stdenv,
   runCommandCC,
   flatbuffers,
   nlohmann_json,
-  rubyCard,
-  runtime,
+  ruby,
+  # The kit's root entry, `import ./. { inherit pkgs; }`.
+  kit,
 }:
 let
-  contract = ./contract;
-  card = rubyCard {
-    src = ./card;
-    inherit contract;
-    sourcePrefix = "src";
+  inherit (kit.rubySdk) rubyCard;
+  runtime = kit.cppRuntime;
+  tests = lib.fileset.toSource {
+    root = ../.;
+    fileset = lib.fileset.unions [
+      ../fake_host.c
+      ../legacy.c
+      ../wire.h
+    ];
   };
+  schemas = ./schemas;
+  definition = import ./card {
+    inherit pkgs schemas;
+    inputs.tsugumi = kit;
+    params = { };
+  };
+  card = definition.run;
   lockedCard = rubyCard {
-    src = ./card;
-    inherit contract;
-    sourcePrefix = "src";
+    src = ./card/src;
+    inherit schemas;
     lock = ./bundle/Gemfile.lock;
     hash = "sha256-5kqVDjqNFrsQddobC5KlZFUALvji0gKYs/Bbur3Mf8w=";
   };
+  starter = import ../../templates/ruby-write-text/write {
+    inherit pkgs;
+    inputs.tsugumi = kit;
+    params = { };
+    schemas = ../templates/text-to-path;
+  };
   inherit (stdenv.hostPlatform) isDarwin;
 in
+assert definition.views == kit.rubySdk.views;
 runCommandCC "tsugumi-ruby-abi9-check"
   {
-    nativeBuildInputs = [ flatbuffers ];
+    passthru.apiCards = [
+      card
+      lockedCard
+      starter.run
+    ];
+    nativeBuildInputs = [ ruby ];
     buildInputs = [
       flatbuffers
       nlohmann_json
@@ -33,15 +57,22 @@ runCommandCC "tsugumi-ruby-abi9-check"
   }
   ''
     card=${card}/lib/main.so
-    tests=${../.}
+    tests=${tests}
     include=${runtime}/include
-    for schema in _inputs _outputs _params; do
-      flatc --cpp --gen-object-api --scoped-enums -o . ${contract}/"$schema.fbs"
+    export HOME="$TMPDIR"
+    for api in ${card}/share/tsugumi/api ${lockedCard}/share/tsugumi/api ${starter.run}/share/tsugumi/api; do
+      test -s "$api/card.rbs"
+      rbs --no-collection -I "$api" validate
+    done
+    grep -Fq '"center" => inputs__rows__Position?' "${card}/share/tsugumi/api/card.rbs"
+    grep -q '^- `arrival` — `({ "type" => "Temperature"' "${card}/share/tsugumi/api/README.md"
+    for view in ${lib.escapeShellArgs (map (view: "${view.blob}") starter.views)}; do
+      test -s "$view"
     done
     $CC -std=c11 -D_DEFAULT_SOURCE -Dmain=shared_fake_host_main \
       -Wall -Wextra -Werror -I"$include" -c "$tests/fake_host.c"
     $CC -std=c11 -Wall -Wextra -Werror -fPIC -shared "$tests/legacy.c" -o legacy.so
-    $CXX -std=c++2c -Wall -Wextra -Werror -I. -I"$include" -I"$tests" -I${../../sdk/cpp/src} \
+    $CXX -std=c++2c -Wall -Wextra -Werror -I"${card.generated}/include" -I"$include" -I"$tests" -I${../../sdk/cpp/src} \
       ${./wire.cc} fake_host.o ${runtime}/lib/libtsugumi_abi9.a \
       -pthread ${lib.optionalString (!isDarwin) "-ldl"} -o fake_host
     export RUBYOPT=-rtsugumi_test_missing_startup_library
@@ -53,6 +84,10 @@ runCommandCC "tsugumi-ruby-abi9-check"
     export BUNDLE_VERSION=worker
     TSUGUMI_TEST_LOCKED=0 ./fake_host "$card" "$PWD/legacy.so"
     TSUGUMI_TEST_LOCKED=1 ./fake_host "${lockedCard}/lib/main.so" "$PWD/legacy.so"
+
+    $CXX -std=c++2c -Wall -Wextra -Werror -I"${starter.run.generated}/include" -I"$include" -I"$tests" \
+      ${./starter.cc} ${lib.optionalString (!isDarwin) "-ldl"} -o starter-host
+    ./starter-host "${starter.run}/lib/main.so"
 
     for card in "$card" "${lockedCard}/lib/main.so"; do
       ${

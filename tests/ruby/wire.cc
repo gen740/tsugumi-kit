@@ -54,13 +54,57 @@ auto Encode(const typename Table::NativeTableType& value)
           builder.GetBufferPointer() + builder.GetSize()};
 }
 
-auto AddPort(CardInputT& input, const char* name, PortKind kind,
-             std::vector<uint8_t> bytes) -> void {
+auto AddPort(CardInputT& input, const char* name, std::vector<uint8_t> bytes,
+             PortKind kind = PortKind::FlatBuffer) -> void {
   auto port = std::make_unique<CardPortT>();
   port->name = name;
   port->kind = kind;
   port->bytes = std::move(bytes);
   input.inputs.push_back(std::move(port));
+}
+
+auto AddPath(CardInputT& input, const char* name, std::string path) -> void {
+  AddPort(input, name, {}, PortKind::Path);
+  input.inputs.back()->path = std::move(path);
+}
+
+// Extra inputs of the Ruby-specific cases, added to the next make_input.
+enum class Extra {
+  none,
+  keyword,
+  temperature,
+  reading,
+  bad_box,
+  empty_merge
+};
+Extra extra = Extra::none;
+
+auto AddExtra(CardInputT& input) -> void {
+  using namespace inputs::arrival::tsugumi::merge;
+  if (extra == Extra::none) return;
+  if (extra == Extra::keyword) {
+    using Keyword = inputs::tsugumi_class::tsugumi_template::tsugumi_union;
+    Keyword::NativeTableType value;
+    value.value = 43;
+    AddPort(input, "class", Encode<Keyword>(value));
+    return;
+  }
+  MergedT merged;
+  if (extra == Extra::temperature || extra == Extra::bad_box) {
+    t0::TemperatureT temperature;
+    temperature.value = 20.0;
+    TemperatureBoxT box;
+    box.bytes = extra == Extra::bad_box ? std::vector<uint8_t>{1, 2, 3}
+                                        : Encode<t0::Temperature>(temperature);
+    merged.value.Set(std::move(box));
+  } else if (extra == Extra::reading) {
+    t1::ReadingT reading;
+    reading.name = "sensor";
+    ReadingBoxT box;
+    box.bytes = Encode<t1::Reading>(reading);
+    merged.value.Set(std::move(box));
+  }
+  AddPort(input, "arrival", Encode<Merged>(merged));
 }
 
 constexpr int kDeepTreeLevels = 50;
@@ -71,7 +115,7 @@ auto Rows(int tree_levels) -> inputs::rows::RowsT {
   row->label = "sample";
   row->magnitude = 2.5;
   row->bytes = {0, 255};
-  row->tone = Tone::Warm;
+  row->tone = Tone::delete_;
   row->optional = 7;
   const std::array point{1.5, 2.5};
   const std::array<uint8_t, 4> flags{1, 0, 0, 1};
@@ -82,6 +126,7 @@ auto Rows(int tree_levels) -> inputs::rows::RowsT {
   row->choice.AsWord()->text = "nested";
   row->history.emplace_back().Set(CountT{});
   row->history.front().AsCount()->value = 17;
+  row->history.front().AsCount()->default_ = 5;
   row->history.emplace_back().Set(WordT{});
   row->history.back().AsWord()->text = "history";
   row->readings = {std::numeric_limits<double>::quiet_NaN(),
@@ -136,32 +181,29 @@ extern "C" auto make_input(input_case scenario, int mode, int fd)
   if (scenario != MISSING_INPUT) {
     inputs::number::NumberT number;
     number.value = 40;
-    auto kind = PortKind::FlatBuffer;
-    if (scenario == UNKNOWN_KIND) kind = static_cast<PortKind>(255);
-    if (scenario == WRONG_KIND) kind = PortKind::File;
     const auto bytes = scenario == MALFORMED_PORT
                            ? std::vector<uint8_t>{1, 2, 3}
                            : Encode<inputs::number::Number>(number);
-    AddPort(input, "number", kind, bytes);
-    if (scenario == DUPLICATE_PORT) AddPort(input, "number", kind, bytes);
-    if (scenario == UNKNOWN_PORT) AddPort(input, "unknown", kind, bytes);
+    if (scenario == WRONG_KIND) {
+      AddPath(input, "number", InputPath());
+    } else {
+      AddPort(input, "number", bytes,
+              scenario == UNKNOWN_KIND ? static_cast<PortKind>(255)
+                                       : PortKind::FlatBuffer);
+    }
+    if (scenario == DUPLICATE_PORT) AddPort(input, "number", bytes);
+    if (scenario == UNKNOWN_PORT) AddPort(input, "unknown", bytes);
   }
   const int tree_levels = mode == 12 ? kDeepTreeLevels : 0;
-  AddPort(input, "rows", PortKind::FlatBuffer,
-          Encode<inputs::rows::Rows>(Rows(tree_levels)));
+  AddPort(input, "rows", Encode<inputs::rows::Rows>(Rows(tree_levels)));
   if (scenario == OPTIONAL_PORTS) {
-    inputs::file::FileT file;
-    file.value = InputPath();
-    std::ofstream(file.value) << "from ruby";
-    AddPort(input, "file", PortKind::File, Encode<inputs::file::File>(file));
-
-    inputs::directory::DirectoryT directory;
-    directory.value = DirectoryPath();
-    std::filesystem::create_directories(directory.value);
-    std::ofstream(std::filesystem::path(directory.value) / "source") << "input";
-    AddPort(input, "directory", PortKind::Directory,
-            Encode<inputs::directory::Directory>(directory));
+    std::ofstream(InputPath()) << "from ruby";
+    AddPath(input, "file", InputPath());
+    std::filesystem::create_directories(DirectoryPath());
+    std::ofstream(std::filesystem::path(DirectoryPath()) / "source") << "input";
+    AddPath(input, "directory", DirectoryPath());
   }
+  AddExtra(input);
 
   flatbuffers::FlatBufferBuilder builder;
   builder.Finish(CardInput::Pack(builder, &input));
@@ -178,7 +220,8 @@ auto CheckSuccess(tsugumi_bytes bytes, bool optional_ports, int tree_levels)
     std::fprintf(stderr, "Ruby Card failure: %s\n",
                  result.failure()->message()->c_str());
   CHECK(!result.failure() && result.outputs());
-  CHECK(result.outputs()->size() == (optional_ports ? 5u : 2u));
+  const auto extras = extra == Extra::none ? 0u : 1u;
+  CHECK(result.outputs()->size() == (optional_ports ? 5u : 2u) + extras);
   const auto& number = *result.outputs()->Get(0);
   CHECK(number.name()->string_view() == "number" &&
         number.kind() == PortKind::FlatBuffer);
@@ -191,7 +234,7 @@ auto CheckSuccess(tsugumi_bytes bytes, bool optional_ports, int tree_levels)
   CHECK(rows.rows.size() == 1);
   const auto& row = *rows.rows.front();
   CHECK(row.label == "sample" && row.magnitude == 2.5);
-  CHECK(row.tone == outputs::rows::Tone::Warm && row.optional == 7);
+  CHECK(row.tone == outputs::rows::Tone::delete_ && row.optional == 7);
   CHECK(row.position->point()->Get(0) == 1.5);
   CHECK(row.position->point()->Get(1) == 2.5);
   CHECK(std::ranges::equal(*row.position->flags(), std::array{0, 0, 1, 1}));
@@ -200,6 +243,8 @@ auto CheckSuccess(tsugumi_bytes bytes, bool optional_ports, int tree_levels)
   CHECK(row.readings[1] == std::numeric_limits<double>::infinity());
   CHECK(row.readings[2] == -std::numeric_limits<double>::infinity());
   CHECK(row.choice.AsCount() && row.choice.AsCount()->value == 12);
+  CHECK(row.choice.AsCount()->default_ == 3 &&
+        row.choice.AsCount()->tsugumi_hidden == 4);
   CHECK(row.history.size() == 2);
   CHECK(row.history[0].AsCount() && row.history[0].AsCount()->value == 17);
   CHECK(row.history[1].AsWord() && row.history[1].AsWord()->text == "history");
@@ -215,8 +260,8 @@ auto CheckSuccess(tsugumi_bytes bytes, bool optional_ports, int tree_levels)
   if (optional_ports) {
     const auto& file = *result.outputs()->Get(2);
     CHECK(file.name()->string_view() == "file" &&
-          file.kind() == PortKind::File);
-    const auto path = ReadPort<outputs::file::File>(file).value;
+          file.kind() == PortKind::Path && !file.bytes());
+    const auto path = file.path()->str();
     CHECK(path == "ruby-output.data");
     CHECK(std::filesystem::is_regular_file(
         std::filesystem::symlink_status(path)));
@@ -226,14 +271,38 @@ auto CheckSuccess(tsugumi_bytes bytes, bool optional_ports, int tree_levels)
 
     const auto& original = *result.outputs()->Get(3);
     CHECK(original.name()->string_view() == "original" &&
-          original.kind() == PortKind::File);
-    CHECK(ReadPort<outputs::file::File>(original).value == InputPath());
+          original.kind() == PortKind::Path && !original.bytes());
+    CHECK(original.path()->str() == InputPath());
 
     const auto& directory = *result.outputs()->Get(4);
     CHECK(directory.name()->string_view() == "directory" &&
-          directory.kind() == PortKind::Directory);
-    CHECK(ReadPort<outputs::directory::Directory>(directory).value ==
-          DirectoryPath());
+          directory.kind() == PortKind::Path && !directory.bytes());
+    CHECK(directory.path()->str() == DirectoryPath());
+  }
+  if (extra == Extra::none) return;
+  const auto& port = *result.outputs()->Get(result.outputs()->size() - 1);
+  CHECK(port.kind() == PortKind::FlatBuffer);
+  if (extra == Extra::keyword) {
+    using Keyword = outputs::tsugumi_class::tsugumi_template::tsugumi_union;
+    CHECK(port.name()->string_view() == "switch");
+    CHECK(ReadPort<Keyword>(port).value == 44);
+    return;
+  }
+  using namespace outputs::arrival::tsugumi::merge;
+  CHECK(port.name()->string_view() == "arrival");
+  const auto merged = ReadPort<Merged>(port);
+  if (extra == Extra::temperature) {
+    const auto* box = merged.value.AsTemperatureBox();
+    CHECK(box);
+    CHECK(tsugumi::abi9::ReadValue<t0::Temperature>(
+              {box->bytes.data(), box->bytes.size()}, "arrival")
+              .value == 21.0);
+  } else {
+    const auto* box = merged.value.AsReadingBox();
+    CHECK(box);
+    CHECK(tsugumi::abi9::ReadValue<t1::Reading>(
+              {box->bytes.data(), box->bytes.size()}, "arrival")
+              .name == "sensor");
   }
 }
 
@@ -245,8 +314,14 @@ extern "C" auto check_success(tsugumi_bytes bytes, int optional_ports) -> void {
 
 extern "C" auto check_input_failure(tsugumi_bytes bytes, input_case scenario)
     -> void {
-  Failure(bytes, scenario == MISSING_INPUT ? FailureKind::input_missing
-                                           : FailureKind::invalid_request);
+  if (scenario == MISSING_INPUT) {
+    const auto& failure = Failure(bytes, FailureKind::input_missing);
+    CHECK(failure.message()->string_view() == "Missing input number");
+    CHECK(failure.source() &&
+          failure.source()->string_view() == "src/main.rb");
+  } else {
+    Failure(bytes, FailureKind::invalid_request);
+  }
 }
 
 extern "C" auto check_card_failure(tsugumi_bytes bytes, int mode) -> void {
@@ -267,6 +342,11 @@ extern "C" auto check_card_failure(tsugumi_bytes bytes, int mode) -> void {
       break;
     case 5:
       Failure(bytes, FailureKind::worker_failed);
+      break;
+    case 14:
+      CHECK(
+          Failure(bytes, FailureKind::input_missing).message()->string_view() ==
+          "Missing input unwired");
       break;
     default:
       Failure(bytes, FailureKind::output_invalid);
@@ -360,6 +440,28 @@ auto main(int argc, char** argv) -> int {
   call.input = make_input(VALID, 13, -1);
   CHECK(entry(&call, &result) == 0);
   Failure(result, FailureKind::output_invalid);
+
+  call.input = make_input(VALID, 14, -1);
+  CHECK(entry(&call, &result) == 0);
+  check_card_failure(result, 14);
+
+  for (const auto scenario :
+       {Extra::keyword, Extra::temperature, Extra::reading}) {
+    extra = scenario;
+    call.input = make_input(VALID, 0, -1);
+    CHECK(entry(&call, &result) == 0);
+    CheckSuccess(result, false, 0);
+  }
+  for (const auto scenario : {Extra::bad_box, Extra::empty_merge}) {
+    extra = scenario;
+    call.input = make_input(VALID, 0, -1);
+    CHECK(entry(&call, &result) == 0);
+    CHECK(Failure(result, FailureKind::invalid_request)
+              .message()
+              ->str()
+              .find("arrival") != std::string::npos);
+  }
+  extra = Extra::none;
   CHECK(dlclose(library) == 0);
   return 0;
 }

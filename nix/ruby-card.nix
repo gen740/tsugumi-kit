@@ -1,13 +1,17 @@
-{ pkgs, runtime }:
+{
+  pkgs,
+  runtime,
+  portCodegen,
+}:
 let
   inherit (pkgs) lib;
   rubyCardFor =
     {
       src,
-      contract,
+      schemas,
       name ? "tsugumi-ruby-card",
       ruby ? pkgs.ruby,
-      sourcePrefix ? "",
+      sourcePrefix ? baseNameOf (toString src),
       lock ? null,
       hash ? null,
       buildInputs ? [ ],
@@ -80,14 +84,25 @@ let
       };
       sdk = ../sdk/ruby;
       cpp = ../sdk/cpp;
+      generated =
+        pkgs.runCommand "${name}-api"
+          {
+            nativeBuildInputs = [
+              pkgs.flatbuffers
+              (pkgs.python3.withPackages (_: [ portCodegen ]))
+            ];
+          }
+          ''
+            python3 ${sdk}/card_ruby.py ${cpp} ${lib.escapeShellArg "${schemas}"} "$out" \
+              ${pkgs.flatbuffers.src}/reflection/reflection.fbs
+          '';
       define = key: value: lib.escapeShellArg "-DTSUGUMI_${key}=${builtins.toJSON value}";
     in
     pkgs.runCommandCC name
       {
+        passthru = { inherit generated; };
         nativeBuildInputs = [
-          pkgs.flatbuffers
           pkgs.pkg-config
-          pkgs.python3
           ruby
         ];
         buildInputs = [
@@ -98,15 +113,9 @@ let
         ++ buildInputs;
       }
       ''
-        contract=${lib.escapeShellArg "${contract}"}
         test -f ${lib.escapeShellArg "${src}/main.rb"}
-        for schema in _inputs _outputs _params; do
-          flatc --cpp --gen-object-api --scoped-enums --force-empty -I "$contract" "$contract/$schema.fbs"
-          flatc --binary --schema -I "$contract" "$contract/$schema.fbs"
-          flatc --json --strict-json --defaults-json --raw-binary \
-            ${pkgs.flatbuffers.src}/reflection/reflection.fbs -- "$schema.bfbs"
-        done
-        python3 ${sdk}/card_ruby.py ${cpp} "$contract/_contract.json" . > generated.cc
+        mkdir -p "$out/share/tsugumi/api"
+        cp ${generated}/api/* "$out/share/tsugumi/api/"
 
         libruby=$(ruby -rrbconfig -e 'print File.join(RbConfig::CONFIG.fetch("libdir"), RbConfig::CONFIG.fetch("LIBRUBY_SO"))')
         read -r -a rubyIncludes <<< "$(pkg-config --cflags ruby-${ruby.version.majMin})"
@@ -137,8 +146,8 @@ let
         ${import ./prepare-tools.nix { inherit lib; } tools}
         $CXX -std=c++2c -O2 -DNDEBUG -fPIC -fvisibility=hidden -fvisibility-inlines-hidden \
           -Wall -Wextra -Werror -Wformat=2 -Wimplicit-fallthrough \
-          -shared "''${toolPathObject[@]}" "''${link[@]}" -I. -I${runtime}/include -I${cpp}/src -I${sdk} \
-          generated.cc ${sdk}/adapter.cc ${sdk}/json_codec.cc embed.o \
+          -shared "''${toolPathObject[@]}" "''${link[@]}" -I${generated}/include -I${runtime}/include \
+          -I${cpp}/src -I${sdk} ${generated}/src/card_glue.cc ${sdk}/adapter.cc ${sdk}/json_codec.cc embed.o \
           ${runtime}/lib/libtsugumi_abi9.a "''${rubyLibs[@]}" -pthread -o "$out/lib/main.so"
       '';
 in

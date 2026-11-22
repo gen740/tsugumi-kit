@@ -22,7 +22,7 @@ let
     csharpCard = import ./sdk/csharp/build.nix { inherit pkgs cppRuntime portCodegen; };
     juliaCard = import ./sdk/julia/card.nix { inherit pkgs runtime portCodegen; };
     rCard = pkgs.callPackage ./sdk/r { inherit runtime ipaexGothic portCodegen; };
-    rubyCard = import ./nix/ruby-card.nix { inherit pkgs runtime; };
+    rubyCard = import ./nix/ruby-card.nix { inherit pkgs runtime portCodegen; };
     jsCard = pkgs.callPackage ./nix/js-card.nix {
       inherit runtime portCodegen;
       libnode = pkgs.callPackage ./nix/js-libnode.nix { };
