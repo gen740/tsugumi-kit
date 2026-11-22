@@ -20,8 +20,8 @@ let
       abi = ./abi/9;
     };
     csharpCard = import ./sdk/csharp/build.nix { inherit pkgs cppRuntime; };
-    juliaCard = import ./sdk/julia/card.nix { inherit pkgs runtime; };
-    rCard = pkgs.callPackage ./sdk/r { inherit runtime ipaexGothic; };
+    juliaCard = import ./sdk/julia/card.nix { inherit pkgs runtime portCodegen; };
+    rCard = pkgs.callPackage ./sdk/r { inherit runtime ipaexGothic portCodegen; };
     rubyCard = import ./nix/ruby-card.nix { inherit pkgs runtime; };
     jsCard = pkgs.callPackage ./nix/js-card.nix {
       inherit runtime;

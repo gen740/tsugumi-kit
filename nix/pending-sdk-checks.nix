@@ -4,7 +4,5 @@
   "csharp"
   "java"
   "js"
-  "julia"
-  "r"
   "ruby"
 ]
