@@ -1,18 +1,17 @@
 # C# Card SDK
 
-Use the kit flake's `lib.${system}.csharpSdk` as `sdk` in your Card definition.
-Pass the directory containing your C# source as `src` and the core-generated
-directory containing `_contract.json`, `_inputs.fbs`, `_outputs.fbs`, and
-`_params.fbs` as `contract`.
+Use `inputs.tsugumi.csharpSdk` in your Card's `default.nix`. The core binds
+the generated contract to the builder. Pass the directory containing your
+C# source as `src`.
 
 ```nix
-{ sdk, cppSdk, contract, ... }:
+{ inputs, ... }:
+let
+  inherit (inputs.tsugumi) csharpSdk cppSdk;
+in
 {
-  run = sdk.csharpCard {
-    src = ./src;
-    inherit contract;
-  };
-  views = sdk.views ++ builtins.filter (view: view.name == "markdown") cppSdk.views;
+  run = csharpSdk.csharpCard { src = ./src; };
+  views = csharpSdk.views ++ builtins.filter (view: view.name == "markdown") cppSdk.views;
 }
 ```
 
@@ -50,13 +49,15 @@ by returning its path unchanged.
 `Effects.Send(view, bytes)` takes a declared view name and a
 `ReadOnlySpan<byte>`. The `Effects.Send(value)` overloads support text,
 scalar values, markdown, tables, images, points, line charts, Plotly and
-Vega-Lite. The return value is zero when the host accepts the update.
+Vega-Lite. Local argument and encoding errors throw before the host is called.
+The return value is zero when the host accepts the update. A nonzero status
+means the host could not accept the message.
 
-The SDK at `lib.${system}.csharpSdk` bundles the `line-chart` and `points` HTML views.
+The C# SDK bundles the `line-chart` and `points` HTML views.
 Declare the matching views in your Card's `default.nix` with
-`views = sdk.views ++ [ ... ];`.
+`views = csharpSdk.views ++ [ ... ];`.
 The example above includes the `markdown` view from
-`lib.${system}.cppSdk.views`.
+`inputs.tsugumi.cppSdk.views`.
 See the [view protocol](../../docs/cpp-sdk.md#display-a-value).
 
 A background thread can send live updates between calls.
