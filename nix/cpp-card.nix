@@ -15,6 +15,7 @@ let
       definitionDir,
       buildInputs,
       cxxflags,
+      tools,
     }:
     let
       definition = toString definitionDir;
@@ -70,6 +71,7 @@ let
           -I"${../sdk/cpp/src}" ${lib.escapeShellArgs sourceFlags} \
           "''${sources[@]}" "${generated}/src/card_adapter.cc" \
           "${runtime}/lib/libtsugumi_abi9.a" ${lib.escapeShellArgs cxxflags} -pthread -o "$out/lib/main.so"
+        ${import ./install-tools.nix { inherit lib; } tools}
       '';
 in
 {
@@ -82,6 +84,7 @@ in
       definitionDir ? src,
       buildInputs ? [ ],
       cxxflags ? [ ],
+      tools ? [ ],
     }:
     let
       withContract =
@@ -89,6 +92,7 @@ in
           src,
           buildInputs ? [ ],
           cxxflags ? [ ],
+          tools ? [ ],
         }:
         buildCard {
           inherit
@@ -97,6 +101,7 @@ in
             definitionDir
             buildInputs
             cxxflags
+            tools
             ;
         };
     in
@@ -106,11 +111,12 @@ in
           src
           buildInputs
           cxxflags
+          tools
           ;
       }
     else
       assert lib.assertMsg (
-        definitionDir != null && buildInputs == [ ] && cxxflags == [ ]
-      ) "cppCard: bind contract and definitionDir first, then pass src, buildInputs, cxxflags";
+        definitionDir != null && buildInputs == [ ] && cxxflags == [ ] && tools == [ ]
+      ) "cppCard: bind contract and definitionDir first, then pass src, buildInputs, cxxflags and tools";
       withContract;
 }

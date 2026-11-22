@@ -5,7 +5,9 @@ in `lib/main.so`. Set `src` to the directory containing `main.py` and
 `contract` to the generated directory containing `_contract.json`,
 `_inputs.fbs`, `_outputs.fbs`, and `_params.fbs`. The builder also accepts
 `python` to select a nixpkgs interpreter and `packages` to select dependencies
-from its package set, such as `packages = ps: [ ps.matplotlib ];`.
+from its package set, such as `packages = ps: [ ps.matplotlib ];`. Use
+`tools = [ pkgs.coreutils ];` for commands launched with `subprocess.run`.
+See [Runtime tools](../../README.md#runtime-tools).
 
 ```python
 import tsugumi
@@ -38,10 +40,21 @@ working directory and finish writing before returning. To forward an input,
 assign its unchanged path to the matching output type.
 
 Use `tsugumi.send(value)` for text, numbers, `Markdown`, `Scalar`, `Table`,
-`Image`, and `Plotly`. Declare `views = sdk.views;` alongside `run` in
-your Card's `default.nix`, with `sdk` from `lib.${system}.pythonSdk`.
-The SDK bundles the `text`, `markdown`, `table`, `image`, and `plotly`
-HTML views.
+`Image`, `LineChart`, `Points`, and `Plotly`. Declare `views = sdk.views;`
+alongside `run` in your Card's `default.nix`, with `sdk` from
+`lib.${system}.pythonSdk`.
+
+```python
+tsugumi.send(tsugumi.LineChart([
+    tsugumi.LineSeries("squared", "Squared", [0, 1, 2], [0, 1, 4]),
+]))
+tsugumi.send(tsugumi.Points([1, 0], [0, 1], [0, 0], colors=[0xff4040, 0x40aa40]))
+```
+
+Each line series takes equal-length finite x/y sequences. Point coordinates
+are x/y/z sequences of the same length. Omit colors to use the default, or
+provide one packed `0xRRGGBB` integer per point. The point view skips non-finite
+positions.
 
 Append custom views with `views = sdk.views ++ [ ... ];` and publish their
 payloads with `tsugumi.send(view, bytes)`. The named view defines the bytes'
@@ -55,8 +68,9 @@ without that Python dependency. The HTML file embeds Plotly.js.
 
 The SDK sets `MPLCONFIGDIR` under `HOME` before importing the Card.
 With Matplotlib installed, use `tsugumi.send(tsugumi.mpl.figure(fig))`
-after importing `tsugumi.mpl`. Card threads can send live updates between
-calls. Between calls `tsugumi.cancelled()` returns true and
+after importing `tsugumi.mpl`. The adapter uses IPAexGothic as a fallback for
+Japanese glyphs when rendering the figure. Card threads can send live updates
+between calls. Between calls `tsugumi.cancelled()` returns true and
 `tsugumi.remaining_ms()` returns zero.
 
 Raise `tsugumi.Failure("validation_failed", message)` to control the failure

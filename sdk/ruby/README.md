@@ -27,7 +27,7 @@ end
 String. `Tsugumi.send(value)` encodes the typed values below. A rejected
 send raises an error.
 
-The SDK at `lib.${system}.rubySdk` exposes an empty `views` list.
+The SDK at `lib.${system}.rubySdk` bundles the `line-chart` and `points` HTML views.
 Declare the matching views in your Card's `default.nix` with
 `views = sdk.views ++ [ ... ];`.
 The example above uses the `markdown` view, which you can include from
@@ -49,3 +49,5 @@ Ruby threads can send displays after `main` returns. `Tsugumi.cancelled` and `Ts
 ## Dependencies
 
 Ruby comes from the flake's Nixpkgs. To use gems, supply `lock = ./Gemfile.lock` and the fixed-output hash of the cached source gems as `hash`. The Gemfile must be beside the lock and the lock must include the `ruby` platform (`bundle lock --add-platform ruby`). Use `buildInputs` for native libraries required by a locked gem. The builder resolves locked gems ahead of time and the SDK activates them in the embedded interpreter.
+
+The builder accepts `tools` for runtime executables. See [Runtime tools](../../README.md#runtime-tools).

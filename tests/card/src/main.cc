@@ -24,6 +24,11 @@ auto DisplaySamples() -> bool {
   const std::vector<std::string> columns{"n"};
   const std::vector<std::vector<std::string>> rows{{"1"}};
   const uint8_t bytes[] = {0, 13, 255};
+  const float point[] = {1};
+  const uint32_t colors[] = {0x123456};
+  const double x[] = {2};
+  const double y[] = {3};
+  const card::display::Series series[] = {{"id", "line", x, y}};
 
   return card::display::send("résumé\n\"") == 0 &&
          card::display::send(card::display::Markdown{"**text**"}) == 0 &&
@@ -31,6 +36,9 @@ auto DisplaySamples() -> bool {
          card::display::send(card::display::Table{columns, rows}) == 0 &&
          card::display::send(
              card::display::Image{"image/png", bytes, "sample"}) == 0 &&
+         card::display::send(
+             card::display::Points{point, point, point, colors}) == 0 &&
+         card::display::send(card::display::LineChart{series}) == 0 &&
          card::display::send("custom", bytes) == 0;
 }
 

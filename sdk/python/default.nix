@@ -5,6 +5,7 @@
   runCommandCC,
   flatbuffers,
   python3,
+  ipaexGothic,
   runtime,
 }:
 {
@@ -12,6 +13,7 @@
   contract,
   python ? python3,
   packages ? (_: [ ]),
+  tools ? [ ],
 }:
 let
   inherit (stdenv.hostPlatform) isDarwin;
@@ -55,6 +57,9 @@ runCommandCC "tsugumi-python-card"
     mkdir -p "$out/lib/python/tsugumi" "$out/lib/python-wire"
     cp -R --no-preserve=mode "${bindings}/python/." "$out/lib/python/"
     cp -R "${./tsugumi}/." "$out/lib/python/tsugumi/"
+    if [ -d "${pythonEnv}/${python.sitePackages}/matplotlib" ]; then
+      ln -s ${ipaexGothic}/share/fonts/truetype/ipaexg.ttf "$out/lib/python/tsugumi/"
+    fi
     # Tsugumi and tsugumi need distinct roots on case-insensitive filesystems.
     cp -R "${bindings}/wire/." "$out/lib/python-wire/"
     ${
@@ -79,4 +84,5 @@ runCommandCC "tsugumi-python-card"
       "${./.}/python_card.cc" "${bindings}/card_adapter.cc" \
       "${runtime}/lib/libtsugumi_abi9.a" "${libpython}" \
       -pthread ${lib.optionalString (!isDarwin) "-ldl"} -o "$out/lib/main.so"
+    ${import ../../nix/install-tools.nix { inherit lib; } tools}
   ''

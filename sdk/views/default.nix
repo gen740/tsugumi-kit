@@ -19,7 +19,7 @@ let
     inherit name;
     type = "html";
     blob = runCommand "tsugumi-view-${name}.html" { nativeBuildInputs = [ esbuild ]; } ''
-      cp ${./.}/{${name},data}.js .
+      cp ${./.}/{${name},data,chart}.js .
       ${lib.optionalString (name == "markdown") ''
         tar -xOf ${commonmark} package/dist/commonmark.js > commonmark.cjs
         tar -xOf ${commonmark} package/LICENSE > license
@@ -57,14 +57,20 @@ let
       printf '</html>\n' >> "$out"
     '';
   };
-  cpp = map bundle [
-    "text"
-    "markdown"
-    "table"
-    "image"
+  charts = map bundle [
+    "line-chart"
+    "points"
   ];
+  common =
+    map bundle [
+      "text"
+      "markdown"
+      "table"
+      "image"
+    ]
+    ++ charts;
+  plotlyViews = common ++ [ (bundle "plotly") ];
 in
 {
-  inherit cpp;
-  python = cpp ++ [ (bundle "plotly") ];
+  inherit charts common plotlyViews;
 }

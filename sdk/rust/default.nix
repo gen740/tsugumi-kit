@@ -10,6 +10,7 @@
   sourcePrefix ? "",
   buildInputs ? [ ],
   nativeBuildInputs ? [ ],
+  tools ? [ ],
 }:
 let
   inherit (pkgs) lib;
@@ -98,4 +99,5 @@ pkgs.runCommandCC name
     $CC -shared rust_host.o "$target_dir/${target}/release/lib${library}.a" \
       "''${link[@]}" "''${native_link[@]}" \
       -o "$out/lib/main.so"
+    ${import ../../nix/install-tools.nix { inherit lib; } tools}
   ''

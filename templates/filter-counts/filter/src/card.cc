@@ -56,6 +56,8 @@ auto run(const Card::Inputs& input) -> Card::Output {
   filtered << line << '\n';
   const std::vector<std::string> columns{"channel", "counts"};
   std::vector<std::vector<std::string>> preview;
+  std::vector<double> preview_channels;
+  std::vector<double> preview_counts;
   std::size_t line_number = 1;
   while (ReadLine(source, line)) {
     ++line_number;
@@ -71,11 +73,14 @@ auto run(const Card::Inputs& input) -> Card::Output {
     }
     const auto channel = row.substr(0, comma);
     const auto counts = row.substr(comma + 1);
-    ParseNumber(channel, line_number);
-    if (ParseNumber(counts, line_number) >= input.params.minimum) {
+    const auto channel_number = ParseNumber(channel, line_number);
+    const auto count = ParseNumber(counts, line_number);
+    if (count >= input.params.minimum) {
       filtered << row << '\n';
       if (preview.size() < kPreviewRows) {
         preview.push_back({std::string(channel), std::string(counts)});
+        preview_channels.push_back(static_cast<double>(channel_number));
+        preview_counts.push_back(static_cast<double>(count));
       }
     }
   }
@@ -86,6 +91,9 @@ auto run(const Card::Inputs& input) -> Card::Output {
   }
 
   card::display::send(card::display::Table{columns, preview});
+  const card::display::Series series[] = {
+      {"counts", "Counts by channel", preview_channels, preview_counts}};
+  card::display::send(card::display::LineChart{series});
   Card::Output output;
   output.filtered.emplace().value = path.string();
   output.original.emplace().value = input.counts.value;

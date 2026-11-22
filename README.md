@@ -44,12 +44,39 @@ Card's contract. The core passes that result to the Card's `default.nix`
 as `inputs.tsugumi`. The flake's `lib.${system}` is the same set built with
 the kit's own nixpkgs.
 
+## Runtime tools
+
+Each Card builder accepts `tools`, a list of nixpkgs packages whose executable
+files are installed into the Card's `bin` directory. For example:
+
+```nix
+{ inputs, pkgs, ... }:
+let
+  sdk = inputs.tsugumi.cppSdk;
+in
+{
+  run = sdk.cppCard {
+    src = ./src;
+    tools = [ pkgs.coreutils ];
+  };
+  views = sdk.views;
+}
+```
+
+Under the ABI 9 launch contract, the worker sets `PATH` to the Card
+package's `bin` directory when it exists and leaves `PATH` unset otherwise.
+The worker provisions no `/bin/sh`. If two packages provide the same command,
+the first package in `tools` wins. Start commands directly with their argument
+arrays. To use shell syntax, declare a shell package and invoke its executable
+explicitly, for example `bash -c …`.
+
 ## Views
 
 Each language SDK exposes a builder and a `views` list under
 `lib.${system}`. The SDK attributes are `cppSdk`, `pythonSdk`, `goSdk`,
-`rustSdk`, `csharpSdk`, `juliaSdk`, `rSdk`, and `rubySdk`. The C++ and
-Python lists contain the bundled HTML views. The other lists are empty.
+`rustSdk`, `csharpSdk`, `juliaSdk`, `rSdk`, and `rubySdk`. Every SDK
+bundles the `line-chart` and `points` HTML views. C++ and Python also
+bundle `text`, `markdown`, `table`, and `image`. Python bundles `plotly`.
 
 Declare `views = sdk.views ++ [ ... ];` alongside `run` in your Card's
 `default.nix`. A view entry has a `name`, a `type` of `"html"` or

@@ -47,7 +47,12 @@ in
 }
 ```
 
-The builder also accepts optional `buildInputs` and `cxxflags` lists. SDK selection belongs in `default.nix`. Omit `language` from `_card.json`.
+The builder also accepts optional `buildInputs`, `cxxflags`, and `tools` lists.
+Use `tools = [ pkgs.coreutils ];` to put `sort` and the other coreutils
+executables on the Card's runtime `PATH`. The worker provides no default
+`PATH` or `/bin/sh`. Use `execvp` or `posix_spawnp` with an argument array
+to start a declared tool directly. See [Runtime tools](../README.md#runtime-tools).
+SDK selection belongs in `default.nix`. Omit `language` from `_card.json`.
 
 The kit exports `tsugumi-kit.lib.${system}.cppSdk`. To bind the builder while retaining the SDK views, use `cppSdk // { cppCard = cppSdk.cppCard { inherit contract definitionDir; }; }`. Here `contract` is the directory with the four generated contract files and `definitionDir` is the directory with `default.nix`. Standalone builds can pass `src`, `contract`, `definitionDir` and the optional lists in one call. If that form omits `definitionDir`, it defaults to `src`.
 
@@ -63,6 +68,26 @@ type selects a bundled view.
 | `double`, `card::display::Scalar` | `markdown` | A number with 6 significant digits and an optional bold label |
 | `card::display::Table` | `table` | Column names and rows of strings |
 | `card::display::Image` | `image` | Media type, image bytes and optional alt text |
+| `card::display::LineChart` | `line-chart` | Named series of x/y samples |
+| `card::display::Points` | `points` | Rotatable x/y/z point cloud with optional per-point colors |
+
+```cpp
+const double x[] = {0, 1, 2};
+const double y[] = {0, 1, 4};
+const card::display::Series series[] = {{"squared", "Squared", x, y}};
+card::display::send(card::display::LineChart{series});
+
+const float px[] = {1, 0, 0};
+const float py[] = {0, 1, 0};
+const float pz[] = {0, 0, 1};
+const uint32_t rgb[] = {0xff4040, 0x40aa40, 0x4080ff};
+card::display::send(card::display::Points{px, py, pz, rgb});
+```
+
+Each series uses equal-length finite `double` arrays. `Points` takes
+equal-length `float` arrays and an optional span of packed `0xRRGGBB`
+colors, one per point. The point view skips non-finite positions.
+The SDK and its corresponding HTML view own the encoding.
 
 Declare the bundled views and any custom views at the top level of the Card's
 `default.nix`, alongside `run` and `exports`.
@@ -88,10 +113,11 @@ const int status = card::display::send(
     "notes", card::display::text_bytes("Reading input"));
 ```
 
-Keep the backing storage alive until `send` returns. A zero status means the
-host accepted the update. The core does not check the view name. The UI
-matches it against the Card's declared views and shows an error for an
-unknown name, so a zero status does not mean the view exists.
+Keep the backing storage alive until `send` returns. A nonzero status means
+only that the host could not accept the message. The core forwards the name
+unchecked. The UI matches it against the Card's declared views and shows an
+error for an undeclared name. The C++ SDK throws `std::invalid_argument` for
+invalid chart shapes or a raw view name containing a NUL byte.
 The callback and its host context last for the process lifetime, so a
 Card-owned thread can send its own data after `run` returns. Display
 messages do not enter history.

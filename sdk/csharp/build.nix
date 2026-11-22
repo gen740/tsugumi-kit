@@ -6,6 +6,7 @@
   dotnet ? pkgs.dotnet-sdk_10,
   lock ? null,
   hash ? null,
+  tools ? [ ],
 }:
 let
   inherit (pkgs) lib;
@@ -131,4 +132,5 @@ pkgs.runCommandCC name
       -DTSUGUMI_CSHARP_RUNTIMECONFIG='"'${managed}/Card.runtimeconfig.json'"' \
       ${./host.cc} "${cppRuntime}/lib/libtsugumi_abi9.a" -pthread "''${link[@]}" \
       -o "$out/lib/main.so"
+    ${import ../../nix/install-tools.nix { inherit lib; } tools}
   ''

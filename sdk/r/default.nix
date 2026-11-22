@@ -11,7 +11,7 @@
   rWrapper,
   makeFontsConf,
   dejavu_fonts,
-  ipaexfont,
+  ipaexGothic,
   runtime,
 }:
 {
@@ -20,9 +20,10 @@
   name ? "tsugumi-r-card",
   entry ? "main.R",
   packages ? (_: [ ]),
+  tools ? [ ],
   fonts ? [
     dejavu_fonts
-    ipaexfont
+    ipaexGothic
   ],
 }:
 let
@@ -96,4 +97,5 @@ runCommandCC name
       "${generated}/src/r_adapter.cc" ${./bridge.cc} embed.o \
       "${runtime}/lib/libtsugumi_abi9.a" -pthread \
       -L"${rHome}/lib" -Wl,-rpath,"${rHome}/lib" -lR -o "$out/lib/main.so"
+    ${import ../../nix/install-tools.nix { inherit lib; } tools}
   ''

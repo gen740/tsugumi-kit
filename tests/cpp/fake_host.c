@@ -5,7 +5,7 @@
 
 #include "cases.h"
 
-#define IN_CALL_DISPLAY_COUNT 6
+#define IN_CALL_DISPLAY_COUNT 8
 #define main shared_host_main
 #include "../fake_host.c"
 #undef main

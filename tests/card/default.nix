@@ -6,6 +6,7 @@ in
   run = sdk.cppCard {
     src = ./src;
     buildInputs = [ pkgs.zlib ];
+    tools = [ pkgs.coreutils ];
     cxxflags = [
       "-DABI9_TEST_CARD"
       "-lz"

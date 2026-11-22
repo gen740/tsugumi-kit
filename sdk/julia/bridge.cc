@@ -59,7 +59,7 @@ auto Emit(std::string_view kind, const Json& value) -> int {
     const auto y = Field<std::vector<float>>(value, "y");
     const auto z = Field<std::vector<float>>(value, "z");
     const auto colors = Field<std::vector<uint32_t>>(value, "colors");
-    return display::EmitPoints(x, y, z, colors);
+    return card::display::send(card::display::Points{x, y, z, colors});
   }
   if (kind == "line-chart") {
     struct Row {
@@ -76,12 +76,12 @@ auto Emit(std::string_view kind, const Json& value) -> int {
                       Field<std::vector<double>>(row, "x"),
                       Field<std::vector<double>>(row, "y")});
     }
-    std::vector<display::LineSeries> series;
+    std::vector<card::display::Series> series;
     series.reserve(rows.size());
     for (const auto& row : rows) {
       series.push_back({row.id, row.label, row.x, row.y});
     }
-    return display::EmitLineChart(series);
+    return card::display::send(card::display::LineChart{series});
   }
   if (kind == "plotly" || kind == "vega-lite")
     return display::Emit(kind, value);

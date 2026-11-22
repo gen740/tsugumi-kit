@@ -1,6 +1,7 @@
 import math
 import os
 import threading
+import warnings
 from datetime import date
 from pathlib import Path
 
@@ -15,6 +16,7 @@ from outputs.table.Data import DataT
 from outputs.table.Detail import Detail
 from outputs.table.Row import RowT
 from outputs.with_.Directory import DirectoryT
+from matplotlib.figure import Figure
 from packaging.version import Version
 from plotly import graph_objects as go
 from tsugumi_pth_probe import loaded
@@ -73,6 +75,20 @@ def _check_throwing_queries():
             raise AssertionError(f"{query.__name__} did not raise RuntimeError")
 
 
+def _check_matplotlib():
+    fig = Figure()
+    title = fig.suptitle("Temperature 温度")
+    families = title.get_fontfamily()
+    from tsugumi.mpl import figure
+
+    assert Path(figure.__code__.co_filename).with_name("ipaexg.ttf").is_file()
+    with warnings.catch_warnings():
+        warnings.filterwarnings("error", message=r"Glyph .* missing from font")
+        image = figure(fig)
+    assert image.data.startswith(b"\x89PNG\r\n\x1a\n")
+    assert title.get_fontfamily() == families
+
+
 def _show():
     tsugumi.send('résumé\n"')
     tsugumi.send(tsugumi.Markdown("**text**"))
@@ -80,6 +96,8 @@ def _show():
     tsugumi.send(tsugumi.Table(["n"], [[1]]))
     data = bytes([0, 13, 255])
     tsugumi.send(tsugumi.Image(data, alt="sample"))
+    tsugumi.send(tsugumi.Points([1], [2], [3]))
+    tsugumi.send(tsugumi.LineChart([tsugumi.LineSeries("id", "line", [2], [3])]))
     tsugumi.send(tsugumi.Plotly({"data": []}))
     figure = go.Figure(go.Scatter(x=[date(2026, 11, 22)], y=[2]))
     figure.layout.template = None
@@ -92,6 +110,7 @@ def run(input: Input) -> Output:
     match input.params.mode:
         case 1:
             _check_active_queries()
+            _check_matplotlib()
             _show()
             display_thread = threading.Thread(target=_display_later, args=(input.params.fd,))
             display_thread.start()

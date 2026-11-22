@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -33,10 +34,32 @@ auto SendJson(const char* view, const nlohmann::json& config) -> int {
                                     {text_bytes(text).data(), text.size()});
 }
 
+auto Frame(const nlohmann::json& config) -> std::vector<uint8_t> {
+  const auto text = config.dump();
+  if (text.size() > std::numeric_limits<uint32_t>::max())
+    throw std::length_error("Display metadata exceeds the frame size");
+  std::vector<uint8_t> bytes(sizeof(uint32_t));
+  flatbuffers::WriteScalar(bytes.data(), static_cast<uint32_t>(text.size()));
+  const auto metadata = text_bytes(text);
+  bytes.insert(bytes.end(), metadata.begin(), metadata.end());
+  return bytes;
+}
+
+template <class T>
+auto AppendSamples(std::vector<uint8_t>& bytes, std::span<const T> samples)
+    -> void {
+  for (auto value : samples) {
+    value = flatbuffers::EndianScalar(value);
+    const auto* data = reinterpret_cast<const uint8_t*>(&value);
+    bytes.insert(bytes.end(), data, data + sizeof(value));
+  }
+}
+
 }  // namespace
 
 auto send(std::string_view view, std::span<const uint8_t> bytes) -> int {
-  if (view.find('\0') != std::string_view::npos) return 1;
+  if (view.find('\0') != std::string_view::npos)
+    throw std::invalid_argument("View names cannot contain a NUL byte");
   return tsugumi::abi9::SendDisplay(std::string(view).c_str(),
                                     {bytes.data(), bytes.size()});
 }
@@ -66,17 +89,46 @@ auto send(Table table) -> int {
 }
 
 auto send(Image image) -> int {
-  const auto text = nlohmann::json{
-      {"media_type", image.media_type},
-      {"alt",
-       image.alt}}.dump();
-  if (text.size() > std::numeric_limits<uint32_t>::max()) return 1;
-  std::vector<uint8_t> bytes(sizeof(uint32_t));
-  flatbuffers::WriteScalar(bytes.data(), static_cast<uint32_t>(text.size()));
-  const auto metadata = text_bytes(text);
-  bytes.insert(bytes.end(), metadata.begin(), metadata.end());
+  auto bytes = Frame({{"media_type", image.media_type}, {"alt", image.alt}});
   bytes.insert(bytes.end(), image.bytes.begin(), image.bytes.end());
   return send("image", bytes);
+}
+
+auto send(Points points) -> int {
+  const auto count = points.x.size();
+  if (points.y.size() != count || points.z.size() != count ||
+      (!points.colors.empty() && points.colors.size() != count)) {
+    throw std::invalid_argument(
+        "Points require matching x, y, z and optional RGB colors");
+  }
+  auto bytes = Frame({{"count", count}});
+  AppendSamples(bytes, points.x);
+  AppendSamples(bytes, points.y);
+  AppendSamples(bytes, points.z);
+  AppendSamples(bytes, points.colors);
+  return send("points", bytes);
+}
+
+auto send(LineChart chart) -> int {
+  const auto finite = [](double value) { return std::isfinite(value); };
+  auto series = nlohmann::json::array();
+  size_t offset = 0;
+  for (const auto& row : chart.series) {
+    if (row.x.size() != row.y.size() || !std::ranges::all_of(row.x, finite) ||
+        !std::ranges::all_of(row.y, finite)) {
+      throw std::invalid_argument(
+          "Line chart axes require matching finite values");
+    }
+    series.push_back({{"id", row.id},
+                      {"label", row.label},
+                      {"offset", offset},
+                      {"count", row.x.size()}});
+    offset += row.x.size();
+  }
+  auto bytes = Frame({{"series", series}});
+  for (const auto& row : chart.series) AppendSamples(bytes, row.x);
+  for (const auto& row : chart.series) AppendSamples(bytes, row.y);
+  return send("line-chart", bytes);
 }
 
 }  // namespace card::display

@@ -52,7 +52,7 @@ by returning its path unchanged.
 scalar values, markdown, tables, images, points, line charts, Plotly and
 Vega-Lite. The return value is zero when the host accepts the update.
 
-The SDK at `lib.${system}.csharpSdk` exposes an empty `views` list.
+The SDK at `lib.${system}.csharpSdk` bundles the `line-chart` and `points` HTML views.
 Declare the matching views in your Card's `default.nix` with
 `views = sdk.views ++ [ ... ];`.
 The example above includes the `markdown` view from
@@ -78,3 +78,5 @@ For external NuGet dependencies, supply both `lock = ./packages.lock.json`
 and `hash` (the NAR hash of the package feed defined by the lock). Use
 `lib.fakeHash` to get the expected hash from the first build. Restore uses
 the locked local feed in the build sandbox.
+
+The builder accepts `tools` for runtime executables. See [Runtime tools](../../README.md#runtime-tools).

@@ -5,6 +5,9 @@ directory containing `main.R` as `src` and the core-generated directory with
 `_contract.json`, `_inputs.fbs`, `_outputs.fbs` and `_params.fbs` as `contract`.
 The derivation contains `lib/main.so`. Set `entry` to select another R file within
 `src`. Extra R packages can be selected with `packages = ps: [ ps.ggplot2 ];`.
+The default fontconfig configuration includes DejaVu and IPAexGothic for
+graphics devices that use fontconfig. Set `fonts` to supply a different list
+of font packages.
 
 Define `main` as a function with a single argument. Its input is a named list
 whose keys are the input ports and `params`. If a port is named `params`, find it
@@ -61,7 +64,7 @@ The constructors `markdown(text)`, `scalar(value, label)`,
 `line_chart(series)`, `plotly(spec)` and `vega_lite(spec)` select other
 views. A rejected send raises an R error.
 
-The SDK at `lib.${system}.rSdk` exposes an empty `views` list.
+The SDK at `lib.${system}.rSdk` bundles the `line-chart` and `points` HTML views.
 Declare the matching views in your Card's `default.nix` with
 `views = sdk.views ++ [ ... ];`.
 The example above uses the `text` view, which you can include from
@@ -85,3 +88,5 @@ pointers from their own threads:
 
 The native send function returns zero on success. Keep the view name and
 bytes alive until it returns. Native threads can send after `main` returns. Outside an invocation the queries return `true` and `0`.
+
+The builder accepts `tools` for runtime executables. See [Runtime tools](../../README.md#runtime-tools).

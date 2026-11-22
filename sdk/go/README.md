@@ -38,7 +38,7 @@ validates input and output FlatBuffers with typed verifiers.
 their corresponding views. Both functions return an error if the host rejects
 the update.
 
-The SDK at `lib.${system}.goSdk` exposes an empty `views` list.
+The SDK at `lib.${system}.goSdk` bundles the `line-chart` and `points` HTML views.
 Declare the matching views in your Card's `default.nix` with
 `views = sdk.views ++ [ ... ];`.
 The example above uses the `markdown` view, which you can include from
@@ -98,3 +98,5 @@ The builder runs offline. For dependencies fetched from a Go module proxy,
 supply `lock = ./src/go.sum` and `hash` for the Nix module-proxy cache.
 `buildInputs` and `nativeBuildInputs` can add cgo dependencies and build
 tools.
+
+The builder accepts `tools` for runtime executables. See [Runtime tools](../../README.md#runtime-tools).

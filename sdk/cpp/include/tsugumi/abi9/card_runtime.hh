@@ -47,6 +47,24 @@ struct Image {
   std::string_view alt = {};
 };
 
+struct Points {
+  std::span<const float> x;
+  std::span<const float> y;
+  std::span<const float> z;
+  std::span<const uint32_t> colors = {};
+};
+
+struct Series {
+  std::string_view id;
+  std::string_view label;
+  std::span<const double> x;
+  std::span<const double> y;
+};
+
+struct LineChart {
+  std::span<const Series> series;
+};
+
 // The bytes of text, borrowed from the string.
 inline auto text_bytes(std::string_view text) -> std::span<const uint8_t> {
   return {reinterpret_cast<const uint8_t*>(text.data()), text.size()};
@@ -59,6 +77,8 @@ auto send(double value) -> int;
 auto send(Scalar scalar) -> int;
 auto send(Table table) -> int;
 auto send(Image image) -> int;
+auto send(Points points) -> int;
+auto send(LineChart chart) -> int;
 
 }  // namespace display
 

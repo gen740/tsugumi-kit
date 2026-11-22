@@ -2,10 +2,11 @@
 
 from _tsugumi_host import cancelled, remaining_ms
 
-from ._display import Image, Markdown, Plotly, Scalar, Table, send
+from ._display import Image, LineChart, LineSeries, Markdown, Plotly, Points, Scalar, Table, send
 
 __all__ = [
-    "Failure", "Image", "Markdown", "Plotly", "Scalar", "Table",
+    "Failure", "Image", "LineChart", "LineSeries", "Markdown", "Plotly",
+    "Points", "Scalar", "Table",
     "cancelled", "send", "remaining_ms",
 ]
 

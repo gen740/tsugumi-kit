@@ -47,20 +47,20 @@ auto Display(const Json& request) -> int {
     const auto y = Array<float>(value.at("y"));
     const auto z = Array<float>(value.at("z"));
     const auto colors = Array<uint32_t>(value.at("colors"));
-    return display::EmitPoints(x, y, z, colors);
+    return card::display::send(card::display::Points{x, y, z, colors});
   }
   if (kind == "line-chart") {
     const auto x = ReadVector(
         value, [](const Json& item) { return Array<double>(item.at("x")); });
     const auto y = ReadVector(
         value, [](const Json& item) { return Array<double>(item.at("y")); });
-    std::vector<display::LineSeries> views;
+    std::vector<card::display::Series> views;
     for (size_t i = 0; i < value.size(); ++i) {
       views.push_back({value[i].at("id").get_ref<const std::string&>(),
                        value[i].at("label").get_ref<const std::string&>(), x[i],
                        y[i]});
     }
-    return display::EmitLineChart(views);
+    return card::display::send(card::display::LineChart{views});
   }
   if (kind == "plotly" || kind == "vega-lite")
     return display::Emit(kind, value);

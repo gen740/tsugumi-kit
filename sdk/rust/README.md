@@ -44,7 +44,7 @@ produce `output_invalid`.
 `Table`, `Image`, `Points`, `LineChart`, `Plotly`, and `VegaLite` values.
 Both functions return `tsugumi::Result<()>`.
 
-The SDK at `lib.${system}.rustSdk` exposes an empty `views` list.
+The SDK at `lib.${system}.rustSdk` bundles the `line-chart` and `points` HTML views.
 Declare the matching views in your Card's `default.nix` with
 `views = sdk.views ++ [ ... ];`.
 The example above uses the `markdown` view, which you can include from
@@ -63,3 +63,5 @@ Read File and Directory input paths from their `value()` accessor. Write
 new outputs under the working directory and return their paths in the
 output object. Finish all writes before returning so the worker can snapshot
 the files. Returning a File or Directory input path unchanged forwards it.
+
+The builder accepts `tools` for runtime executables. See [Runtime tools](../../README.md#runtime-tools).

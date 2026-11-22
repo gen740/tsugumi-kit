@@ -43,7 +43,7 @@ A `[ubyte]` field uses standard padded base64, with `base64encode` and
 `Markdown`, `Scalar`, `Table`, `Image`, `Points`, `LineChart`,
 `Plotly`, and `VegaLite`. A rejected send throws an error.
 
-The SDK at `lib.${system}.juliaSdk` exposes an empty `views` list.
+The SDK at `lib.${system}.juliaSdk` bundles the `line-chart` and `points` HTML views.
 Declare the matching views in your Card's `default.nix` with
 `views = sdk.views ++ [ ... ];`.
 The example above uses the `text` view, which you can include from
@@ -62,3 +62,5 @@ differs from `"src"`. Use `""` when `src` is the Card definition directory.
 The first valid call initializes Julia and loads the Card for the life of the
 worker. The SDK loads its pinned JSON.jl environment from the Nix closure and
 uses `HOME/.julia` for mutable cache data.
+
+The builder accepts `tools` for runtime executables. See [Runtime tools](../../README.md#runtime-tools).

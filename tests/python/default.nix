@@ -13,6 +13,7 @@ let
     packages = ps: [
       ps.packaging
       ps.plotly
+      ps.matplotlib
       (ps.buildPythonPackage {
         pname = "tsugumi-pth-probe";
         version = "1";
@@ -48,6 +49,8 @@ assert
     "markdown"
     "table"
     "image"
+    "line-chart"
+    "points"
     "plotly"
   ];
 assert lib.all (view: view.type == "html" && view ? blob) pythonSdk.views;
@@ -57,6 +60,7 @@ runCommandCC "tsugumi-python-abi9-check"
     buildInputs = [ flatbuffers ];
   }
   ''
+    test ! -e "${card}/bin"
     card=${card}/lib/main.so
     tests=${host}
     include=${runtime}/include
@@ -67,7 +71,7 @@ runCommandCC "tsugumi-python-abi9-check"
     for schema in _inputs _outputs _params; do
       flatc --cpp --gen-object-api --scoped-enums -o . "${./contract}/$schema.fbs"
     done
-    $CC -std=c11 -D_DEFAULT_SOURCE -DIN_CALL_DISPLAY_COUNT=8 \
+    $CC -std=c11 -D_DEFAULT_SOURCE -DIN_CALL_DISPLAY_COUNT=10 \
       -Wall -Wextra -Werror -I"$include" -c "$tests/fake_host.c"
     $CC -std=c11 -Wall -Wextra -Werror -fPIC -shared "$tests/legacy.c" -o legacy.so
     cxx=(-std=c++2c -Wall -Wextra -Werror -I. -I"$tests" -I"$include" -I${../../sdk/cpp/src})

@@ -8,10 +8,11 @@ let
     abiHeaders = pkgs.callPackage ./nix/abi-headers.nix { };
   };
   runtime = cppRuntime;
+  ipaexGothic = pkgs.callPackage ./nix/ipaex-gothic.nix { };
   views = pkgs.callPackage ./sdk/views { };
   builders = {
     inherit (pkgs.callPackage ./nix/cpp-card.nix { inherit runtime; }) cppCard;
-    pythonCard = pkgs.callPackage ./sdk/python { inherit runtime; };
+    pythonCard = pkgs.callPackage ./sdk/python { inherit runtime ipaexGothic; };
     inherit (import ./nix/go-card.nix { inherit pkgs runtime; }) goCard goCardSdk;
     rustCard = import ./sdk/rust {
       inherit pkgs;
@@ -19,41 +20,41 @@ let
     };
     csharpCard = import ./sdk/csharp/build.nix { inherit pkgs cppRuntime; };
     juliaCard = import ./sdk/julia/card.nix { inherit pkgs runtime; };
-    rCard = pkgs.callPackage ./sdk/r { inherit runtime; };
+    rCard = pkgs.callPackage ./sdk/r { inherit runtime ipaexGothic; };
     rubyCard = import ./nix/ruby-card.nix { inherit pkgs runtime; };
   };
   sdks = with builders; {
     cppSdk = {
       inherit cppCard;
-      views = views.cpp;
+      views = views.common;
     };
     pythonSdk = {
       inherit pythonCard;
-      views = views.python;
+      views = views.plotlyViews;
     };
     goSdk = {
       inherit goCard goCardSdk;
-      views = [ ];
+      views = views.charts;
     };
     rustSdk = {
       inherit rustCard;
-      views = [ ];
+      views = views.charts;
     };
     csharpSdk = {
       inherit csharpCard;
-      views = [ ];
+      views = views.charts;
     };
     juliaSdk = {
       inherit juliaCard;
-      views = [ ];
+      views = views.charts;
     };
     rSdk = {
       inherit rCard;
-      views = [ ];
+      views = views.charts;
     };
     rubySdk = {
       inherit rubyCard;
-      views = [ ];
+      views = views.charts;
     };
   };
   # A builder whose contract the core supplies; the Card passes everything else.

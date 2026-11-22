@@ -3,6 +3,7 @@
   stdenv,
   runCommandCC,
   flatbuffers,
+  coreutils,
   zlib,
   # The kit's root entry, `import ./. { inherit pkgs; }`.
   kit,
@@ -29,7 +30,7 @@ let
   injected = kit.bind { inherit contract definitionDir; };
   bound = injected.cppSdk.cppCard;
   definition = import definitionDir {
-    pkgs = { inherit zlib; };
+    pkgs = { inherit coreutils zlib; };
     inputs.tsugumi = injected;
   };
   card = definition.run;
@@ -37,6 +38,7 @@ let
     inherit contract definitionDir;
     src = ../tests/card/src;
     buildInputs = [ zlib ];
+    tools = [ coreutils ];
     cxxflags = [
       "-DABI9_TEST_CARD"
       "-lz"
@@ -59,6 +61,7 @@ assert
     src = false;
     buildInputs = true;
     cxxflags = true;
+    tools = true;
   };
 assert card.drvPath == direct.drvPath;
 assert definition.views == cppSdk.views;
@@ -69,8 +72,28 @@ assert
     "markdown"
     "table"
     "image"
+    "line-chart"
+    "points"
   ];
 assert lib.all (view: view.type == "html" && view ? blob) definition.views;
+assert lib.all
+  (
+    sdk:
+    lib.filter (view: view.name == "line-chart" || view.name == "points") sdk.views
+    == lib.filter (view: view.name == "line-chart" || view.name == "points") cppSdk.views
+  )
+  (
+    with kit;
+    [
+      pythonSdk
+      goSdk
+      rustSdk
+      csharpSdk
+      juliaSdk
+      rSdk
+      rubySdk
+    ]
+  );
 assert checkTemplate ../templates/filter-counts/filter;
 assert checkTemplate ../templates/temperature-conversion/convert;
 runCommandCC "tsugumi-cpp-abi9-check"
@@ -89,6 +112,13 @@ runCommandCC "tsugumi-cpp-abi9-check"
     $CC -std=c11 -Wall -Wextra -Werror -fPIC -shared "$tests/legacy.c" -o legacy.so
     $CXX -std=c++2c -Wall -Wextra -Werror -I"${card.generated}/include" -I"$include" \
       "$tests/cpp/wire.cc" fake_host.o -pthread ${lib.optionalString (!isDarwin) "-ldl"} -o fake_host
+    test -L "${card}/bin/sort"
+    test ! -e "${card}/bin/sh"
+    test "$(PATH="${card}/bin" sort <<'EOF'
+    b
+    a
+    EOF
+    )" = $'a\nb'
     ./fake_host "$card" "$PWD/legacy.so"
 
     ${
