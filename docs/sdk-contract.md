@@ -48,7 +48,7 @@ absence value. The table gives the conventions for this revision's SDK ports.
 | --- | --- | --- |
 | C++ | `T` | `std::optional<T>` |
 | Rust | `T` | `Option<T>` |
-| Python | `T` | `T \| None` (or `Optional[T]`) |
+| Python | `input.require(name)` returns `T` | `input.get(name)` or a generated attribute returns `T \| None` |
 | Go | `T` | `*T` |
 | C# | `T` | `T?` |
 | Java | `T` | `Optional<T>` |

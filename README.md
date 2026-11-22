@@ -24,6 +24,7 @@ whole or to Tsugumi's worker, which belongs to the core.
 | Path | Contents |
 | --- | --- |
 | [C++ SDK guide](docs/cpp-sdk.md) | Write a typed Card for ABI 9, display results and work with files in the worker. |
+| [Python SDK guide](docs/python-sdk.md) | Write a typed CPython Card for ABI 9 revision 2. |
 | [Java SDK guide](docs/java-sdk.md) | Build a typed Java Card with an embedded JVM. |
 | [JavaScript SDK guide](docs/js-sdk.md) | Write an async Node.js Card with typed ports and npm dependencies. |
 | [Template guide](docs/templates.md) | Template format, Git import and the host and project stores. |
