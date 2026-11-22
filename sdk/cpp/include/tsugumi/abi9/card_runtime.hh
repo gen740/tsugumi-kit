@@ -46,32 +46,6 @@ struct Image {
   std::string_view alt = {};
 };
 
-struct Points {
-  std::span<const float> x;
-  std::span<const float> y;
-  std::span<const float> z;
-  std::span<const uint32_t> colors = {};
-};
-
-struct Series {
-  std::string_view id;
-  std::string_view label;
-  std::span<const double> x;
-  std::span<const double> y;
-};
-
-struct LineChart {
-  std::span<const Series> series;
-};
-
-struct Plotly {
-  std::string_view config;
-};
-
-struct VegaLite {
-  std::string_view config;
-};
-
 struct Blob {
   std::string_view name;
   std::span<const uint8_t> bytes;
@@ -89,10 +63,6 @@ auto display(double value, bool record = false) -> int;
 auto display(Scalar scalar, bool record = false) -> int;
 auto display(Table table, bool record = false) -> int;
 auto display(Image image, bool record = false) -> int;
-auto display(Points points, bool record = false) -> int;
-auto display(LineChart chart, bool record = false) -> int;
-auto display(Plotly plot, bool record = false) -> int;
-auto display(VegaLite plot, bool record = false) -> int;
 auto display(Module module, bool record = false) -> int;
 
 auto cancelled() -> bool;

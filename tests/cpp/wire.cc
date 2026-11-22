@@ -1,3 +1,4 @@
+#define CPP_DISPLAY_WIRE
 #include "../wire.cc"
 
 #include <cstring>
@@ -85,4 +86,32 @@ extern "C" auto check_cpp_failure(tsugumi_bytes result, int mode) -> void {
       check_card_failure(result, mode);
       break;
   }
+}
+
+extern "C" auto check_display(tsugumi_bytes bytes, int record, unsigned index)
+    -> void {
+  struct Sample {
+    std::string_view module;
+    std::string_view config;
+    size_t blobs;
+    int record = 0;
+  };
+  constexpr std::array samples{
+      Sample{"text", R"({"text":"résumé\n\""})", 0},
+      Sample{"markdown", R"({"text":"**text**"})", 0, 1},
+      Sample{"scalar", R"({"label":"","value":2.5})", 0},
+      Sample{"table", R"({"columns":["n"],"rows":[["1"]]})", 0},
+      Sample{"image", R"({"alt":"sample","media_type":"image/png"})", 1},
+      Sample{"custom", "mode=fast", 1, 1},
+      Sample{"text", R"({"text":"outside"})", 0},
+  };
+  CHECK(index < samples.size());
+  const auto& display = Decode<CardDisplay>(bytes);
+  const auto& sample = samples[index];
+  CHECK(display.module_()->string_view() == sample.module);
+  CHECK(display.config()->string_view() == sample.config);
+  CHECK(display.blobs() && display.blobs()->size() == sample.blobs);
+  CHECK(record == sample.record);
+  if (index == 4) CheckBlob(display, 0, "image", {0, 13, 255});
+  if (index == 5) CheckBlob(display, 0, "sample", {0, 13, 255});
 }

@@ -26,6 +26,10 @@
   ],
 }:
 let
+  legacyHeaders = lib.fileset.toSource {
+    root = ../.;
+    fileset = ../legacy-display.hh;
+  };
   generated =
     runCommand "tsugumi-r-card-codecs"
       {
@@ -67,7 +71,7 @@ runCommandCC name
     source_root=${lib.escapeShellArg "${src}"}
     source="$source_root"/${lib.escapeShellArg entry}
     test -f "$source"
-    includes=(-I"${runtime}/include" -I"${../cpp/src}" -isystem "${generated}/include" -I"${./.}")
+    includes=(-I"${runtime}/include" -I"${../cpp/src}" -isystem "${generated}/include" -I"${./.}" -I"${legacyHeaders}")
     $CC -std=c11 -D_POSIX_C_SOURCE=200809L -O2 -fPIC -fvisibility=hidden -Wall -Wextra -Werror -pthread \
       -I"${runtime}/include" -I"${rHome}/include" -DTSUGUMI_LIBR='"${rHome}/lib/${rShared}"' \
       -DTSUGUMI_R_HOME='"${rHome}"' -DTSUGUMI_R_LIBS="\"$R_LIBS_SITE\"" \

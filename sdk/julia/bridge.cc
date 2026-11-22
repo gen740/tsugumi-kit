@@ -13,6 +13,8 @@
 #include <thread>
 #include <vector>
 
+#include "legacy-display.hh"
+
 namespace tsugumi::julia {
 namespace {
 
@@ -38,33 +40,36 @@ auto Field(const Json& value, const char* name) -> T {
 }
 
 auto Emit(std::string_view kind, const Json& value, bool record) -> int {
-  if (kind == "text") return card::display(value.get<std::string>(), record);
-  if (kind == "markdown")
-    return card::display(card::Markdown{value.get<std::string>()}, record);
-  if (kind == "scalar")
-    return card::display(
-        card::Scalar{
-            value.at("value").is_null() ? NAN : Field<double>(value, "value"),
-            Field<std::string>(value, "label")},
+  if (kind == "text" || kind == "markdown")
+    return legacy_display::Emit(kind, {{"text", value.get<std::string>()}},
+                                record);
+  if (kind == "scalar") {
+    const auto number =
+        value.at("value").is_null() ? NAN : Field<double>(value, "value");
+    return legacy_display::Emit(
+        kind,
+        {{"value", number}, {"label", Field<std::string>(value, "label")}},
         record);
+  }
   if (kind == "table") {
     const auto columns = Field<std::vector<std::string>>(value, "columns");
     const auto rows =
         Field<std::vector<std::vector<std::string>>>(value, "rows");
-    return card::display(card::Table{columns, rows}, record);
+    return legacy_display::Emit(kind, {{"columns", columns}, {"rows", rows}},
+                                record);
   }
   if (kind == "image") {
     const auto bytes = Field<std::vector<uint8_t>>(value, "bytes");
-    return card::display(card::Image{Field<std::string>(value, "media_type"),
-                                     bytes, Field<std::string>(value, "alt")},
-                         record);
+    return legacy_display::EmitImage(Field<std::string>(value, "media_type"),
+                                     Field<std::string>(value, "alt"), bytes,
+                                     record);
   }
   if (kind == "points") {
     const auto x = Field<std::vector<float>>(value, "x");
     const auto y = Field<std::vector<float>>(value, "y");
     const auto z = Field<std::vector<float>>(value, "z");
     const auto colors = Field<std::vector<uint32_t>>(value, "colors");
-    return card::display(card::Points{x, y, z, colors}, record);
+    return legacy_display::EmitPoints(x, y, z, colors, record);
   }
   if (kind == "line-chart") {
     struct Row {
@@ -81,17 +86,15 @@ auto Emit(std::string_view kind, const Json& value, bool record) -> int {
                       Field<std::vector<double>>(row, "x"),
                       Field<std::vector<double>>(row, "y")});
     }
-    std::vector<card::Series> series;
+    std::vector<legacy_display::LineSeries> series;
     series.reserve(rows.size());
     for (const auto& row : rows) {
       series.push_back({row.id, row.label, row.x, row.y});
     }
-    return card::display(card::LineChart{series}, record);
+    return legacy_display::EmitLineChart(series, record);
   }
-  if (kind == "plotly")
-    return card::display(card::Plotly{value.dump()}, record);
-  if (kind == "vega-lite")
-    return card::display(card::VegaLite{value.dump()}, record);
+  if (kind == "plotly" || kind == "vega-lite")
+    return legacy_display::Emit(kind, value, record);
   if (kind == "module") {
     const auto& members = value.at("blobs");
     std::vector<std::vector<uint8_t>> storage;

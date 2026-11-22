@@ -1,6 +1,7 @@
 import math
 import os
 import threading
+from datetime import date
 from pathlib import Path
 
 import tsugumi
@@ -15,6 +16,7 @@ from outputs.table.Detail import Detail
 from outputs.table.Row import RowT
 from outputs.with_.Directory import DirectoryT
 from packaging.version import Version
+from plotly import graph_objects as go
 from tsugumi_pth_probe import loaded
 
 assert Path(os.environ["MPLCONFIGDIR"]) == Path.home() / ".matplotlib"
@@ -78,10 +80,10 @@ def _show():
     tsugumi.display(tsugumi.Table(["n"], [[1]]))
     data = bytes([0, 13, 255])
     tsugumi.display(tsugumi.Image(data, alt="sample"))
-    tsugumi.display(tsugumi.Points([1], [1], [1], [0x123456]))
-    tsugumi.display(tsugumi.LineChart([tsugumi.LineSeries("id", "line", [2], [2])]))
     tsugumi.display(tsugumi.Plotly({"data": []}))
-    tsugumi.display(tsugumi.VegaLite({"mark": "point"}))
+    figure = go.Figure(go.Scatter(x=[date(2026, 11, 22)], y=[2]))
+    figure.layout.template = None
+    tsugumi.display(tsugumi.Plotly(figure), record=True)
     tsugumi.display(tsugumi.Module("custom", {"key": 1}, {"sample": data}), record=True)
 
 

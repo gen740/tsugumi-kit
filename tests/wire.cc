@@ -163,6 +163,7 @@ extern "C" auto check_card_failure(tsugumi_bytes result, int mode) -> void {
   }
 }
 
+#ifndef CPP_DISPLAY_WIRE
 extern "C" auto check_display(tsugumi_bytes bytes, int record, unsigned index)
     -> void {
   struct Sample {
@@ -207,3 +208,4 @@ extern "C" auto check_display(tsugumi_bytes bytes, int record, unsigned index)
   }
   if (index == 9) CheckBlob(display, 0, "sample", {0, 13, 255});
 }
+#endif

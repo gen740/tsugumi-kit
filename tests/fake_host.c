@@ -6,6 +6,10 @@
 
 #include "wire.h"
 
+#ifndef IN_CALL_DISPLAY_COUNT
+#define IN_CALL_DISPLAY_COUNT 10
+#endif
+
 static unsigned int queries;
 static _Atomic unsigned int displays;
 static int displayed[2];
@@ -13,7 +17,7 @@ static int displayed[2];
 static int display(tsugumi_bytes data, int record) {
   unsigned int index = atomic_fetch_add(&displays, 1);
   check_display(data, record, index);
-  if (index == 10) CHECK(write(displayed[1], "!", 1) == 1);
+  if (index == IN_CALL_DISPLAY_COUNT) CHECK(write(displayed[1], "!", 1) == 1);
   return 0;
 }
 
@@ -115,7 +119,7 @@ int main(int argc, char** argv) {
   CHECK(entry(&call, &result) == 0);
   free(storage);
   check_success(result, 0);
-  CHECK(queries == 2 && atomic_load(&displays) == 10);
+  CHECK(queries == 2 && atomic_load(&displays) == IN_CALL_DISPLAY_COUNT);
 
   // Release the Card thread after the call and discard the previous host
   // context.
@@ -124,7 +128,7 @@ int main(int argc, char** argv) {
   CHECK(write(start[1], "!", 1) == 1);
   char signal;
   CHECK(read(displayed[0], &signal, 1) == 1);
-  CHECK(queries == 2 && atomic_load(&displays) == 11);
+  CHECK(queries == 2 && atomic_load(&displays) == IN_CALL_DISPLAY_COUNT + 1);
   call.input = make_input(VALID, 2, -1);
   check_success(result, 0);  // Still readable after effects and input release.
   CHECK(entry(&call, &result) == 0);

@@ -233,20 +233,18 @@ extern "C" auto check_display(tsugumi_bytes bytes, int record, unsigned index)
     int record = 0;
   };
   constexpr std::array samples{
-      Sample{"tsugumi:text", R"({"text":"résumé\n\""})", 0},
-      Sample{"tsugumi:markdown", R"({"text":"**text**"})", 0, 1},
-      Sample{"tsugumi:scalar", R"({"label":"","value":2.5})", 0},
-      Sample{"tsugumi:table", R"({"columns":["n"],"rows":[["1"]]})", 0},
-      Sample{"tsugumi:image", R"({"alt":"sample","media_type":"image/png"})",
-             1},
-      Sample{"tsugumi:points", R"({"count":1})", 4},
-      Sample{"tsugumi:line-chart",
-             R"({"series":[{"count":1,"id":"id","label":"line","offset":0}]})",
-             2},
-      Sample{"tsugumi:plotly", R"({"data":[]})", 0},
-      Sample{"tsugumi:vega-lite", R"({"mark":"point"})", 0},
+      Sample{"text", R"({"text":"résumé\n\""})", 0},
+      Sample{"markdown", R"({"text":"**text**"})", 0, 1},
+      Sample{"scalar", R"({"label":"","value":2.5})", 0},
+      Sample{"table", R"({"columns":["n"],"rows":[["1"]]})", 0},
+      Sample{"image", R"({"alt":"sample","media_type":"image/png"})", 1},
+      Sample{"plotly", R"({"data":[]})", 0},
+      Sample{
+          "plotly",
+          R"({"data":[{"type":"scatter","x":["2026-11-22"],"y":[2]}],"layout":{}})",
+          0, 1},
       Sample{"custom", R"({"key":1})", 1, 1},
-      Sample{"tsugumi:text", R"({"text":"outside"})", 0},
+      Sample{"text", R"({"text":"outside"})", 0},
   };
   const Buffer buffer(bytes);
   const auto* display = buffer.Verify<CardDisplay>();
@@ -257,15 +255,5 @@ extern "C" auto check_display(tsugumi_bytes bytes, int record, unsigned index)
   CHECK(display->blobs() && display->blobs()->size() == sample.blobs);
   CHECK(record == sample.record);
   if (index == 4) CheckBlob(*display, 0, "image", {0, 13, 255});
-  if (index == 5) {
-    CheckBlob(*display, 0, "x", {0, 0, 128, 63});
-    CheckBlob(*display, 1, "y", {0, 0, 128, 63});
-    CheckBlob(*display, 2, "z", {0, 0, 128, 63});
-    CheckBlob(*display, 3, "colors", {86, 52, 18, 0});
-  }
-  if (index == 6) {
-    CheckBlob(*display, 0, "x", {0, 0, 0, 0, 0, 0, 0, 64});
-    CheckBlob(*display, 1, "y", {0, 0, 0, 0, 0, 0, 0, 64});
-  }
-  if (index == 9) CheckBlob(*display, 0, "sample", {0, 13, 255});
+  if (index == 7) CheckBlob(*display, 0, "sample", {0, 13, 255});
 }

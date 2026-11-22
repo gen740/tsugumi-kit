@@ -25,7 +25,7 @@ For an input of 20, the next Card receives 68 on the output port. The scalar als
 | `_card.json` | The Card type, input port names and parameter declarations. Connected producers supply the input types. |
 | `_outputs.fbs` | The FlatBuffers root table `Outputs`. Each field names an output port and its table type. Mark required ports with `(required)`. |
 | `src/*.cc` | The Card implementation, including `run`. |
-| `default.nix` | Select the injected C++ SDK and expose its build result as `run`. The derivation contains `lib/main.so`. |
+| `default.nix` | Select the injected C++ SDK, expose its build result as `run` and forward its `views`. The run derivation contains `lib/main.so`. |
 
 The core prepares `_inputs.fbs`, `_outputs.fbs`, `_params.fbs` and `_contract.json` for the SDK. The SDK uses `flatc --cpp --gen-object-api` and its own generator to produce the headers and the `tsugumi_main` adapter. Read the generated `card.hh` to see the exact member names and types for your Card.
 
@@ -38,8 +38,9 @@ The core injects the builder as `inputs.tsugumi.cppCard` with the contract and C
 
 ```nix
 { inputs, ... }:
-{
+rec {
   run = inputs.tsugumi.cppCard { src = ./src; };
+  inherit (run) views;
 }
 ```
 
@@ -51,16 +52,20 @@ To construct the injected builder, use `tsugumi-kit.lib.${system}.cppCard { inhe
 
 `card::display(value)` selects the view by C++ type and shows it live. To keep that particular display in history, pass `true` as the second argument. The flag defaults to `false` on **every call**. For example, `card::display("Reading input")` is live only and `card::display(card::Scalar{42, "rows"}, true)` records the scalar. Each recorded display appends a row with its module, config, blobs, arrival time, run and Card.
 
-| Value accepted by the reference SDK | Display |
-| --- | --- |
-| `std::string_view` (including a string literal), `card::Markdown` | Plain text, Markdown |
-| `double`, `card::Scalar` | A number, optionally with a label |
-| `card::Table` | Column names and rows of strings |
-| `card::Image` | Media type, image bytes and optional alt text |
-| `card::Points`, `card::LineChart` | Point coordinates with optional colors, or named x/y series |
-| `card::Plotly`, `card::VegaLite`, `card::Module` | A plot specification, or a custom view's module ID, config and optional named blobs |
+| Value accepted by the SDK | View name | Display |
+| --- | --- | --- |
+| `std::string_view` (including a string literal) | `text` | Plain text |
+| `card::Markdown` | `markdown` | Markdown |
+| `double`, `card::Scalar` | `scalar` | A number, optionally with a label |
+| `card::Table` | `table` | Column names and rows of strings |
+| `card::Image` | `image` | Media type, image bytes and optional alt text |
+| `card::Module` | The supplied name | A custom view's config and optional named blobs |
 
-Keep backing strings and arrays alive until `display` returns. A zero status indicates success. The SDK encodes these overloads for view modules. A view may use JSON for its own config.
+`cppCard` bundles the five basic views as JavaScript modules pending the Wasm implementations. The top-level Card `views` maps view names to module derivations. The name emitted by `card::display` selects an entry in that map.
+
+Pass `views = { ... };` to `cppCard` to add or override entries in `run.views`, or set `views = run.views // { ... };` in the Card definition. A JS module derivation supplies `$out/index.js` with a default export `mount(root, data)`. The host provides `{ config, blobs }` and dispatches `tsugumi:data` on `root` with replacement data in the event's `detail`. The module defines the config format. The five SDK views use JSON strings, and the host supplies named blobs as `Uint8Array` values.
+
+Keep backing strings and arrays alive until `display` returns. A zero status indicates success.
 
 A Card-owned thread may keep displaying after `run` returns while the process lives. Give the thread its own data. The display callback lasts for the process lifetime. Tsugumi associates a recorded late display with its run and Card at arrival and leaves the invocation unspecified.
 

@@ -38,10 +38,19 @@ working directory and finish writing before returning. To forward an input,
 assign its unchanged path to the matching output type.
 
 `tsugumi.display(value, record=True)` records that display update. With the
-flag omitted the display is live only. The SDK accepts text, numbers,
-`Markdown`, `Scalar`, `Table`, `Image`, `Points`, `LineChart`, `Plotly`,
-`VegaLite`, and custom `Module` values. It sets `MPLCONFIGDIR` under `HOME`
-before importing the Card. With Matplotlib installed, use
+flag omitted the display is live only. The SDK bundles the `text`, `markdown`,
+`scalar`, `table`, `image`, and `plotly` view modules. Forward the builder's
+`run.views` as the top-level Card `views` alongside `run`. Pass a `views` map
+to `pythonCard` to add or override entries in `run.views`.
+
+Call `tsugumi.display(tsugumi.Plotly(fig))` with a Plotly figure, or pass a
+figure dictionary to `tsugumi.Plotly`. Add `packages = ps: [ ps.plotly ];` to
+the Card to construct figures in Python. A JSON-compatible dictionary works
+without that Python dependency. The view module contains Plotly.js.
+
+Use `tsugumi.Module(name, config, blobs)` to select a custom entry in the Card's
+`views`. The SDK sets `MPLCONFIGDIR` under `HOME` before importing the Card.
+With Matplotlib installed, use
 `tsugumi.display(tsugumi.mpl.figure(fig))` after importing `tsugumi.mpl`.
 Card threads can display between calls. Between calls
 `tsugumi.cancelled()` returns true and `tsugumi.remaining_ms()` returns zero.

@@ -1,5 +1,7 @@
 {
   lib,
+  esbuild,
+  fetchurl,
   stdenv,
   runCommand,
   runCommandCC,
@@ -8,6 +10,14 @@
   runtime,
 }:
 let
+  builtinViews = import ../sdk/cpp/views {
+    inherit
+      lib
+      esbuild
+      fetchurl
+      runCommand
+      ;
+  };
   buildCard =
     {
       src,
@@ -15,6 +25,7 @@ let
       definitionDir,
       buildInputs,
       cxxflags,
+      views,
     }:
     let
       definition = toString definitionDir;
@@ -39,7 +50,10 @@ let
     in
     runCommandCC "tsugumi-cpp-card"
       {
-        passthru = { inherit generated; };
+        passthru = {
+          inherit generated;
+          views = builtinViews // views;
+        };
         buildInputs = [ flatbuffers ] ++ buildInputs;
       }
       ''
@@ -82,6 +96,7 @@ in
       definitionDir ? src,
       buildInputs ? [ ],
       cxxflags ? [ ],
+      views ? { },
     }:
     let
       withContract =
@@ -89,6 +104,7 @@ in
           src,
           buildInputs ? [ ],
           cxxflags ? [ ],
+          views ? { },
         }:
         buildCard {
           inherit
@@ -97,14 +113,22 @@ in
             definitionDir
             buildInputs
             cxxflags
+            views
             ;
         };
     in
     if src != null then
-      withContract { inherit src buildInputs cxxflags; }
+      withContract {
+        inherit
+          src
+          buildInputs
+          cxxflags
+          views
+          ;
+      }
     else
       assert lib.assertMsg (
-        definitionDir != null && buildInputs == [ ] && cxxflags == [ ]
-      ) "cppCard: bind contract and definitionDir first, then pass src, buildInputs and cxxflags";
+        definitionDir != null && buildInputs == [ ] && cxxflags == [ ] && views == { }
+      ) "cppCard: bind contract and definitionDir first, then pass src, buildInputs, cxxflags and views";
       withContract;
 }

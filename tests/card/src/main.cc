@@ -24,10 +24,6 @@ auto DisplaySamples() -> bool {
   const std::vector<std::string> columns{"n"};
   const std::vector<std::vector<std::string>> rows{{"1"}};
   const uint8_t bytes[] = {0, 13, 255};
-  const float xyz[] = {1.0f};
-  const uint32_t rgb[] = {0x123456};
-  const double xy[] = {2.0};
-  const card::Series series[] = {{"id", "line", xy, xy}};
   const card::Blob blobs[] = {{"sample", bytes}};
 
   return card::display("résumé\n\"") == 0 &&
@@ -35,12 +31,7 @@ auto DisplaySamples() -> bool {
          card::display(2.5) == 0 &&
          card::display(card::Table{columns, rows}) == 0 &&
          card::display(card::Image{"image/png", bytes, "sample"}) == 0 &&
-         card::display(card::Points{xyz, xyz, xyz, rgb}) == 0 &&
-         card::display(card::LineChart{series}) == 0 &&
-         card::display(card::Plotly{R"({"data":[]})"}) == 0 &&
-         card::display(card::VegaLite{R"({"mark":"point"})"}) == 0 &&
-         card::display(card::Module{"custom", R"({"key":1})", blobs}, true) ==
-             0;
+         card::display(card::Module{"custom", "mode=fast", blobs}, true) == 0;
 }
 
 }  // namespace

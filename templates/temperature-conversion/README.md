@@ -9,6 +9,8 @@ settings.celsius → convert.celsius
 
 Copy the pair into a project and connect a Trigger to `settings.start`. At the default input of 20 °C, `convert` returns 68 and shows a live scalar labelled °F. Changing `settings` to −40 gives −40 °F.
 
+The converter's `default.nix` exposes the C++ SDK's bundled `views`, including the `scalar` module used for the live display.
+
 The example saves the internal wire using the existing project `tsugumi.json` canvas syntax. Its use as a template fragment is provisional. If your importer copies only definitions, connect `settings.celsius` to `convert.celsius` as shown. The optional [layout fragment](layout.json) places the two Cards side by side.
 
 Git import subdirectory: `templates/temperature-conversion`. [Template guide](../../docs/templates.md) · [C++ source](convert/src/card.cc)

@@ -1,5 +1,9 @@
 { pkgs, runtime }:
 let
+  legacyHeaders = pkgs.lib.fileset.toSource {
+    root = ../.;
+    fileset = ../legacy-display.hh;
+  };
   inherit (pkgs)
     lib
     stdenv
@@ -103,7 +107,7 @@ pkgs.runCommandCC "tsugumi-julia-card"
     $CXX -std=c++2c -O2 -DNDEBUG -fPIC -fvisibility=hidden -fvisibility-inlines-hidden \
       -Wall -Wextra -Werror -Wformat=2 -Wimplicit-fallthrough \
       -shared "''${exports[@]}" \
-      -isystem generated/include -I${./.} -I${runtime}/include -I${../cpp/src} \
+      -isystem generated/include -I${./.} -I${runtime}/include -I${../cpp/src} -I${legacyHeaders} \
       -isystem ${julia}/include/julia \
       -DTSUGUMI_LIBJULIA='"${juliaLib}"' \
       -DTSUGUMI_JULIA_PROJECT='"${project}"' \

@@ -38,7 +38,7 @@ table CardDisplayBlob {
 
 table CardDisplay {
   module:string (id: 0, required);
-  // UTF-8 JSON interpreted by the module.
+  // The named module defines this content. The ABI only carries it.
   config:string (id: 1, required);
   blobs:[CardDisplayBlob] (id: 2);
 }

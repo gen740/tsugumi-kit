@@ -1,5 +1,7 @@
 {
   lib,
+  esbuild,
+  fetchurl,
   stdenv,
   runCommand,
   runCommandCC,
@@ -12,6 +14,7 @@
   contract,
   python ? python3,
   packages ? (_: [ ]),
+  views ? { },
 }:
 let
   inherit (stdenv.hostPlatform) isDarwin;
@@ -44,6 +47,16 @@ let
 in
 runCommandCC "tsugumi-python-card"
   {
+    passthru.views =
+      (import ./views {
+        inherit
+          lib
+          esbuild
+          fetchurl
+          runCommand
+          ;
+      })
+      // views;
     buildInputs = [
       flatbuffers
       python

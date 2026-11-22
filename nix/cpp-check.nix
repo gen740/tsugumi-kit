@@ -23,11 +23,11 @@ let
   };
   definitionDir = ../tests/card;
   bound = cppCard { inherit contract definitionDir; };
-  card =
-    (import definitionDir {
-      pkgs = { inherit zlib; };
-      inputs.tsugumi.cppCard = bound;
-    }).run;
+  definition = import definitionDir {
+    pkgs = { inherit zlib; };
+    inputs.tsugumi.cppCard = bound;
+  };
+  card = definition.run;
   direct = cppCard {
     inherit contract definitionDir;
     src = ../tests/card/src;
@@ -41,10 +41,21 @@ let
     template:
     let
       definition = import template {
-        inputs.tsugumi.cppCard = args: args.src;
+        inputs.tsugumi.cppCard = args: {
+          inherit (args) src;
+          inherit (card) views;
+        };
       };
     in
-    definition.run == template + "/src";
+    definition.run.src == template + "/src" && definition.views == card.views;
+  overrides = {
+    text = card.views.markdown;
+    custom = card.views.image;
+  };
+  custom = bound {
+    src = ../tests/card/src;
+    views = overrides;
+  };
   inherit (stdenv.hostPlatform) isDarwin;
 in
 assert
@@ -52,8 +63,19 @@ assert
     src = false;
     buildInputs = true;
     cxxflags = true;
+    views = true;
   };
 assert card.drvPath == direct.drvPath;
+assert definition.views == direct.views;
+assert
+  builtins.attrNames definition.views == [
+    "image"
+    "markdown"
+    "scalar"
+    "table"
+    "text"
+  ];
+assert custom.views == card.views // overrides;
 assert checkTemplate ../templates/filter-counts/filter;
 assert checkTemplate ../templates/temperature-conversion/convert;
 runCommandCC "tsugumi-cpp-abi9-check"
@@ -64,6 +86,9 @@ runCommandCC "tsugumi-cpp-abi9-check"
     card=${card}/lib/main.so
     tests=${tests}
     include=${runtime}/include
+    for view in ${lib.escapeShellArgs (map toString (builtins.attrValues definition.views))}; do
+      test -s "$view/index.js"
+    done
 
     $CC -std=c11 -D_DEFAULT_SOURCE -Wall -Wextra -Werror -I"$include" -c "$tests/cpp/fake_host.c"
     $CC -std=c11 -Wall -Wextra -Werror -fPIC -shared "$tests/legacy.c" -o legacy.so

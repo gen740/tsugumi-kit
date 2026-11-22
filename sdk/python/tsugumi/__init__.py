@@ -2,15 +2,11 @@
 
 from _tsugumi_host import cancelled, remaining_ms
 
-from ._display import (
-    Image, LineChart, LineSeries, Markdown, Module, Plotly, Points, Scalar,
-    Table, VegaLite, display,
-)
+from ._display import Image, Markdown, Module, Plotly, Scalar, Table, display
 
 __all__ = [
-    "Failure", "Image", "LineChart", "LineSeries", "Markdown", "Module",
-    "Plotly", "Points", "Scalar", "Table", "VegaLite", "cancelled", "display",
-    "remaining_ms",
+    "Failure", "Image", "Markdown", "Module", "Plotly", "Scalar", "Table",
+    "cancelled", "display", "remaining_ms",
 ]
 
 

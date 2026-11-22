@@ -4,6 +4,7 @@
 #include <memory>
 
 #include "adapter.hh"
+#include "legacy-display.hh"
 
 extern "C" auto tsugumi_r_run(const char* input) -> char*;
 
@@ -26,53 +27,52 @@ auto Array(const Json& value) -> std::vector<T> {
 }
 
 auto Display(const Json& request, bool record) -> int {
-  const auto& kind = request.at("kind");
+  const auto kind = request.at("kind").get<std::string>();
   const auto& value = request.at("value");
-  if (kind == "text")
-    return card::display(FromValue<std::string>(value), record);
-  if (kind == "markdown") {
-    return card::display(card::Markdown{FromValue<std::string>(value)}, record);
-  }
+  if (kind == "text" || kind == "markdown")
+    return legacy_display::Emit(kind, {{"text", FromValue<std::string>(value)}},
+                                record);
   if (kind == "scalar") {
-    return card::display(card::Scalar{FromValue<double>(value.at("value")),
-                                      value.at("label").get<std::string>()},
-                         record);
+    return legacy_display::Emit(
+        kind,
+        {{"value", FromValue<double>(value.at("value"))},
+         {"label", value.at("label").get<std::string>()}},
+        record);
   }
   if (kind == "table") {
     const auto columns = Array<std::string>(value.at("columns"));
     const auto rows = ReadVector(value.at("rows"), Array<std::string>);
-    return card::display(card::Table{columns, rows}, record);
+    return legacy_display::Emit(kind, {{"columns", columns}, {"rows", rows}},
+                                record);
   }
   if (kind == "image") {
     const auto bytes = FromBase64(value.at("bytes"));
-    return card::display(card::Image{value.at("media_type").get<std::string>(),
-                                     bytes, value.at("alt").get<std::string>()},
-                         record);
+    return legacy_display::EmitImage(value.at("media_type").get<std::string>(),
+                                     value.at("alt").get<std::string>(), bytes,
+                                     record);
   }
   if (kind == "points") {
     const auto x = Array<float>(value.at("x"));
     const auto y = Array<float>(value.at("y"));
     const auto z = Array<float>(value.at("z"));
     const auto colors = Array<uint32_t>(value.at("colors"));
-    return card::display(card::Points{x, y, z, colors}, record);
+    return legacy_display::EmitPoints(x, y, z, colors, record);
   }
   if (kind == "line-chart") {
     const auto x = ReadVector(
         value, [](const Json& item) { return Array<double>(item.at("x")); });
     const auto y = ReadVector(
         value, [](const Json& item) { return Array<double>(item.at("y")); });
-    std::vector<card::Series> views;
+    std::vector<legacy_display::LineSeries> views;
     for (size_t i = 0; i < value.size(); ++i) {
       views.push_back({value[i].at("id").get_ref<const std::string&>(),
                        value[i].at("label").get_ref<const std::string&>(), x[i],
                        y[i]});
     }
-    return card::display(card::LineChart{views}, record);
+    return legacy_display::EmitLineChart(views, record);
   }
-  if (kind == "plotly")
-    return card::display(card::Plotly{value.dump()}, record);
-  if (kind == "vega-lite")
-    return card::display(card::VegaLite{value.dump()}, record);
+  if (kind == "plotly" || kind == "vega-lite")
+    return legacy_display::Emit(kind, value, record);
   if (kind == "module") {
     const auto& blobs = value.at("blobs");
     if (!blobs.is_object()) throw std::invalid_argument("Expected named blobs");

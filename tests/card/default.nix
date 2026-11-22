@@ -1,5 +1,5 @@
 { inputs, pkgs, ... }:
-{
+rec {
   run = inputs.tsugumi.cppCard {
     src = ./src;
     buildInputs = [ pkgs.zlib ];
@@ -8,4 +8,5 @@
       "-lz"
     ];
   };
+  inherit (run) views;
 }
