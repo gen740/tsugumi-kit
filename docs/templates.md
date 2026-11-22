@@ -28,6 +28,10 @@ add `pkgs` to the arguments of `default.nix`.
 
 [Display a value](cpp-sdk.md#display-a-value) · [Runtime tools](../README.md#runtime-tools)
 
+The Go and Rust starters append the bundled `text` view from `cppSdk.views`
+to their language SDK's views. Each takes a string from `settings`, writes a
+text file in the Card's working directory and returns its path on a File port.
+
 A template may include a `layout.json` fragment with positions for its Cards. A graph's **connections** specify which output port feeds which input port. Layout coordinates only tell the UI where to draw the Cards. In the temperature example, both definition directories, the internal wire and the layout travel together.
 
 On copy, the core allocates fresh Card IDs and remaps references in the copied graph and layout. Copying the temperature pair twice should produce two independent pairs, each with its own internal wire. Connect ports at the boundary of each copy to the rest of your project.
@@ -44,7 +48,7 @@ Under the v1 design, choose the destination store and supply three values. For t
 | Ref | `main` (use a commit ID to select an exact version) |
 | Subdirectory | `templates/filter-counts` |
 
-The subdirectory is the **template root**. Choosing its inner `filter/` directory would select one level too deep. To import the two-Card example instead, use `templates/temperature-conversion`. v1 supports public Git repositories only.
+The subdirectory is the **template root**. Choosing its inner `filter/` directory would select one level too deep. To import a two-Card example, use `templates/temperature-conversion`, `templates/go-normalize-text` or `templates/rust-number-lines`. v1 supports public Git repositories only.
 
 | Destination store | Scope |
 | --- | --- |

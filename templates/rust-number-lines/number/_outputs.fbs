@@ -1,0 +1,5 @@
+attribute "tsugumi";
+
+table File { value:string (required); }
+table Outputs { file:File (required, tsugumi: "file"); }
+root_type Outputs;

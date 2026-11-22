@@ -1,0 +1,9 @@
+{
+  "inputs": [
+    { "name": "text", "type": "inputs.text.Text", "kind": "flatbuffer", "required": true, "unions": [] }
+  ],
+  "outputs": [
+    { "name": "file", "type": "outputs.file.File", "kind": "file", "required": true, "unions": [] }
+  ],
+  "params": []
+}

@@ -1,0 +1,11 @@
+{
+  "canvas": {
+    "cards": [{ "id": "settings" }, { "id": "number" }],
+    "connections": [
+      {
+        "from": { "card": "settings", "port": "text" },
+        "to": { "card": "number", "port": "text" }
+      }
+    ]
+  }
+}
