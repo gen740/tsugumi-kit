@@ -4,7 +4,7 @@
 }:
 {
   src,
-  contract,
+  schemas,
   name ? "tsugumi-rust-card",
   lock ? null,
   sourcePrefix ? "",
@@ -14,6 +14,7 @@
 }:
 let
   inherit (pkgs) lib;
+  portCodegen = pkgs.callPackage ../../nix/port-codegen.nix { };
   manifest = builtins.fromTOML (builtins.readFile (lib.path.append src "Cargo.toml"));
   library = manifest.lib.name or (builtins.replaceStrings [ "-" ] [ "_" ] manifest.package.name);
   target = pkgs.stdenv.hostPlatform.rust.rustcTarget;
@@ -25,7 +26,7 @@ let
       {
         nativeBuildInputs = [
           pkgs.flatbuffers
-          pkgs.python3
+          (pkgs.python3.withPackages (_: [ portCodegen ]))
         ];
       }
       ''
@@ -33,10 +34,11 @@ let
         cp ${./Cargo.toml} "$out/Cargo.toml"
         cp ${./src}/*.rs "$out/src/"
         ln -s ${pkgs.flatbuffers.src}/rust/flatbuffers "$out/flatbuffers"
-        for schema in ${abi}/card.fbs ${contract}/{_inputs,_outputs,_params}.fbs; do
+        for schema in ${abi}/card.fbs "${schemas}"/_{inputs,outputs,params}.fbs; do
           flatc --rust --gen-all --gen-object-api -o "$out/src" "$schema"
         done
-        python3 ${./card_rust.py} ${contract}/_contract.json "$out/src/lib.rs"
+        python3 ${./card_rust.py} "${schemas}" "$out" \
+          ${pkgs.flatbuffers.src}/reflection/reflection.fbs
       '';
 in
 assert lib.assertMsg (lib.elem "staticlib" (
@@ -58,7 +60,9 @@ pkgs.runCommandCC name
     passthru = { inherit sdk; };
   }
   ''
-    mkdir -p card "$out/lib"
+    api="$out/share/tsugumi/api"
+    mkdir -p card "$out/lib" "$api"
+    cp ${sdk}/README.md ${sdk}/src/{lib,_inputs_generated,_outputs_generated,_params_generated}.rs "$api/"
     cp -r --no-preserve=mode ${src}/. card/
     cd card
     if [ -e tsugumi ] || [ -L tsugumi ]; then

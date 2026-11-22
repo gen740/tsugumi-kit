@@ -7,7 +7,8 @@ use std::thread::{self, JoinHandle};
 use tsugumi::output_types::rust_outputs::summary::{ChoiceT, LabelT};
 use tsugumi::{
     Failure, FailureKind, Image, Inputs, LineChart, Markdown, Output, Plotly, Points, Result,
-    Series, Table, VegaLite, cancelled, outputs, remaining_ms, send, send_value,
+    Series, Table, VegaLite, cancelled, inputs, outputs, remaining_ms, require_input, send,
+    send_value,
 };
 
 static BACKGROUND: Mutex<Option<JoinHandle<()>>> = Mutex::new(None);
@@ -113,17 +114,22 @@ fn run(input: Inputs<'_>) -> Result<Output> {
     }
 
     assert!(!test_zlib::version().to_bytes().is_empty());
-    let position = input.number.position();
+    assert!(input.path("unwired").is_none());
+    if input.params.mode() == 20 {
+        require_input("unwired", input.path("unwired"))?;
+    }
+    let position = require_input("number", input.number)?.position();
+    let payload = require_input("payload", input.payload)?;
     let mut number = outputs::Number::default();
     number.value = position.x() + position.y() + i64::from(input.params.mode() == 9);
 
     let mut summary = outputs::Summary::default();
     if input.params.mode() != 7 {
         let mut label = LabelT::default();
-        label.text = input.payload.data_as_label().unwrap().text().to_owned();
+        label.text = payload.data_as_label().unwrap().text().to_owned();
         summary.data = ChoiceT::Label(Box::new(label));
     }
-    summary.values = input.payload.values().map(|values| values.iter().collect());
+    summary.values = payload.values().map(|values| values.iter().collect());
 
     let mut output = Output {
         number,
@@ -133,22 +139,16 @@ fn run(input: Inputs<'_>) -> Result<Output> {
         forwarded_directory: None,
         _2d: None,
         async_: None,
+        arrival: None,
     };
 
     if let Some(file) = input.file {
-        copy(file.value(), "copy.txt")?;
-        let mut copied = outputs::Copy::default();
-        copied.value = "copy.txt".into();
-        output.copy = Some(copied);
-
-        let mut forwarded = outputs::Forwarded::default();
-        forwarded.value = file.value().to_owned();
-        output.forwarded = Some(forwarded);
+        copy(file, "copy.txt")?;
+        output.copy = Some("copy.txt".into());
+        output.forwarded = Some(file.to_owned());
     }
     if let Some(directory) = input.directory {
-        let mut forwarded = outputs::ForwardedDirectory::default();
-        forwarded.value = directory.value().to_owned();
-        output.forwarded_directory = Some(forwarded);
+        output.forwarded_directory = Some(directory.to_owned());
 
         let mut point = outputs::Port2d::default();
         point.x = position.x();
@@ -162,6 +162,28 @@ fn run(input: Inputs<'_>) -> Result<Output> {
     if input.params.mode() == 6 {
         output.async_ = Some(outputs::Async::default());
     }
+    output.arrival = input.arrival.map(|arrival| match arrival {
+        inputs::Arrival::Merged(member) => {
+            let value = match member {
+                inputs::ArrivalMerged::Temperature(value) => {
+                    let mut next = tsugumi::output_types::rust_outputs::arrival::tsugumi::merge::t_0::nested::t_0::TemperatureT::default();
+                    next.value = value.value() + 1.0;
+                    outputs::ArrivalMerged::Temperature(next)
+                }
+                inputs::ArrivalMerged::Count(value) => {
+                    let mut next = tsugumi::output_types::rust_outputs::arrival::tsugumi::merge::t_0::nested::t_1::CountT::default();
+                    next.count = value.count();
+                    outputs::ArrivalMerged::Count(next)
+                }
+            };
+            outputs::Arrival::Merged(value)
+        }
+        inputs::Arrival::Reading(value) => {
+            let mut next = tsugumi::output_types::rust_outputs::arrival::tsugumi::merge::t_1::ReadingT::default();
+            next.name = value.name().to_owned();
+            outputs::Arrival::Reading(next)
+        }
+    });
     Ok(output)
 }
 

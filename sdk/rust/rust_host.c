@@ -1,7 +1,7 @@
 /* Keep the public entry and its version check tied to the vendored C ABI. */
 #include <string.h>
 
-#include "abi.h"
+#include "card_abi.h"
 
 extern int tsugumi_rust_invoke(tsugumi_bytes input, void* host,
                                const tsugumi_effects* effects,

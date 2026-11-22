@@ -115,13 +115,19 @@ impl<'a> Input<'a> {
         })?;
         let mut ports = HashMap::new();
         for port in input.inputs().into_iter().flatten() {
-            if !matches!(
-                port.kind(),
-                PortKind::FlatBuffer | PortKind::File | PortKind::Directory
-            ) {
+            let valid = match port.kind() {
+                PortKind::Path => {
+                    port.path()
+                        .is_some_and(|path| !path.contains('\0') && Path::new(path).is_absolute())
+                        && port.bytes().is_none_or(|bytes| bytes.is_empty())
+                }
+                PortKind::FlatBuffer => port.path().is_none(),
+                _ => false,
+            };
+            if !valid {
                 return Err(Failure::without_location(
                     FailureKind::invalid_request,
-                    "Unknown input port kind",
+                    format!("Invalid input port {}", port.name()),
                 ));
             }
             if ports.insert(port.name(), port).is_some() {
@@ -137,30 +143,31 @@ impl<'a> Input<'a> {
         })
     }
 
-    pub(crate) fn take<T>(&mut self, name: &str, kind: PortKind) -> Result<Option<T>>
-    where
-        T: Follow<'a, Inner = T> + Verifiable + 'a,
-    {
-        let Some(port) = self.ports.remove(name) else {
-            return Ok(None);
-        };
-        if port.kind() != kind {
+    fn take(&mut self, name: &str, kind: PortKind) -> Result<Option<CardPort<'a>>> {
+        let port = self.ports.remove(name);
+        if port.is_some_and(|port| port.kind() != kind) {
             return Err(Failure::without_location(
                 FailureKind::invalid_request,
                 format!("Wrong kind for input {name}"),
             ));
         }
-        let bytes: &[u8] = port.bytes().map_or(&[], |value| value.bytes());
-        Self::read_value::<T>(bytes, name).map(Some)
+        Ok(port)
     }
 
-    pub(crate) fn required<T>(&mut self, name: &str, kind: PortKind) -> Result<T>
+    pub(crate) fn take_path(&mut self, name: &str) -> Result<Option<&'a Path>> {
+        Ok(self
+            .take(name, PortKind::Path)?
+            .and_then(|port| port.path())
+            .map(Path::new))
+    }
+
+    pub(crate) fn take_value<T>(&mut self, name: &str) -> Result<Option<T>>
     where
         T: Follow<'a, Inner = T> + Verifiable + 'a,
     {
-        self.take(name, kind)?.ok_or_else(|| {
-            Failure::without_location(FailureKind::input_missing, format!("Missing input {name}"))
-        })
+        self.take(name, PortKind::FlatBuffer)?
+            .map(|port| read_value(port.bytes().map_or(&[], |value| value.bytes()), name))
+            .transpose()
     }
 
     pub(crate) fn params<T>(self) -> Result<T>
@@ -173,31 +180,49 @@ impl<'a> Input<'a> {
                 "Unknown input port",
             ));
         }
-        Self::read_value::<T>(self.params, "params")
+        read_value::<T>(self.params, "params")
     }
+}
 
-    fn read_value<T>(bytes: &'a [u8], name: &str) -> Result<T>
-    where
-        T: Follow<'a, Inner = T> + Verifiable + 'a,
-    {
-        read_root::<T>(bytes, || {
-            Failure::without_location(
-                FailureKind::invalid_request,
-                format!("Invalid FlatBuffer for {name}"),
-            )
-        })
-    }
+/// Turn an optional input into a needed value, naming the port if it is absent.
+pub fn require_input<T>(name: &str, value: Option<T>) -> Result<T> {
+    value.ok_or_else(|| {
+        Failure::without_location(FailureKind::input_missing, format!("Missing input {name}"))
+    })
+}
+
+pub(crate) fn read_value<'a, T>(bytes: &'a [u8], name: &str) -> Result<T>
+where
+    T: Follow<'a, Inner = T> + Verifiable + 'a,
+{
+    read_root::<T>(bytes, || {
+        Failure::without_location(
+            FailureKind::invalid_request,
+            format!("Invalid FlatBuffer for {name}"),
+        )
+    })
+}
+
+pub(crate) fn invalid_merge(name: &str) -> Failure {
+    Failure::without_location(
+        FailureKind::invalid_request,
+        format!("Invalid Merge input {name}"),
+    )
 }
 
 pub(crate) type OutputPorts<'a> = Vec<flatbuffers::WIPOffset<CardPort<'a>>>;
 
-pub(crate) fn write_port<'a, T: Verifiable>(
-    builder: &mut FlatBufferBuilder<'a>,
-    ports: &mut OutputPorts<'a>,
+fn invalid_output(name: &str) -> Failure {
+    Failure::without_location(
+        FailureKind::output_invalid,
+        format!("Invalid output {name}"),
+    )
+}
+
+pub(crate) fn pack_value<T: Verifiable>(
     name: &str,
-    kind: PortKind,
     pack: impl FnOnce(&mut FlatBufferBuilder<'_>),
-) -> Result<()> {
+) -> Result<Vec<u8>> {
     let mut value = FlatBufferBuilder::new();
     // flatc's object API can panic when a required field was left empty.
     if catch_unwind(AssertUnwindSafe(|| pack(&mut value))).is_err()
@@ -207,20 +232,53 @@ pub(crate) fn write_port<'a, T: Verifiable>(
         )
         .is_err()
     {
-        return Err(Failure::without_location(
-            FailureKind::output_invalid,
-            format!("Invalid output {name}"),
-        ));
+        return Err(invalid_output(name));
     }
+    Ok(value.finished_data().to_vec())
+}
 
+pub(crate) fn write_port<'a, T: Verifiable>(
+    builder: &mut FlatBufferBuilder<'a>,
+    ports: &mut OutputPorts<'a>,
+    name: &str,
+    pack: impl FnOnce(&mut FlatBufferBuilder<'_>),
+) -> Result<()> {
+    let bytes = pack_value::<T>(name, pack)?;
     let name = builder.create_string(name);
-    let bytes = builder.create_vector(value.finished_data());
+    let bytes = builder.create_vector(&bytes);
     ports.push(CardPort::create(
         builder,
         &CardPortArgs {
             name: Some(name),
-            kind,
+            kind: PortKind::FlatBuffer,
             bytes: Some(bytes),
+            path: None,
+        },
+    ));
+    Ok(())
+}
+
+pub(crate) fn write_path<'a>(
+    builder: &mut FlatBufferBuilder<'a>,
+    ports: &mut OutputPorts<'a>,
+    name: &str,
+    path: &Path,
+) -> Result<()> {
+    let Some(path) = path
+        .to_str()
+        .filter(|path| !path.is_empty() && !path.contains('\0'))
+    else {
+        return Err(invalid_output(name));
+    };
+    let name = builder.create_string(name);
+    let path = builder.create_string(path);
+    ports.push(CardPort::create(
+        builder,
+        &CardPortArgs {
+            name: Some(name),
+            kind: PortKind::Path,
+            bytes: None,
+            path: Some(path),
         },
     ));
     Ok(())

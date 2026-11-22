@@ -6,6 +6,8 @@
 extern void check_number(tsugumi_bytes result, int64_t expected);
 extern void check_zero_roots(tsugumi_main_fn entry);
 
+extern void check_revision2(tsugumi_main_fn entry);
+
 static int should_cancel(void* host) { return *(int*)host; }
 
 static int64_t no_deadline(void* host) {
@@ -81,6 +83,7 @@ int main(int argc, char** argv) {
   call.input = make_input(VALID, 0, -1);
   CHECK(entry(&call, &result) == 0);
   check_success(result, 0);
+  check_revision2(entry);
   CHECK(dlclose(library) == 0);
   puts("Rust ABI 9 fake-host checks passed");
   return 0;

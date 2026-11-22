@@ -1,10 +1,12 @@
-use tsugumi::{Failure, FailureKind, Inputs, Output, Result, outputs, send_value};
+use tsugumi::{Failure, FailureKind, Inputs, Output, Result, require_input, send_value};
 
 fn run(input: Inputs<'_>) -> Result<Output> {
     let path = "numbered.txt";
-    let text: String = input
-        .text
-        .value()
+    let source = require_input("text", input.text)?;
+    let value: Option<&str> = source.value().into();
+    let value =
+        value.ok_or_else(|| Failure::new(FailureKind::invalid_request, "text.value is absent"))?;
+    let text: String = value
         .lines()
         .enumerate()
         .map(|(index, line)| format!("{}: {line}\n", index + 1))
@@ -13,9 +15,7 @@ fn run(input: Inputs<'_>) -> Result<Output> {
         .map_err(|err| Failure::new(FailureKind::output_invalid, format!("{path}: {err}")))?;
     send_value(format!("Wrote {path}"))?;
 
-    let mut file = outputs::File::default();
-    file.value = path.into();
-    Ok(Output { file })
+    Ok(Output { file: path.into() })
 }
 
 tsugumi::export!(run);
