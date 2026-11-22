@@ -36,7 +36,7 @@ let
     }).run;
   inherit (stdenv.hostPlatform) isDarwin;
 in
-runCommandCC "tsugumi-go-abi9-check"
+runCommandCC "tsugumi-go-abi-check"
   {
     nativeBuildInputs = [
       flatbuffers

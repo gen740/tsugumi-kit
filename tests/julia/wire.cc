@@ -26,7 +26,7 @@
 namespace {
 
 using namespace Tsugumi::Card;
-using tsugumi::abi9::Buffer;
+using tsugumi::abi::Buffer;
 using Tsugumi::Data::FailureKind;
 using Tsugumi::Data::PortKind;
 
@@ -546,6 +546,6 @@ auto main(int argc, char** argv) -> int {
   CheckRacingQuery(entry, 15);
   CheckRacingQuery(entry, 16);
   CHECK(dlclose(card) == 0);
-  puts("Julia ABI 9 audit regressions passed");
+  puts("Julia Card ABI audit regressions passed");
   return 0;
 }

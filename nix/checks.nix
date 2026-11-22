@@ -24,7 +24,7 @@
         "ruby"
         "rust"
       ];
-      apiCards = lib.concatMap (sdk: config.checks."${sdk}Abi9".apiCards) (
+      apiCards = lib.concatMap (sdk: config.checks."${sdk}Abi".apiCards) (
         builtins.filter enabled abiChecks
       );
       # A nixpkgs pin other than the flake's, standing in for a project's pin.
@@ -56,8 +56,8 @@
     in
     {
       checks = {
-        cppAbi9 = pkgs.callPackage ./cpp-check.nix { inherit kit; };
-        cppAbi9ProjectPkgs =
+        cppAbi = pkgs.callPackage ./cpp-check.nix { inherit kit; };
+        cppAbiProjectPkgs =
           assert projectKit.cppRuntime.drvPath != kit.cppRuntime.drvPath;
           projectPkgs.callPackage ./cpp-check.nix { kit = projectKit; };
         sdkApi = pkgs.runCommand "tsugumi-sdk-api-check" { } ''
@@ -69,10 +69,10 @@
         '';
       }
       // lib.optionalAttrs (enabled "js") {
-        jsAbi9 = pkgs.callPackage ./js-check.nix { inherit kit; };
+        jsAbi = pkgs.callPackage ./js-check.nix { inherit kit; };
       }
       // lib.optionalAttrs (enabled "java") {
-        javaAbi9 = pkgs.callPackage ./java-check.nix { inherit kit; };
+        javaAbi = pkgs.callPackage ./java-check.nix { inherit kit; };
         javaWriteTextTemplate = checkTextTemplate "java-write-text" ../templates/java-write-text/write [
           "main.so"
           "card.jar"

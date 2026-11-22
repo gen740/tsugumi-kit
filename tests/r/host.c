@@ -137,6 +137,6 @@ int main(int argc, char** argv) {
   CHECK(entry(&call, &result) == 0);
   check_input_failure(result, MISSING_INPUT);
   /* The process owns R for its lifetime, including registered callbacks. */
-  puts("R ABI 9 fake-host checks passed");
+  puts("R Card ABI fake-host checks passed");
   return 0;
 }

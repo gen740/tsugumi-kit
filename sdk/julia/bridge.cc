@@ -101,7 +101,7 @@ extern "C" auto EmitDisplay(const char* kind, const char* payload,
 extern "C" auto Send(const char* view, const uint8_t* bytes,
                      size_t size) noexcept -> int {
   try {
-    return abi9::SendDisplay(view, {bytes, size});
+    return abi::SendDisplay(view, {bytes, size});
   } catch (...) {
     return 1;
   }

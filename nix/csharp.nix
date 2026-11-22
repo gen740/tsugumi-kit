@@ -20,7 +20,7 @@
       };
     in
     {
-      checks.csharpAbi9 = pkgs.callPackage ../tests/csharp/check.nix { inherit kit; };
+      checks.csharpAbi = pkgs.callPackage ../tests/csharp/check.nix { inherit kit; };
       checks.csharpWriteNoteTemplate = pkgs.runCommand "tsugumi-csharp-note-template-check" { } ''
         test -s ${note.run}/lib/main.so
         test -s ${note.run}/share/tsugumi/api/Card.g.cs

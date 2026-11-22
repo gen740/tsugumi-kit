@@ -26,7 +26,7 @@ let
   inherit (stdenv.hostPlatform) isDarwin;
 in
 assert definition.views == kit.rSdk.views;
-runCommandCC "tsugumi-r-abi9-check"
+runCommandCC "tsugumi-r-abi-check"
   {
     buildInputs = [ flatbuffers ];
     passthru.apiCards = [

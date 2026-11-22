@@ -2,7 +2,7 @@
 
 An Input Card supplies text to a Java Card. The Java Card displays the text,
 writes it to `message.txt` as UTF-8, and returns it on the Path port `file`.
-**Targets Card ABI 9, revision 2.**
+**Targets the Card ABI.**
 
 ```text
 settings.text → write.text

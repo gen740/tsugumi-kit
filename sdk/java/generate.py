@@ -460,7 +460,7 @@ def generate_native(card, cpp_names, cpp, out):
 #include "host.hh"
 
 namespace {{
-using namespace tsugumi::abi9;
+using namespace tsugumi::abi;
 
 constexpr std::array<JavaPort, {len(card.inputs)}> inputs{{{{
 {ports(card.inputs)}
@@ -476,7 +476,7 @@ auto Run(tsugumi_bytes bytes) -> Tsugumi::Card::CardResultT {{
 
 extern "C" __attribute__((visibility("default")))
 auto tsugumi_main(const tsugumi_call* call, tsugumi_bytes* result) -> int {{
-  return tsugumi::abi9::Invoke(call, result, Run);
+  return tsugumi::abi::Invoke(call, result, Run);
 }}
 """, encoding="utf-8")
 

@@ -17,7 +17,7 @@ let
   headers = pkgs.callPackage ../../nix/abi-headers.nix { };
   inherit (stdenv.hostPlatform) isDarwin;
 in
-runCommandCC "tsugumi-rust-abi9-check"
+runCommandCC "tsugumi-rust-abi-check"
   {
     nativeBuildInputs = [ flatbuffers ];
     buildInputs = [ flatbuffers ];

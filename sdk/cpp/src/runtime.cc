@@ -12,7 +12,7 @@
 #include <vector>
 
 #include "adapter.hh"
-#include "tsugumi/abi9/card_runtime.hh"
+#include "tsugumi/abi/card_runtime.hh"
 
 namespace tsugumi {
 
@@ -30,7 +30,7 @@ namespace {
 
 auto SendJson(const char* view, const nlohmann::json& config) -> int {
   const auto text = config.dump();
-  return tsugumi::abi9::SendDisplay(view,
+  return tsugumi::abi::SendDisplay(view,
                                     {text_bytes(text).data(), text.size()});
 }
 
@@ -60,7 +60,7 @@ auto AppendSamples(std::vector<uint8_t>& bytes, std::span<const T> samples)
 auto send(std::string_view view, std::span<const uint8_t> bytes) -> int {
   if (view.find('\0') != std::string_view::npos)
     throw std::invalid_argument("View names cannot contain a NUL byte");
-  return tsugumi::abi9::SendDisplay(std::string(view).c_str(),
+  return tsugumi::abi::SendDisplay(std::string(view).c_str(),
                                     {bytes.data(), bytes.size()});
 }
 

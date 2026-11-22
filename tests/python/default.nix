@@ -48,7 +48,7 @@ assert
     "plotly"
   ];
 assert lib.all (view: view.type == "html" && view ? blob) pythonSdk.views;
-runCommandCC "tsugumi-python-abi9-check"
+runCommandCC "tsugumi-python-abi-check"
   {
     nativeBuildInputs = [ flatbuffers ];
     buildInputs = [ flatbuffers ];
@@ -74,7 +74,7 @@ runCommandCC "tsugumi-python-abi9-check"
       -Wall -Wextra -Werror -I"$include" -c "$tests/fake_host.c"
     $CC -std=c11 -Wall -Wextra -Werror -fPIC -shared "$tests/legacy.c" -o legacy.so
     cxx=(-std=c++2c -Wall -Wextra -Werror -I. -I"$tests" -I"$include" -I${../../sdk/cpp/src})
-    link=("${runtime}/lib/libtsugumi_abi9.a" -pthread ${lib.optionalString (!isDarwin) "-ldl"})
+    link=("${runtime}/lib/libtsugumi_abi.a" -pthread ${lib.optionalString (!isDarwin) "-ldl"})
     $CXX "''${cxx[@]}" -c "${./wire.cc}" -o wire.o
     $CXX "''${cxx[@]}" fake_host.o wire.o "''${link[@]}" -o fake_host
     $CXX "''${cxx[@]}" "${./effects.cc}" wire.o "''${link[@]}" -o effects

@@ -12,11 +12,11 @@
 #include <utility>
 #include <vector>
 
-#include "tsugumi/abi9/card_abi.h"
-#include "tsugumi/abi9/card_runtime.hh"
+#include "tsugumi/abi/card_abi.h"
+#include "tsugumi/abi/card_runtime.hh"
 #include "tsugumi/protocol/card_generated.h"
 
-namespace tsugumi::abi9 {
+namespace tsugumi::abi {
 
 using Tsugumi::Data::FailureKind;
 using Tsugumi::Data::PortKind;
@@ -137,4 +137,4 @@ auto WritePort(
   result.outputs.push_back(std::move(port));
 }
 
-}  // namespace tsugumi::abi9
+}  // namespace tsugumi::abi

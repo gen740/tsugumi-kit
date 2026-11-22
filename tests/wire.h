@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "tsugumi/abi9/card_abi.h"
+#include "tsugumi/abi/card_abi.h"
 
 #define CHECK(condition)                                              \
   do {                                                                \

@@ -9,7 +9,7 @@
 #include <string>
 #include <string_view>
 
-namespace tsugumi::abi9 {
+namespace tsugumi::abi {
 namespace {
 
 using Tsugumi::Card::CardFailureT;
@@ -231,12 +231,12 @@ auto Input::CheckConsumed() const -> void {
   }
 }
 
-}  // namespace tsugumi::abi9
+}  // namespace tsugumi::abi
 
 namespace card {
 
-using tsugumi::abi9::active_call;
-using tsugumi::abi9::effects_mutex;
+using tsugumi::abi::active_call;
+using tsugumi::abi::effects_mutex;
 
 auto cancelled() -> bool {
   const std::lock_guard lock(effects_mutex);

@@ -42,7 +42,7 @@ let
 in
 assert definition.views == kit.jsSdk.views;
 assert note.views == kit.jsSdk.views;
-runCommandCC "tsugumi-js-abi9-check"
+runCommandCC "tsugumi-js-abi-check"
   {
     nativeBuildInputs = [ flatbuffers ];
     buildInputs = [ flatbuffers ];
@@ -81,7 +81,7 @@ runCommandCC "tsugumi-js-abi9-check"
       -Dcheck_card_failure=unused_card_failure -Dcheck_success=check_shared_success \
       -c "${tests}/wire.cc" -o shared_wire.o
     $CXX "''${cxx[@]}" -c "${fixture}/wire.cc" -o js_wire.o
-    link=("${kit.cppRuntime}/lib/libtsugumi_abi9.a" -pthread ${lib.optionalString (!isDarwin) "-ldl"})
+    link=("${kit.cppRuntime}/lib/libtsugumi_abi.a" -pthread ${lib.optionalString (!isDarwin) "-ldl"})
     $CXX fake_host.o shared_wire.o js_wire.o "''${link[@]}" -o fake_host
     $CXX "''${cxx[@]}" "${fixture}/files.cc" shared_wire.o js_wire.o "''${link[@]}" -o file_host
     mkdir work
@@ -104,7 +104,7 @@ runCommandCC "tsugumi-js-abi9-check"
     mkdir note note-schemas
     flatc --cpp --gen-object-api -o note-schemas ${../tests/templates/js-write-note}/_params.fbs
     $CXX -std=c++2c -Wall -Wextra -Werror -Inote-schemas -I"${tests}" -I"$include" -I${../sdk/cpp/src} \
-      "${fixture}/note.cc" "${kit.cppRuntime}/lib/libtsugumi_abi9.a" \
+      "${fixture}/note.cc" "${kit.cppRuntime}/lib/libtsugumi_abi.a" \
       -pthread ${lib.optionalString (!isDarwin) "-ldl"} -o note_host
     (cd note && env -u PATH HOME="$PWD" ../note_host "${note.run}/lib/main.so")
     touch "$out"

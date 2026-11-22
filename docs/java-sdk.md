@@ -1,6 +1,6 @@
 # Writing a Java Card
 
-This guide targets **Card ABI 9, revision 2 (unreleased)**. The Card package contains
+This guide targets **the Card ABI (unreleased)**. The Card package contains
 `lib/main.so` and `lib/card.jar`. The native entry point starts an embedded
 Java 21 VM on the first valid call. With `reuseWorker`, the JVM and the Card's
 static fields stay live for the worker's lifetime.
@@ -148,5 +148,5 @@ matching Card stack frames when sources follow the Java package directory
 layout under `src/`. Join background tasks and propagate their exceptions
 to `run` when the call depends on them.
 
-Run `nix build .#checks.<system>.javaAbi9` to exercise the Java Card through
+Run `nix build .#checks.<system>.javaAbi` to exercise the Java Card through
 the shared ABI fake host.

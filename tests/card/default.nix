@@ -17,7 +17,7 @@ in
       pkgs.testTool
     ];
     cxxflags = [
-      "-DABI9_TEST_CARD"
+      "-DABI_TEST_CARD"
       "-lz"
     ];
   };

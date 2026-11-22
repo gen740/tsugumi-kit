@@ -68,7 +68,7 @@ static void check_versions(void* current, void* legacy) {
   CHECK(mprotect(boundary, (size_t)page_size, PROT_NONE) == 0);
   tsugumi_bytes unchanged = {NULL, 123};
 
-  // The ABI 8 phase and the ABI 9 input both start in the guard page.
+  // The ABI 8 phase and the current input both start in the guard page.
   uint32_t* old_version = (uint32_t*)(boundary - sizeof(uint32_t));
   *old_version = TSUGUMI_ABI_VERSION;
   CHECK(old_entry((const struct abi8_call*)old_version) == 1);
@@ -140,6 +140,6 @@ int main(int argc, char** argv) {
     CHECK(close(displayed[i]) == 0);
   }
   CHECK(dlclose(current) == 0);
-  puts("ABI 9 fake-host checks passed");
+  puts("Card ABI fake-host checks passed");
   return 0;
 }

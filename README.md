@@ -23,23 +23,23 @@ whole or to Tsugumi's worker, which belongs to the core.
 
 | Path | Contents |
 | --- | --- |
-| [C++ SDK guide](docs/cpp-sdk.md) | Write a typed Card for ABI 9, display results and work with files in the worker. |
+| [C++ SDK guide](docs/cpp-sdk.md) | Write a typed Card, display results and work with files in the worker. |
 | [C# SDK guide](docs/csharp-sdk.md) | Build a typed C# Card with the .NET runtime. |
-| [Python SDK guide](docs/python-sdk.md) | Write a typed CPython Card for ABI 9 revision 2. |
+| [Python SDK guide](docs/python-sdk.md) | Write a typed CPython Card for the Card ABI. |
 | [Go SDK guide](docs/go-sdk.md) | Build a Go Card with generated types and offline module dependencies. |
 | [Rust SDK guide](docs/rust-sdk.md) | Build a Rust Card with verified borrowed inputs and owned outputs. |
 | [Julia SDK guide](docs/julia-sdk.md) | Write a Julia Card with generated port documentation and an embedded Julia runtime. |
 | [R SDK guide](docs/r-sdk.md) | Write an R Card with named-list ports and an embedded R runtime. |
 | [Ruby SDK guide](docs/ruby-sdk.md) | Write a Ruby Card with generated RBS signatures and locked gems. |
 | [Java SDK guide](docs/java-sdk.md) | Build a typed Java Card with an embedded JVM. |
-| [JavaScript SDK guide](docs/js-sdk.md) | Write an async Node.js Card with generated TypeScript bindings and npm dependencies for ABI 9 revision 2. |
+| [JavaScript SDK guide](docs/js-sdk.md) | Write an async Node.js Card with generated TypeScript bindings and npm dependencies for the Card ABI. |
 | [Template guide](docs/templates.md) | Template format, Git import and the host and project stores. |
 | [Example templates](templates/README.md) | A [CSV filter](templates/filter-counts/) and a [two-Card temperature conversion](templates/temperature-conversion/). |
-| `abi/9/` | Vendored Card ABI 9 header and FlatBuffers schemas. |
+| `abi/` | Vendored Card ABI header and FlatBuffers schemas. |
 | `sdk/cpp/` | C++ Card code generator, adapter and static runtime. |
 | `default.nix` | The SDK set for a given nixpkgs: `import ./. { inherit pkgs; }`. |
 | `nix/` | Flake outputs, including the C++ Card builder and runtime package. |
-| `tests/` | Example ABI 9 Card, fake host and SDK checks. |
+| `tests/` | Example Card, fake host and SDK checks. |
 
 ## Entry
 
@@ -96,7 +96,7 @@ and do not enter history. See the [view protocol](docs/cpp-sdk.md#display-a-valu
 
 ## Status
 
-The guides and examples target **Card ABI 9 (unreleased)**. The upstream decisions cover the
+The guides and examples target **the Card ABI (unreleased)**. The upstream decisions cover the
 [core and SDK boundary](https://github.com/gen740/Tsugumi/blob/1610f0f934edbcc627babcfb6df59829e62d7c51/docs/CoreAndSDK.md),
 [Card ABI](https://github.com/gen740/Tsugumi/blob/1610f0f934edbcc627babcfb6df59829e62d7c51/docs/CardABI.md)
 and [sandbox contract](https://github.com/gen740/Tsugumi/blob/1610f0f934edbcc627babcfb6df59829e62d7c51/docs/SandboxContract.md).

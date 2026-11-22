@@ -1,4 +1,4 @@
-# Rust Cards for ABI 9
+# Rust Cards for the Card ABI
 
 The Rust builder takes the Card's Cargo package and the current wiring schemas.
 

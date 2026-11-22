@@ -2,7 +2,7 @@
 
 An Input Card supplies text to a Python Card that writes it to `message.txt`,
 displays the filename, and returns the file on a Path port.
-**Targets unreleased Card ABI 9, revision 2.**
+**Targets the unreleased Card ABI.**
 
 ```text
 settings.text → write.text

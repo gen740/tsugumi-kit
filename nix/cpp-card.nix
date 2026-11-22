@@ -67,6 +67,6 @@
           -shared "''${toolPathObject[@]}" "''${link[@]}" -I"${generated}/include" -I"${runtime}/include" \
           -I"${../sdk/cpp/src}" ${lib.escapeShellArgs sourceFlags} \
           "''${sources[@]}" "${generated}/src/card_adapter.cc" \
-          "${runtime}/lib/libtsugumi_abi9.a" ${lib.escapeShellArgs cxxflags} -pthread -o "$out/lib/main.so"
+          "${runtime}/lib/libtsugumi_abi.a" ${lib.escapeShellArgs cxxflags} -pthread -o "$out/lib/main.so"
       '';
 }

@@ -85,6 +85,6 @@ int main(int argc, char** argv) {
   check_success(result, 0);
   check_revision2(entry);
   CHECK(dlclose(library) == 0);
-  puts("Rust ABI 9 fake-host checks passed");
+  puts("Rust Card ABI fake-host checks passed");
   return 0;
 }

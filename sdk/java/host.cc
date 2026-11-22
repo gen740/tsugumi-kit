@@ -10,7 +10,7 @@
 #include <unordered_set>
 #include <vector>
 
-namespace tsugumi::abi9 {
+namespace tsugumi::abi {
 namespace {
 
 using Tsugumi::Card::CardInput;
@@ -276,4 +276,4 @@ auto RunJava(tsugumi_bytes bytes, Verify params,
   return value;
 }
 
-}  // namespace tsugumi::abi9
+}  // namespace tsugumi::abi

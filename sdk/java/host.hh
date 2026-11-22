@@ -5,7 +5,7 @@
 
 #include "adapter.hh"
 
-namespace tsugumi::abi9 {
+namespace tsugumi::abi {
 
 using Verify = auto (*)(const Buffer&) -> bool;
 
@@ -25,4 +25,4 @@ auto RunJava(tsugumi_bytes bytes, Verify params,
              std::span<const JavaPort> inputs,
              std::span<const JavaPort> outputs) -> Tsugumi::Card::CardResultT;
 
-}  // namespace tsugumi::abi9
+}  // namespace tsugumi::abi

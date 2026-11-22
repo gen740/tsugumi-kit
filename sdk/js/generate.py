@@ -299,7 +299,7 @@ def cpp_adapter(card, names):
         '#include "node_card.hh"',
         "",
         "namespace {",
-        "using namespace tsugumi::abi9;",
+        "using namespace tsugumi::abi;",
         "",
         *(line for function in reversed(functions.values()) for line in function),
         *body,
@@ -307,7 +307,7 @@ def cpp_adapter(card, names):
         "",
         'extern "C" __attribute__((visibility("default")))',
         "auto tsugumi_main(const tsugumi_call* call, tsugumi_bytes* result) -> int {",
-        "  return tsugumi::abi9::Invoke(call, result, RunCard);",
+        "  return tsugumi::abi::Invoke(call, result, RunCard);",
         "}",
         "",
     ])

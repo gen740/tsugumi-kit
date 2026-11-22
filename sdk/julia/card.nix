@@ -132,6 +132,6 @@ pkgs.runCommandCC "tsugumi-julia-card"
       -DTSUGUMI_JULIA_SOURCE=${lib.escapeShellArg (builtins.toJSON "${src}")} \
       -DTSUGUMI_JULIA_ENTRY=${lib.escapeShellArg (builtins.toJSON entry)} \
       -DTSUGUMI_JULIA_SOURCE_PREFIX=${lib.escapeShellArg (builtins.toJSON sourcePrefix)} \
-      ${generated}/src/card_adapter.cc ${./bridge.cc} ${runtime}/lib/libtsugumi_abi9.a \
+      ${generated}/src/card_adapter.cc ${./bridge.cc} ${runtime}/lib/libtsugumi_abi.a \
       -L${julia}/lib -Wl,-rpath,${julia}/lib -ljulia -pthread -o "$out/lib/main.so"
   ''

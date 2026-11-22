@@ -16,7 +16,7 @@
 
 #include "card.hh"
 
-#ifndef ABI9_TEST_CARD
+#ifndef ABI_TEST_CARD
 #error The builder must pass cxxflags through to the Card.
 #endif
 

@@ -1,6 +1,6 @@
 # Writing a C++ Card
 
-This guide targets **Card ABI 9, revision 2 (unreleased)**. The released worker cannot run these Cards yet.
+This guide targets **the Card ABI (unreleased)**. The released worker cannot run these Cards yet.
 
 ## Return a value from `run`
 
@@ -214,6 +214,6 @@ A person grants access to named host paths (read-only or read-write), the GUI or
 
 ## Removed from the Card interface
 
-ABI 9 exposes no run ID, invocation number or Card identity, including through the environment. There are no `Report` or `Run` arguments, init phase, `on_run_start`, `preRun` or `postRun`. Read typed parameters from the input and write diagnostics to stdout or stderr. The old `TSUGUMI_PARAMS_JSON` and `TSUGUMI_*_DIR` variables are gone. The ABI carries the parameters and typed table bytes in the FlatBuffers envelope. Path ports use its dedicated path field. There is no JSON input/output API, reflection or `bfbs` in the Card library.
+The Card ABI exposes no run ID, invocation number or Card identity, including through the environment. There are no `Report` or `Run` arguments, init phase, `on_run_start`, `preRun` or `postRun`. Read typed parameters from the input and write diagnostics to stdout or stderr. The old `TSUGUMI_PARAMS_JSON` and `TSUGUMI_*_DIR` variables are gone. The ABI carries the parameters and typed table bytes in the FlatBuffers envelope. Path ports use its dedicated path field. There is no JSON input/output API, reflection or `bfbs` in the Card library.
 
 The upstream decisions describe the [Card ABI](https://github.com/gen740/Tsugumi/blob/1610f0f934edbcc627babcfb6df59829e62d7c51/docs/CardABI.md), [sandbox contract](https://github.com/gen740/Tsugumi/blob/1610f0f934edbcc627babcfb6df59829e62d7c51/docs/SandboxContract.md) and [SDK boundary](https://github.com/gen740/Tsugumi/blob/1610f0f934edbcc627babcfb6df59829e62d7c51/docs/CoreAndSDK.md).

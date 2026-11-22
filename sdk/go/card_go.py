@@ -268,7 +268,7 @@ def generate_cpp(card, inputs, outputs, names):
     for index, (port, _) in enumerate(outputs):
         name = json.dumps(port.name)
         if port.kind == "Path":
-            body = f"tsugumi::abi9::WritePath(result, {name}, std::filesystem::path(std::string_view(reinterpret_cast<const char*>(bytes.data), bytes.size)), true);"
+            body = f"tsugumi::abi::WritePath(result, {name}, std::filesystem::path(std::string_view(reinterpret_cast<const char*>(bytes.data), bytes.size)), true);"
         else:
             body = f"if (!({verify(port.type, port.merge)})) return false;\n        WritePort(result, {name}, bytes);"
         output_cases.extend([f"      case {index}:", f"        {body}", "        return true;"])
@@ -283,7 +283,7 @@ def generate_cpp(card, inputs, outputs, names):
         "",
         "namespace {",
         "using Tsugumi::Card::CardResultT;",
-        "using tsugumi::abi9::Buffer;",
+        "using tsugumi::abi::Buffer;",
         "",
         *functions,
     ]

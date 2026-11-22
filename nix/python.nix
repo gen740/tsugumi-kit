@@ -7,7 +7,7 @@
       ...
     }:
     {
-      checks.pythonAbi9 = pkgs.callPackage ../tests/python {
+      checks.pythonAbi = pkgs.callPackage ../tests/python {
         kit = self.lib.${system};
       };
     };

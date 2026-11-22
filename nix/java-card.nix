@@ -57,13 +57,13 @@ runCommandCC "tsugumi-java-card"
     mkdir -p generated classes "$out/lib" "$out/share/tsugumi/api"
     python3 ${../sdk/java/generate.py} ${../sdk/cpp} ${lib.escapeShellArg "${schemas}"} \
       "$src" "$TSUGUMI_JAVA_MAIN_CLASS" generated ${flatbuffers.src}/reflection/reflection.fbs \
-      ${../abi/9}/card_enums.fbs
+      ${../abi}/card_enums.fbs
     # The Agent-readable API: the Card types and the port bindings.
     cp generated/README.md "$out/share/tsugumi/api/"
     (cd generated/java && cp -r . "$out/share/tsugumi/api/" &&
       rm "$out/share/tsugumi/api/tsugumi/"{Entry,UnionChecks}.java)
     flatc --java --java-package-prefix tsugumi.wire -o generated/java \
-      ${../abi/9}/{card_enums,card}.fbs
+      ${../abi}/{card_enums,card}.fbs
     # Use a NUL-delimited list so source paths may contain whitespace.
     find "$src" -type f -name '*.java' ! -name '._*' -print0 |
       LC_ALL=C sort -z > card-sources
@@ -92,7 +92,7 @@ runCommandCC "tsugumi-java-card"
       -Igenerated/include -I${../sdk/java} -I${../sdk/cpp/src} -I${runtime}/include \
       -I${jdk}/include -I${jdk}/include/${if isDarwin then "darwin" else "linux"} \
       "-DTSUGUMI_JAVA_CLASSPATH=\"$out/lib/card.jar:$TSUGUMI_JAVA_CLASSPATH\"" \
-      generated/card_adapter.cc ${../sdk/java/host.cc} ${runtime}/lib/libtsugumi_abi9.a \
+      generated/card_adapter.cc ${../sdk/java/host.cc} ${runtime}/lib/libtsugumi_abi.a \
       -Wl,-rpath,${jvmDir} "${jvmDir}/libjvm${stdenv.hostPlatform.extensions.sharedLibrary}" \
       -pthread ${lib.optionalString (!isDarwin) "-ldl"} -o "$out/lib/main.so"
   ''

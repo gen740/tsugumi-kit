@@ -1,7 +1,7 @@
 # Templates
 
-These examples target **Card ABI 9 (unreleased)**. Their C++ Cards require the
-upcoming ABI 9 integration in Tsugumi.
+These examples target **the Card ABI (unreleased)**. Their C++ Cards require the
+upcoming Card ABI integration in Tsugumi.
 
 | Template | What you can copy |
 | --- | --- |

@@ -80,7 +80,7 @@ let
         sed -i 's/CheckBufferFromStart("", 0, verifyAction)/CheckBufferFromStart(null, 0, verifyAction)/' \
           Sdk/FlatBuffers/FlatBufferVerify.cs
         cp -r --no-preserve=mode ${generated}/Ports ${generated}/Card.g.cs Sdk/Generated/
-        abi=${../../abi/9}
+        abi=${../../abi}
         flatc --csharp --gen-object-api -o Sdk/Generated/Wire \
           "$abi/card_enums.fbs" "$abi/card.fbs"
         ${lib.optionalString (lock != null) "cp ${lib.escapeShellArg "${lock}"} packages.lock.json"}
@@ -143,6 +143,6 @@ pkgs.runCommandCC name
       -DTSUGUMI_HOSTFXR='"'${hostfxr}'"' -DTSUGUMI_DOTNET_ROOT='"'${dotnetRoot}'"' \
       -DTSUGUMI_CSHARP_ASSEMBLY='"'${managed}/Card.dll'"' \
       -DTSUGUMI_CSHARP_RUNTIMECONFIG='"'${managed}/Card.runtimeconfig.json'"' \
-      ${./host.cc} "${cppRuntime}/lib/libtsugumi_abi9.a" -pthread "''${link[@]}" \
+      ${./host.cc} "${cppRuntime}/lib/libtsugumi_abi.a" -pthread "''${link[@]}" \
       -o "$out/lib/main.so"
   ''

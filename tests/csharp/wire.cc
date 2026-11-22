@@ -403,5 +403,5 @@ auto main(int argc, char** argv) -> int {
   CHECK(entry(&call, &result) == 0);
   Failure(result, FailureKind::invalid_request);
   CHECK(dlclose(library) == 0);
-  puts("C# ABI 9 regression checks passed");
+  puts("C# Card ABI regression checks passed");
 }

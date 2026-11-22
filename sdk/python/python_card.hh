@@ -4,7 +4,7 @@
 
 #include "adapter.hh"
 
-namespace tsugumi::abi9 {
+namespace tsugumi::abi {
 
 template <class Table>
 auto VerifyValue(tsugumi_bytes bytes, std::string_view name) -> void {
@@ -53,4 +53,4 @@ auto VerifyOutput(const Tsugumi::Card::CardPortT& port) -> void {
     Reject(FailureKind::output_invalid, "Invalid output " + port.name);
 }
 
-}  // namespace tsugumi::abi9
+}  // namespace tsugumi::abi

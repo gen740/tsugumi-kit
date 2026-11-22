@@ -11,7 +11,7 @@
 #include <memory>
 #include <string>
 
-namespace tsugumi::abi9 {
+namespace tsugumi::abi {
 namespace {
 
 struct DropReference {
@@ -50,7 +50,7 @@ auto Send(PyObject*, PyObject* args) -> PyObject* {
   try {
     // The callback can block while a different Card thread needs the GIL.
     const ReleaseGil release;
-    status = tsugumi::abi9::SendDisplay(
+    status = tsugumi::abi::SendDisplay(
         view,
         {reinterpret_cast<const uint8_t*>(data), static_cast<size_t>(size)});
   } catch (...) {
@@ -266,4 +266,4 @@ auto RunPython(const PythonInput& input) -> Tsugumi::Card::CardResultT {
   return ReadResult(value.get());
 }
 
-}  // namespace tsugumi::abi9
+}  // namespace tsugumi::abi

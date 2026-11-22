@@ -1,6 +1,6 @@
 # Filter channel counts
 
-One C++ Card keeps detector channels whose count meets a threshold. **Targets unreleased Card ABI 9, revision 2.** This template will not build in released Tsugumi until the ABI 9 PR lands.
+One C++ Card keeps detector channels whose count meets a threshold. **Targets the unreleased Card ABI.** This template will not build in released Tsugumi until the Card ABI PR lands.
 
 Connect an upstream **Path** output containing a CSV file to `filter.counts`. The example accepts a narrow CSV format: the header `channel,counts`, then two unquoted unsigned 64-bit decimal integers per line, with LF or CRLF endings. A malformed row fails the call and reports its line number.
 

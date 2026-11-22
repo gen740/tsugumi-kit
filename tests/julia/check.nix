@@ -34,7 +34,7 @@ let
     }).run;
 in
 assert definition.views == kit.juliaSdk.views;
-runCommandCC "tsugumi-julia-abi9-check"
+runCommandCC "tsugumi-julia-abi-check"
   {
     buildInputs = [ flatbuffers ];
     passthru.apiCards = [
@@ -57,7 +57,7 @@ runCommandCC "tsugumi-julia-abi9-check"
     $CC -std=c11 -Wall -Wextra -Werror -fPIC -shared "$shared/legacy.c" -o legacy.so
     $CXX -std=c++2c -Wall -Wextra -Werror -isystem "${card.generated}/include" -I"$include" -I"$shared" \
       -I${../../sdk/cpp/src} \
-      ${./wire.cc} fake_host.o watchdog.o ${runtime}/lib/libtsugumi_abi9.a \
+      ${./wire.cc} fake_host.o watchdog.o ${runtime}/lib/libtsugumi_abi.a \
       -pthread ${lib.optionalString (!isDarwin) "-ldl"} -o fake_host
 
     mkdir work scratch

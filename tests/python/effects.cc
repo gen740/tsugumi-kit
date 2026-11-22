@@ -119,5 +119,5 @@ auto main(int argc, char** argv) -> int {
   call.input = make_input(VALID, 12, -1);
   CHECK(entry(&call, &result) == 0);
   check_success(result, 0);
-  puts("ABI 9 Python effects and union checks passed");
+  puts("Card ABI Python effects and union checks passed");
 }

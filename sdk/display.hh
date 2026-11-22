@@ -3,7 +3,7 @@
 #include <nlohmann/json.hpp>
 #include <string_view>
 
-#include "tsugumi/abi9/card_runtime.hh"
+#include "tsugumi/abi/card_runtime.hh"
 
 namespace tsugumi::display {
 

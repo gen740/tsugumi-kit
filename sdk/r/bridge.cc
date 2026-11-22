@@ -14,7 +14,7 @@ auto RunR(const Json& input) -> Json {
   const std::unique_ptr<char, decltype(&std::free)> reply(
       tsugumi_r_run(input.dump().c_str()), std::free);
   if (!reply)
-    abi9::Reject(abi9::FailureKind::worker_failed,
+    abi::Reject(abi::FailureKind::worker_failed,
                  "Embedded R could not initialize or complete the call");
   return Json::parse(reply.get());
 }
@@ -119,7 +119,7 @@ extern "C" auto tsugumi_r_display(const char* request, int* status) noexcept
 extern "C" auto tsugumi_r_send(const char* view, const uint8_t* bytes,
                                size_t size) noexcept -> int {
   try {
-    return tsugumi::abi9::SendDisplay(view, {bytes, size});
+    return tsugumi::abi::SendDisplay(view, {bytes, size});
   } catch (...) {
     return 1;
   }

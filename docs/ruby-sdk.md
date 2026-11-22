@@ -1,6 +1,6 @@
 # Ruby Card SDK
 
-This guide targets **Card ABI 9, revision 2 (unreleased)**. Put
+This guide targets **the Card ABI (unreleased)**. Put
 `main(input)` in `src/main.rb` and use `inputs.tsugumi.rubySdk` in the
 Card's `default.nix`.
 

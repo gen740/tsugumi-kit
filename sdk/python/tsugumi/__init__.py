@@ -1,4 +1,4 @@
-"""Python API for ABI 9 Cards."""
+"""Python API for Cards."""
 
 from _tsugumi_host import cancelled, remaining_ms
 

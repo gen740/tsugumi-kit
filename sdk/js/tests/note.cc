@@ -50,7 +50,7 @@ auto main(int argc, char** argv) -> int {
                        &displays, &effects};
   tsugumi_bytes bytes;
   CHECK(entry(&call, &bytes) == 0);
-  const tsugumi::abi9::Buffer buffer(bytes);
+  const tsugumi::abi::Buffer buffer(bytes);
   const auto* result = buffer.Verify<Tsugumi::Card::CardResult>();
   CHECK(result);
   if (const auto* failure = result->failure())

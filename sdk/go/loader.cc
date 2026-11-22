@@ -29,7 +29,7 @@ auto LoadCard() noexcept -> tsugumi_main_fn {
 }
 
 auto LoadFailure(tsugumi_bytes) -> Tsugumi::Card::CardResultT {
-  tsugumi::abi9::Reject(tsugumi::abi9::FailureKind::worker_failed,
+  tsugumi::abi::Reject(tsugumi::abi::FailureKind::worker_failed,
                         "Could not load the Go Card library");
 }
 
@@ -45,5 +45,5 @@ extern "C" auto tsugumi_main(const tsugumi_call* call, tsugumi_bytes* result)
 
   static const auto entry = LoadCard();
   return entry ? entry(call, result)
-               : tsugumi::abi9::Invoke(call, result, LoadFailure);
+               : tsugumi::abi::Invoke(call, result, LoadFailure);
 }

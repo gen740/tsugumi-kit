@@ -17,7 +17,7 @@
 #include <utility>
 #include <vector>
 
-namespace tsugumi::abi9 {
+namespace tsugumi::abi {
 namespace {
 
 using Value = v8::Local<v8::Value>;
@@ -369,4 +369,4 @@ auto RunNodeCard(tsugumi_bytes input) -> Tsugumi::Card::CardResultT {
   return value;
 }
 
-}  // namespace tsugumi::abi9
+}  // namespace tsugumi::abi

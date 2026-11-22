@@ -1,4 +1,4 @@
-# Julia SDK for Card ABI 9, revision 2
+# Julia SDK for the Card ABI
 
 Put `main(input)` in `src/main.jl`. The SDK embeds Julia in the Card's
 `lib/main.so`.
@@ -97,4 +97,4 @@ uses `HOME/.julia` for mutable cache data.
 
 The builder accepts `tools` for runtime executables. See [Runtime tools](../README.md#runtime-tools).
 
-Build `checks.<system>.juliaAbi9` to run the Julia Card through the ABI harness.
+Build `checks.<system>.juliaAbi` to run the Julia Card through the ABI harness.

@@ -41,7 +41,7 @@ auto Read(tsugumi_bytes bytes) -> const Table& {
 template <class Table>
 auto ReadPort(const CardPort& port) -> typename Table::NativeTableType {
   CHECK(port.bytes());
-  return tsugumi::abi9::ReadValue<Table>(
+  return tsugumi::abi::ReadValue<Table>(
       {port.bytes()->data(), port.bytes()->size()}, port.name()->string_view());
 }
 
@@ -294,13 +294,13 @@ auto CheckSuccess(tsugumi_bytes bytes, bool optional_ports, int tree_levels)
   if (extra == Extra::temperature) {
     const auto* box = merged.value.AsTemperatureBox();
     CHECK(box);
-    CHECK(tsugumi::abi9::ReadValue<t0::Temperature>(
+    CHECK(tsugumi::abi::ReadValue<t0::Temperature>(
               {box->bytes.data(), box->bytes.size()}, "arrival")
               .value == 21.0);
   } else {
     const auto* box = merged.value.AsReadingBox();
     CHECK(box);
-    CHECK(tsugumi::abi9::ReadValue<t1::Reading>(
+    CHECK(tsugumi::abi::ReadValue<t1::Reading>(
               {box->bytes.data(), box->bytes.size()}, "arrival")
               .name == "sensor");
   }

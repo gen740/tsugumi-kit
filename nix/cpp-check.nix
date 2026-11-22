@@ -44,7 +44,7 @@ let
     src = ../tests/card/src;
     buildInputs = [ zlib ];
     cxxflags = [
-      "-DABI9_TEST_CARD"
+      "-DABI_TEST_CARD"
       "-lz"
     ];
   };
@@ -97,7 +97,7 @@ assert lib.all
     ]
   );
 assert filter.views == cppSdk.views && convert.views == cppSdk.views;
-runCommandCC "tsugumi-cpp-abi9-check"
+runCommandCC "tsugumi-cpp-abi-check"
   {
     buildInputs = [ flatbuffers ];
     passthru.apiCards = [

@@ -14,7 +14,7 @@
 namespace {
 
 using namespace Tsugumi::Card;
-using tsugumi::abi9::Buffer;
+using tsugumi::abi::Buffer;
 using Tsugumi::Data::FailureKind;
 using Tsugumi::Data::PortKind;
 

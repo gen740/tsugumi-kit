@@ -148,7 +148,7 @@ let
           -Wall -Wextra -Werror -Wformat=2 -Wimplicit-fallthrough \
           -shared "''${toolPathObject[@]}" "''${link[@]}" -I${generated}/include -I${runtime}/include \
           -I${cpp}/src -I${sdk} ${generated}/src/card_glue.cc ${sdk}/adapter.cc ${sdk}/json_codec.cc embed.o \
-          ${runtime}/lib/libtsugumi_abi9.a "''${rubyLibs[@]}" -pthread -o "$out/lib/main.so"
+          ${runtime}/lib/libtsugumi_abi.a "''${rubyLibs[@]}" -pthread -o "$out/lib/main.so"
       '';
 in
 rubyCardFor

@@ -3,7 +3,7 @@
   perSystem =
     { pkgs, system, ... }:
     {
-      checks.rustAbi9 = pkgs.callPackage ../tests/rust {
+      checks.rustAbi = pkgs.callPackage ../tests/rust {
         kit = self.lib.${system};
       };
     };

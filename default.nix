@@ -17,7 +17,7 @@ let
     inherit (import ./nix/go-card.nix { inherit pkgs runtime; }) goCard goCardSdk;
     rustCard = import ./sdk/rust {
       inherit pkgs;
-      abi = ./abi/9;
+      abi = ./abi;
     };
     csharpCard = import ./sdk/csharp/build.nix { inherit pkgs cppRuntime portCodegen; };
     juliaCard = import ./sdk/julia/card.nix { inherit pkgs runtime portCodegen; };

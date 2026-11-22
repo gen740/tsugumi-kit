@@ -25,7 +25,7 @@ struct Failure : std::runtime_error {
   std::string cell;
 };
 
-namespace abi9::detail {
+namespace abi::detail {
 
 template <std::size_t Size>
 struct InputName {
@@ -66,7 +66,7 @@ auto GetInput(std::string_view name, const std::optional<U>& value) -> T {
   }
 }
 
-}  // namespace abi9::detail
+}  // namespace abi::detail
 
 }  // namespace tsugumi
 

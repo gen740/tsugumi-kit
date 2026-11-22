@@ -40,7 +40,7 @@ in
 }:
 let
   inherit (stdenv.hostPlatform) isDarwin;
-  abi = ../abi/9;
+  abi = ../abi;
   sdk = lib.fileset.toSource {
     root = ../sdk/js;
     fileset = lib.fileset.difference ../sdk/js ../sdk/js/tests;
@@ -131,6 +131,6 @@ runCommandCC "tsugumi-js-card"
       "-DTSUGUMI_NODE=\"${libnode}/bin/node\"" "-DTSUGUMI_LIBNODE=\"''${libraries[0]}\"" \
       "-DTSUGUMI_JS_BOOTSTRAP=\"${bindings}/js/bootstrap.cjs\"" "-DTSUGUMI_JS_ENTRY=\"$app/main.mjs\"" \
       "${sdk}/node_card.cc" "${bindings}/native/card_adapter.cc" \
-      "${runtime}/lib/libtsugumi_abi9.a" "''${libraries[0]}" -Wl,-rpath,"${libnode}/lib" -luv \
+      "${runtime}/lib/libtsugumi_abi.a" "''${libraries[0]}" -Wl,-rpath,"${libnode}/lib" -luv \
       -pthread ${lib.optionalString (!isDarwin) "-ldl"} -o "$out/lib/main.so"
   ''

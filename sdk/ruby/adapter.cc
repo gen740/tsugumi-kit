@@ -8,7 +8,7 @@
 
 extern "C" auto tsugumi_ruby_send(const char* view, ruby_bytes bytes) -> int {
   try {
-    return tsugumi::abi9::SendDisplay(
+    return tsugumi::abi::SendDisplay(
         view, {reinterpret_cast<const uint8_t*>(bytes.data), bytes.size});
   } catch (...) {
     // Never unwind through MRI's C callback.
@@ -36,7 +36,7 @@ extern "C" auto tsugumi_ruby_remaining_ms(int64_t* value) -> int {
 
 namespace tsugumi::ruby {
 
-using abi9::FailureKind;
+using abi::FailureKind;
 using Tsugumi::Card::CardFailureT;
 using Tsugumi::Card::CardResultT;
 
@@ -45,16 +45,16 @@ auto InvokeRuby(const Json& input) -> Json {
   try {
     encoded = input.dump();
   } catch (const Json::exception& error) {
-    abi9::Reject(FailureKind::invalid_request, error.what());
+    abi::Reject(FailureKind::invalid_request, error.what());
   }
   const std::unique_ptr<char, decltype(&std::free)> output(
       tsugumi_ruby_invoke({encoded.data(), encoded.size()}), &std::free);
   if (!output)
-    abi9::Reject(FailureKind::worker_failed, "Ruby could not run the Card");
+    abi::Reject(FailureKind::worker_failed, "Ruby could not run the Card");
   try {
     return Json::parse(output.get());
   } catch (const Json::exception& error) {
-    abi9::Reject(FailureKind::output_invalid, error.what());
+    abi::Reject(FailureKind::output_invalid, error.what());
   }
 }
 

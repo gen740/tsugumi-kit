@@ -7,7 +7,7 @@
 
 namespace {
 
-using namespace tsugumi::abi9;
+using namespace tsugumi::abi;
 using Tsugumi::Card::CardResult;
 using Tsugumi::Card::CardResultT;
 

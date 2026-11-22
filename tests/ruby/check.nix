@@ -42,7 +42,7 @@ let
   inherit (stdenv.hostPlatform) isDarwin;
 in
 assert definition.views == kit.rubySdk.views;
-runCommandCC "tsugumi-ruby-abi9-check"
+runCommandCC "tsugumi-ruby-abi-check"
   {
     passthru.apiCards = [
       card
@@ -73,7 +73,7 @@ runCommandCC "tsugumi-ruby-abi9-check"
       -Wall -Wextra -Werror -I"$include" -c "$tests/fake_host.c"
     $CC -std=c11 -Wall -Wextra -Werror -fPIC -shared "$tests/legacy.c" -o legacy.so
     $CXX -std=c++2c -Wall -Wextra -Werror -I"${card.generated}/include" -I"$include" -I"$tests" -I${../../sdk/cpp/src} \
-      ${./wire.cc} fake_host.o ${runtime}/lib/libtsugumi_abi9.a \
+      ${./wire.cc} fake_host.o ${runtime}/lib/libtsugumi_abi.a \
       -pthread ${lib.optionalString (!isDarwin) "-ldl"} -o fake_host
     export RUBYOPT=-rtsugumi_test_missing_startup_library
     export RUBYLIB="$PWD/worker-ruby"

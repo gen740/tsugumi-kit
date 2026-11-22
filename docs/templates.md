@@ -1,6 +1,6 @@
 # Copying a Card template
 
-A template is a folder of Card definition directories. It can contain a single Card, several Cards, or part of a graph with internal connections. Copy a template when you want to edit its Cards or wire them into an existing project. The examples here target **Card ABI 9 (unreleased)**.
+A template is a folder of Card definition directories. It can contain a single Card, several Cards, or part of a graph with internal connections. Copy a template when you want to edit its Cards or wire them into an existing project. The examples here target **the Card ABI (unreleased)**.
 
 ## What goes in the folder
 

@@ -36,7 +36,7 @@ let
         done
 
         schemas=${lib.escapeShellArg "${schemas}"}
-        abi=${../abi/9}
+        abi=${../abi}
         flatc --go --gen-object-api --go-import tsugumi/flatbuffers --go-module-name tsugumi \
           -o "$out" "$abi/card_enums.fbs" "$abi/card.fbs"
         flatc --go --gen-object-api --go-import tsugumi/flatbuffers --go-module-name tsugumi \
@@ -66,7 +66,7 @@ let
             -I${../sdk/cpp/src} -c "$source"
         done
         $AR rcs "$out/lib/go-host.a" host.o card_ports.o entry.o
-        cp ${runtime}/lib/libtsugumi_abi9.a "$out/lib/"
+        cp ${runtime}/lib/libtsugumi_abi.a "$out/lib/"
       '';
   mkGoCard =
     {
@@ -184,7 +184,7 @@ let
         ${nativeFlags}
         ${import ./prepare-tools.nix { inherit lib; } tools}
         $CXX "''${cxx_flags[@]}" -shared "''${toolPathObject[@]}" -I${runtime}/include -I${../sdk/cpp/src} \
-          ${sdk}/loader.cc ${runtime}/lib/libtsugumi_abi9.a -pthread "''${loader_link[@]}" \
+          ${sdk}/loader.cc ${runtime}/lib/libtsugumi_abi.a -pthread "''${loader_link[@]}" \
           -o "$out/lib/main.so"
       '';
 in

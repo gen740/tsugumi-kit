@@ -1,4 +1,4 @@
-# R SDK for Card ABI 9, revision 2
+# R SDK for the Card ABI
 
 Put `main(input)` in `src/main.R`. The SDK embeds R in the Card's
 `lib/main.so`.
@@ -121,4 +121,4 @@ before each call. Keep files that need to survive across calls under `HOME`.
 Uncaught R errors report the source and line of the innermost Card function
 when its source reference is available.
 
-Build `checks.<system>.rAbi9` to run the R Card through the ABI harness.
+Build `checks.<system>.rAbi` to run the R Card through the ABI harness.

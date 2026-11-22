@@ -174,6 +174,6 @@ int main(int argc, char** argv) {
   check_query_during_return(entry, 16);
   check_query_during_return(entry, 17);
   CHECK(dlclose(current) == 0);
-  puts("C++ ABI 9 audit regression checks passed");
+  puts("C++ Card ABI audit regression checks passed");
   return 0;
 }

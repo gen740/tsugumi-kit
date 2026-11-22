@@ -1,4 +1,4 @@
-"""Emit the C++ glue between ABI 9 and a Julia Card, plus its API README.
+"""Emit the C++ glue between the Card ABI and a Julia Card, plus its API README.
 
 The ports come from the shared reflection module. The C++ bridge uses the
 C++ SDK's object API headers, with the same reserved-name normalization.
@@ -334,7 +334,7 @@ def generate(card, schemas, names, output_schema):
              for type_ in merged_leaves(port.type, port.merge))
     body = [
         "namespace {",
-        "using namespace tsugumi::abi9;",
+        "using namespace tsugumi::abi;",
         "",
         *validators(output_schema, roots),
         *(line for function in reversed(functions.values()) for line in [*function, ""]),
@@ -373,7 +373,7 @@ def generate(card, schemas, names, output_schema):
         "",
         'extern "C" __attribute__((visibility("default")))',
         "auto tsugumi_main(const tsugumi_call* call, tsugumi_bytes* result) -> int {",
-        "  return tsugumi::abi9::Invoke(call, result, tsugumi::julia::RunCard);",
+        "  return tsugumi::abi::Invoke(call, result, tsugumi::julia::RunCard);",
         "}",
     ]
     return "\n".join(declarations + definitions + body) + "\n"

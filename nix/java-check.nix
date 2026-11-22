@@ -47,7 +47,7 @@ let
 in
 assert !(card ? views);
 assert definition.views == kit.javaSdk.views;
-runCommandCC "tsugumi-java-abi9-check"
+runCommandCC "tsugumi-java-abi-check"
   {
     nativeBuildInputs = [ flatbuffers ];
     buildInputs = [ flatbuffers ];

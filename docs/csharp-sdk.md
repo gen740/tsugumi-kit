@@ -1,6 +1,6 @@
 # C# Card SDK
 
-This guide targets **Card ABI 9, revision 2 (unreleased)**.
+This guide targets **the Card ABI (unreleased)**.
 
 Use `inputs.tsugumi.csharpSdk` in your Card's `default.nix`. Pass the
 `schemas` directory that Tsugumi supplies and the directory containing your

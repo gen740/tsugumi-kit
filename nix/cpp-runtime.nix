@@ -10,7 +10,7 @@
 }:
 stdenv.mkDerivation {
   pname = "tsugumi-cpp-runtime";
-  version = "9";
+  version = "0";
   src = ../sdk/cpp;
   nativeBuildInputs = [
     cmake

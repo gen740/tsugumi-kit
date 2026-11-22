@@ -1,6 +1,6 @@
 # Writing a JavaScript Card
 
-This guide targets **Card ABI 9 revision 2 (unreleased)**. A JavaScript Card exports one
+This guide targets **the Card ABI (unreleased)**. A JavaScript Card exports one
 function from `src/main.mjs`. It receives typed input ports and parameters and
 returns an object keyed by output port. The function can return a Promise.
 

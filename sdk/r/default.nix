@@ -95,6 +95,6 @@ runCommandCC name
       -Wall -Wextra -Werror -Wformat=2 -Wimplicit-fallthrough \
       -shared "''${toolPathObject[@]}" "''${link[@]}" "''${includes[@]}" \
       "${generated}/src/r_adapter.cc" ${./bridge.cc} embed.o \
-      "${runtime}/lib/libtsugumi_abi9.a" -pthread \
+      "${runtime}/lib/libtsugumi_abi.a" -pthread \
       -L"${rHome}/lib" -Wl,-rpath,"${rHome}/lib" -lR -o "$out/lib/main.so"
   ''

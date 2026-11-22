@@ -29,7 +29,7 @@ let
         ];
       }
       ''
-        abi=${../../abi/9}
+        abi=${../../abi}
         PYTHONPATH="${../cpp}''${PYTHONPATH:+:$PYTHONPATH}" \
           python3 ${./generate.py} ${lib.escapeShellArg "${schemas}"} "$out" \
           ${flatbuffers.src}/reflection/reflection.fbs
@@ -83,6 +83,6 @@ runCommandCC "tsugumi-python-card"
       "-DTSUGUMI_PY_WIRE=\"$out/lib/python-wire\"" \
       "-DTSUGUMI_PY_PACKAGES=\"${pythonEnv}/${python.sitePackages}\"" \
       "${./.}/python_card.cc" "${bindings}/card_adapter.cc" \
-      "${runtime}/lib/libtsugumi_abi9.a" "${libpython}" \
+      "${runtime}/lib/libtsugumi_abi.a" "${libpython}" \
       -pthread ${lib.optionalString (!isDarwin) "-ldl"} -o "$out/lib/main.so"
   ''

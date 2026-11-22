@@ -1,4 +1,4 @@
-# Python SDK for Card ABI 9, revision 2
+# Python SDK for the Card ABI
 
 A Python Card puts its entry function in `src/main.py`. The SDK embeds
 CPython in the Card's `lib/main.so`.
@@ -111,5 +111,5 @@ Raise `tsugumi.Failure("validation_failed", message)` to control the failure
 kind. Unhandled Python exceptions produce a `worker_failed` result. The
 SDK reports the source line when it can identify a frame in the Card source.
 
-Build `checks.<system>.pythonAbi9` to run the Python Card with the shared
+Build `checks.<system>.pythonAbi` to run the Python Card with the shared
 fake host.

@@ -18,7 +18,7 @@ let
   card = definition.run;
 in
 assert definition.views == kit.csharpSdk.views;
-runCommandCC "tsugumi-csharp-abi9-check"
+runCommandCC "tsugumi-csharp-abi-check"
   {
     nativeBuildInputs = [ flatbuffers ];
     buildInputs = [ flatbuffers ];

@@ -5,7 +5,7 @@
 
 #include "adapter.hh"
 
-namespace tsugumi::abi9 {
+namespace tsugumi::abi {
 
 auto RunNodeCard(tsugumi_bytes input) -> Tsugumi::Card::CardResultT;
 
@@ -33,4 +33,4 @@ inline auto VerifyPathOutput(const Tsugumi::Card::CardPortT& port) -> void {
     Reject(FailureKind::output_invalid, "Invalid Path output " + port.name);
 }
 
-}  // namespace tsugumi::abi9
+}  // namespace tsugumi::abi

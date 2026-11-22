@@ -20,7 +20,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#include "tsugumi/abi9/card_abi.h"
+#include "tsugumi/abi/card_abi.h"
 
 extern bool tsugumi_r_cancelled(void);
 extern double tsugumi_r_remaining_ms(void);
@@ -221,7 +221,7 @@ char* tsugumi_r_run(const char* input) {
   pthread_once(&startup, start);
   if (!started) return NULL;
 
-  /* ABI 9 serializes the callers. libR and its owner live until process exit.
+  /* The Card ABI serializes the callers. libR and its owner live until process exit.
    */
   struct call call = {input, NULL};
   pthread_mutex_lock(&mutex);
