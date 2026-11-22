@@ -52,7 +52,7 @@ absence value. The table gives the conventions for this revision's SDK ports.
 | Go | `T` via `RequireInput[T](input, name)` | `*T` via a generated accessor or `OptionalInput[T](input, name)` |
 | C# | `T` via `input.Get<T>(name)` | `T?` via a generated property or `input.Find<T>(name)` |
 | Java | `T` via `input.get(name, Type.class)` | `Optional<T>` via a generated accessor or `input.find(name, Type.class)` |
-| Ruby | Required lookup yielding a value | Optional lookup yielding a value or `nil` |
+| Ruby | `input.fetch(:port)` returns `T` | `input[:port]` returns `T \| nil` |
 | R | `input[["port"]]` or `input$port` | `optional_input(input, "port")`, absent as `NULL` |
 | Julia | `input[:port]` or `input.port` yields `T` | `get(input, :port, nothing)` yields `Union{T, Nothing}` |
 | JavaScript | `input.need(name)` returns `T` | `input.ports[name]` returns `T \| undefined` |

@@ -12,6 +12,7 @@ upcoming ABI 9 integration in Tsugumi.
 | [Write text with Python](python-write-text/) | An Input Card wired to a Python Card that writes text to a Path output. |
 | [Write text with Julia](julia-write-text/) | A Julia Card that writes a FlatBuffer string to a Path output. |
 | [Write text with R](r-write-text/) | An R Card that writes a FlatBuffer string to a Path output. |
+| [Write text with Ruby](ruby-write-text/) | A Ruby Card that writes a FlatBuffer string to a Path output. |
 | [Write text with Java](java-write-text/) | An Input Card wired to a Java Card that displays the text and returns it on a Path port. |
 | [Write a note with C#](csharp-write-note/) | A C# Card that writes a parameter to a Path output. |
 | [Write a note with JavaScript](js-write-note/) | A Node.js Card that writes a parameter to a text File and displays its byte count. |

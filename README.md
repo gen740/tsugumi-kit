@@ -30,6 +30,7 @@ whole or to Tsugumi's worker, which belongs to the core.
 | [Rust SDK guide](docs/rust-sdk.md) | Build a Rust Card with verified borrowed inputs and owned outputs. |
 | [Julia SDK guide](docs/julia-sdk.md) | Write a Julia Card with generated port documentation and an embedded Julia runtime. |
 | [R SDK guide](docs/r-sdk.md) | Write an R Card with named-list ports and an embedded R runtime. |
+| [Ruby SDK guide](docs/ruby-sdk.md) | Write a Ruby Card with generated RBS signatures and locked gems. |
 | [Java SDK guide](docs/java-sdk.md) | Build a typed Java Card with an embedded JVM. |
 | [JavaScript SDK guide](docs/js-sdk.md) | Write an async Node.js Card with generated TypeScript bindings and npm dependencies for ABI 9 revision 2. |
 | [Template guide](docs/templates.md) | Template format, Git import and the host and project stores. |
