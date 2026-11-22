@@ -1,37 +1,42 @@
 {
+  pkgs,
   lib,
   runCommandCC,
   stdenv,
   flatbuffers,
-  csharpCard,
-  cppRuntime,
+  # The kit's root entry, `import ./. { inherit pkgs; }`.
+  kit,
 }:
 let
   inherit (stdenv.hostPlatform) isDarwin;
-  contract = ./contract;
-  card = csharpCard {
-    src = ./card;
-    inherit contract;
-    lock = ./packages.lock.json;
-    hash = "sha256-N/TMjhwyaHux4hi7cSjpCjM9o4BmoxY+NhFx+g5tIDw=";
+  schemas = ./schemas;
+  definition = import ./card {
+    inherit pkgs schemas;
+    inputs.tsugumi = kit;
+    params = { };
   };
+  card = definition.run;
 in
+assert definition.views == kit.csharpSdk.views;
 runCommandCC "tsugumi-csharp-abi9-check"
   {
     nativeBuildInputs = [ flatbuffers ];
     buildInputs = [ flatbuffers ];
+    passthru.apiCards = [ card ];
   }
   ''
     card=${card}/lib/main.so
     shared=${../.}
-    include=${cppRuntime}/include
+    include=${kit.cppRuntime}/include
 
+    test -s ${card}/share/tsugumi/api/Card.g.cs
+    grep -q 'Input.Arrival: object' ${card}/share/tsugumi/api/README.md
     for schema in _inputs _params; do
-      flatc --cpp --gen-object-api --scoped-enums -o . ${contract}/"$schema.fbs"
+      flatc --cpp --gen-object-api --scoped-enums -o . ${schemas}/"$schema.fbs"
     done
     # The fake host only reads outputs. The C++ object API's Pack method also
     # conflicts with the fixture's Pack table name.
-    flatc --cpp --scoped-enums -o . ${contract}/_outputs.fbs
+    flatc --cpp --scoped-enums -o . ${schemas}/_outputs.fbs
     $CC -std=c11 -D_DEFAULT_SOURCE -Dmain=check_shared_abi -Wall -Wextra -Werror \
       -I"$include" -c "$shared/fake_host.c"
     $CC -std=c11 -Wall -Wextra -Werror -fPIC -shared "$shared/legacy.c" -o legacy.so

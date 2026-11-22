@@ -1,7 +1,11 @@
-{ pkgs, cppRuntime }:
+{
+  pkgs,
+  cppRuntime,
+  portCodegen,
+}:
 {
   src,
-  contract,
+  schemas,
   name ? "tsugumi-csharp-card",
   dotnet ? pkgs.dotnet-sdk_10,
   lock ? null,
@@ -29,13 +33,24 @@ let
       hash
       ;
   };
+  generated =
+    pkgs.runCommand "${name}-api"
+      {
+        nativeBuildInputs = [
+          pkgs.flatbuffers
+          (pkgs.python3.withPackages (_: [ portCodegen ]))
+        ];
+      }
+      ''
+        python3 ${./card_csharp.py} ${lib.escapeShellArg "${schemas}"} \
+          ${pkgs.flatbuffers.src}/reflection/reflection.fbs "$out"
+      '';
   managed =
     pkgs.runCommand "${name}-managed"
       {
         nativeBuildInputs = [
           dotnet
           pkgs.flatbuffers
-          pkgs.python3
         ];
         DOTNET_CLI_TELEMETRY_OPTOUT = "1";
         DOTNET_NOLOGO = "1";
@@ -64,14 +79,10 @@ let
         # Its nested-buffer caller passes an empty string instead.
         sed -i 's/CheckBufferFromStart("", 0, verifyAction)/CheckBufferFromStart(null, 0, verifyAction)/' \
           Sdk/FlatBuffers/FlatBufferVerify.cs
-        contract=${lib.escapeShellArg "${contract}"}
-        for schema in _inputs _outputs _params; do
-          flatc --csharp --gen-object-api -o Sdk/Generated "$contract/$schema.fbs"
-        done
+        cp -r --no-preserve=mode ${generated}/Ports ${generated}/Card.g.cs Sdk/Generated/
         abi=${../../abi/9}
-        flatc --csharp --gen-object-api -o Sdk/Generated \
-          "$abi/tsugumi_enums.fbs" "$abi/card.fbs"
-        python3 ${./card_csharp.py} "$contract/_contract.json" Sdk/Generated/Contract.cs
+        flatc --csharp --gen-object-api -o Sdk/Generated/Wire \
+          "$abi/card_enums.fbs" "$abi/card.fbs"
         ${lib.optionalString (lock != null) "cp ${lib.escapeShellArg "${lock}"} packages.lock.json"}
 
         cat > Card.csproj <<'PROJECT'
@@ -107,12 +118,13 @@ pkgs.runCommandCC name
   {
     buildInputs = [ pkgs.flatbuffers ];
     passthru = {
-      inherit managed;
+      inherit generated managed;
     }
     // lib.optionalAttrs (lock != null) { nugetPackages = nuget.packages; };
   }
   ''
-    mkdir -p "$out/lib"
+    mkdir -p "$out/lib" "$out/share/tsugumi/api"
+    cp -r ${generated}/. "$out/share/tsugumi/api/"
     ${
       if isDarwin then
         ''

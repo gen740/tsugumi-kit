@@ -34,7 +34,7 @@ internal sealed class InputPorts
         for (var i = 0; i < input.InputsLength; i++)
         {
             var port = input.Inputs(i)!.Value;
-            if (port.Kind is not (PortKind.FlatBuffer or PortKind.File or PortKind.Directory))
+            if (port.Kind is not (PortKind.FlatBuffer or PortKind.Path))
                 throw Rejected(FailureKind.invalid_request, "Unknown input port kind");
             if (!ports.TryAdd(port.Name, port))
                 throw Rejected(FailureKind.invalid_request, $"Duplicate input {port.Name}");
@@ -44,17 +44,14 @@ internal sealed class InputPorts
 
     internal byte[] Params { get; }
 
-    internal byte[]? Take(string name, PortKind kind, bool required)
+    // Inputs are absent unless connected; the Card decides which it needs.
+    internal Wire.CardPort? Take(string name, PortKind kind)
     {
         if (!ports.Remove(name, out var port))
-        {
-            if (required)
-                throw Rejected(FailureKind.input_missing, $"Missing input {name}");
             return null;
-        }
         if (port.Kind != kind)
             throw Rejected(FailureKind.invalid_request, $"Wrong kind for input {name}");
-        return port.GetBytesArray() ?? [];
+        return port;
     }
 
     internal void CheckConsumed()
@@ -65,6 +62,23 @@ internal sealed class InputPorts
 
     internal static Failure Rejected(FailureKind kind, string message) =>
         new(kind, message, source: "", line: 0);
+
+    internal static string PathOf(Wire.CardPort port)
+    {
+        if (port.Path is not { Length: > 0 } path || port.BytesLength != 0)
+            throw Rejected(FailureKind.invalid_request, $"Invalid Path input {port.Name}");
+        return path;
+    }
+
+    internal static Wire.CardPortT PathPort(string name, string path)
+    {
+        if (path.Length == 0 || path.Contains('\0'))
+            throw Rejected(FailureKind.output_invalid, $"Invalid Path output {name}");
+        return new() { Name = name, Kind = PortKind.Path, Path = path };
+    }
+
+    internal static Wire.CardPortT FlatBufferPort(string name, byte[] bytes) =>
+        new() { Name = name, Kind = PortKind.FlatBuffer, Bytes = new List<byte>(bytes) };
 
     internal static ByteBuffer Verify(byte[]? bytes, VerifyTableAction verifier, string name, FailureKind kind)
     {
@@ -82,6 +96,23 @@ internal sealed class InputPorts
             // Bad offsets are also exposed by the managed verifier as exceptions.
         }
         throw Rejected(kind, $"Invalid FlatBuffer for {name}");
+    }
+
+    internal static byte[] Pack(string name, VerifyTableAction verify, Func<FlatBufferBuilder, int> pack)
+    {
+        byte[] bytes;
+        try
+        {
+            var builder = new FlatBufferBuilder(256);
+            builder.Finish(pack(builder));
+            bytes = builder.SizedByteArray();
+        }
+        catch (Exception error)
+        {
+            throw Rejected(FailureKind.output_invalid, $"Invalid output {name}: {error.Message}");
+        }
+        Verify(bytes, verify, name, FailureKind.output_invalid);
+        return bytes;
     }
 }
 

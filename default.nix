@@ -19,7 +19,7 @@ let
       inherit pkgs;
       abi = ./abi/9;
     };
-    csharpCard = import ./sdk/csharp/build.nix { inherit pkgs cppRuntime; };
+    csharpCard = import ./sdk/csharp/build.nix { inherit pkgs cppRuntime portCodegen; };
     juliaCard = import ./sdk/julia/card.nix { inherit pkgs runtime portCodegen; };
     rCard = pkgs.callPackage ./sdk/r { inherit runtime ipaexGothic portCodegen; };
     rubyCard = import ./nix/ruby-card.nix { inherit pkgs runtime; };

@@ -47,28 +47,38 @@ public static class Card
             case 5:
                 throw new Exception("other exception");
             case 6:
-                return new Output { Number = null!, Out = new(), File = new() { Value = "ignored" } };
+                return new Output { Number = null!, Out = new(), File = "ignored" };
             case 7:
-                return new Output { Number = new() { Value = 42 }, Out = new() { Name = null }, File = new() { Value = "ignored" } };
+                return new Output { Number = new() { Value = 42 }, Out = new() { Name = null }, File = "ignored" };
             case 11:
                 throw new Failure(FailureKind.unspecified, "unspecified kind");
             case 12:
                 throw new Failure((FailureKind)ushort.MaxValue, "unknown kind");
         }
 
+        // A needed input: absent produces input_missing naming the port.
+        var number = input.Get<inputs.number.NumberT>("number");
+        var sample = input.Get<inputs.sample.SampleT>("sample");
+        if (!ReferenceEquals(number, input.Number) || input.Find<string>("unwired") is not null)
+            throw new InvalidOperationException("Unexpected input lookup");
+        if (input.Params.Mode == 20)
+            input.Get<string>("unwired");
+        if (input.Params.Mode == 22)
+            input.Get<string>("number");
+
         var count = 2;
         if (input.Params.Mode == 8)
         {
-            if (input.Sample.Name != new string('i', 40 * 1024) ||
-                input.Sample.Value.AsLabel().Value != "late input")
+            if (sample.Name != new string('i', 40 * 1024) ||
+                sample.Value.AsLabel().Value != "late input")
                 throw new InvalidOperationException("Large input did not round-trip");
         }
         else
         {
-            count = input.Sample.Value.AsCount().Value;
+            count = sample.Value.AsCount().Value;
         }
-        var name = input.Params.Mode == 8 ? "table payload" : input.Sample.Name;
-        string? path = input.File?.Value;
+        var name = input.Params.Mode == 8 ? "table payload" : sample.Name;
+        var path = input.File;
         if (path is null)
         {
             path = "created.txt";
@@ -81,7 +91,7 @@ public static class Card
 
         var output = new Output
         {
-            Number = new() { Value = input.Number.Position.X + input.Number.Position.Y + count + (input.Params.Mode == 2 ? 1 : 0) },
+            Number = new() { Value = number.Position.X + number.Position.Y + count + (input.Params.Mode == 2 ? 1 : 0) },
             Out = new()
             {
                 Name = name,
@@ -90,21 +100,32 @@ public static class Card
                     Value = JsonConvert.DeserializeObject<string>("\"union result\"")!,
                 }),
             },
-            File = new() { Value = path },
-            Directory = input.Directory is { } directory ? new() { Value = directory.Value } : null,
+            // Return input paths unchanged to forward them.
+            File = path,
+            Directory = input.Find<string>("directory"),
+            Arrival = input.Arrival switch
+            {
+                inputs.arrival.tsugumi.merge.t0.TemperatureT temperature =>
+                    new outputs.arrival.tsugumi.merge.t0.TemperatureT { Value = temperature.Value + 1 },
+                inputs.arrival.tsugumi.merge.t1.ReadingT reading =>
+                    new outputs.arrival.tsugumi.merge.t1.ReadingT { Name = reading.Name },
+                _ => null,
+            },
         };
         if (input.Params.Mode == 10)
         {
             CheckOutputTypes();
-            output.Pack_ = new() { Items = [new() { Text = "late output" }, new() { Text = new string('o', 40 * 1024) }] };
+            output.Pack = new() { Items = [new() { Text = "late output" }, new() { Text = new string('o', 40 * 1024) }] };
         }
+        if (input.Params.Mode == 21)
+            output.Arrival = "not a Merge member";
         return output;
     }
 
     private static void CheckOutputTypes()
     {
         var required = typeof(Output).GetProperty(nameof(Output.Number))!;
-        var optional = typeof(Output).GetProperty(nameof(Output.Pack_))!;
+        var optional = typeof(Output).GetProperty(nameof(Output.Pack))!;
         var nullability = new NullabilityInfoContext();
         if (!required.IsDefined(typeof(RequiredMemberAttribute), inherit: false) ||
             optional.IsDefined(typeof(RequiredMemberAttribute), inherit: false) ||
