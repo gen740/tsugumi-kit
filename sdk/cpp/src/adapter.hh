@@ -77,14 +77,11 @@ class Input {
   template <class Table>
   auto ReadPort(std::string_view name)
       -> std::optional<typename Table::NativeTableType> {
-    const auto* port = TakePort(name, PortKind::FlatBuffer);
-    if (!port) return std::nullopt;
-    const auto* bytes = port->bytes();
-    return ReadValue<Table>(
-        bytes ? tsugumi_bytes{bytes->data(), bytes->size()} : tsugumi_bytes{},
-        name);
+    const auto bytes = ReadPortBytes(name);
+    return bytes ? std::optional{ReadValue<Table>(*bytes, name)} : std::nullopt;
   }
 
+  auto ReadPortBytes(std::string_view name) -> std::optional<tsugumi_bytes>;
   auto ReadPath(std::string_view name) -> std::optional<std::filesystem::path>;
   auto Params() const -> tsugumi_bytes;
   auto CheckConsumed() const -> void;

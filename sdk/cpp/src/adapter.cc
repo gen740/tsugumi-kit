@@ -193,6 +193,13 @@ auto Input::ReadPath(std::string_view name)
              : std::nullopt;
 }
 
+auto Input::ReadPortBytes(std::string_view name) -> std::optional<tsugumi_bytes> {
+  const auto* port = TakePort(name, PortKind::FlatBuffer);
+  if (!port) return std::nullopt;
+  const auto* bytes = port->bytes();
+  return bytes ? tsugumi_bytes{bytes->data(), bytes->size()} : tsugumi_bytes{};
+}
+
 auto WritePath(Tsugumi::Card::CardResultT& result, std::string_view name,
                const std::optional<std::filesystem::path>& path, bool required)
     -> void {
