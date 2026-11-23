@@ -1,7 +1,7 @@
 # Normalize text with Go
 
 An Input Card supplies text to a Go Card that collapses whitespace, writes
-`normalized.txt` and returns it on the `file` port. **Targets the Card ABI.**
+`normalized.txt` in a new Artifact and returns it on the `file` port.
 
 ```text
 settings.text → normalize.text

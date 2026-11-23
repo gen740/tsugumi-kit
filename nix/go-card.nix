@@ -2,6 +2,7 @@
   pkgs,
   runtime,
   portCodegen,
+  paramValues,
   cardInterface,
   publishApi,
 }:
@@ -14,7 +15,7 @@ let
   '';
   generate =
     {
-      inputs,
+      inputs ? null,
       outputs,
       params ? { },
     }:
@@ -31,23 +32,24 @@ let
       }
       ''
         mkdir -p "$out/go" "$out/native/include"
-        flatc --go --gen-all --gen-object-api --go-import tsugumi/flatbuffers --go-module-name tsugumi \
-          -o "$out/go" "${interface}"/_{inputs,outputs,params}.fbs
         python3 ${sdk}/card_go.py "${interface}" "$out/go" \
           ${pkgs.flatbuffers.src}/reflection/reflection.fbs "$out/native" ${../sdk/cpp}
-        gofmt -w "$out/go/card.go"
+        cp ${sdk}/artifact.go.in "$out/go/tsugumi/artifact_effects.go"
+        gofmt -w "$out/go/"{card,params}.go
       '';
   buildSdk =
     {
       generated,
       goMod,
+      interface,
+      values,
       sourcePrefix ? "src",
     }:
     pkgs.runCommandCC "tsugumi-go-sdk"
       {
         nativeBuildInputs = [
           pkgs.go
-          pkgs.python3
+          (pkgs.python3.withPackages (_: [ portCodegen ]))
           pkgs.flatbuffers
         ];
         buildInputs = [ pkgs.flatbuffers ];
@@ -60,15 +62,14 @@ let
       ''
         mkdir -p "$out/flatbuffers" "$out/lib" module
         cp -r "${generated}/go/." "$out/"
+        chmod u+w "$out/params.go"
+        python3 ${sdk}/card_go.py embed "${interface}" \
+          ${pkgs.flatbuffers.src}/reflection/reflection.fbs "${values}" "$out/params.go"
         cp ${sdk}/{go.mod,runtime.go,display.go,native.go,host.h} "$out/"
         for file in ${pkgs.flatbuffers.src}/go/*.go; do
           case "$file" in *_test.go|*/doc.go) continue;; esac
           cp "$file" "$out/flatbuffers/"
         done
-
-        abi=${../abi}
-        flatc --go --gen-object-api --go-import tsugumi/flatbuffers --go-module-name tsugumi \
-          -o "$out" "$abi/card_enums.fbs" "$abi/card.fbs"
 
         cp ${lib.escapeShellArg "${goMod}"} module/go.mod
         export GOCACHE="$TMPDIR/go-cache" GOMODCACHE="$TMPDIR/go-modules"
@@ -95,7 +96,7 @@ let
   mkGoCard =
     {
       src,
-      inputs,
+      inputs ? null,
       outputs,
       params ? { },
       name ? "tsugumi-go-card",
@@ -113,6 +114,8 @@ let
       generatedSdk = buildSdk {
         generated = generate { inherit inputs outputs params; };
         inherit sourcePrefix;
+        interface = cardInterface { inherit inputs outputs params; };
+        values = paramValues params;
         goMod = "${src}/go.mod";
       };
       inherit (pkgs.stdenv.hostPlatform) isDarwin;

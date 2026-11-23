@@ -1,4 +1,0 @@
-table Number { value:long; }
-namespace report;
-table ResultPorts { number:Number (required); }
-root_type ResultPorts;

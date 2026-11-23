@@ -9,7 +9,7 @@ let
   sdk = import <tsugumi-kit/sdk/go> { inherit pkgs; };
   common = {
     inherit params;
-    inputs = ./_inputs.fbs;
+    inputs = if builtins.pathExists ./_inputs.fbs then ./_inputs.fbs else null;
     outputs = ./_outputs.fbs;
   };
 in
@@ -49,19 +49,19 @@ func run(input tsugumi.Inputs) (tsugumi.Output, error) {
 }
 ```
 
-A generated input accessor such as `input.Number()` returns `*T` and
-yields `nil` when absent. Use `RequireInput[T](input, name)` for a
-needed value. It returns `T` or an `input_missing` error naming the port.
-`OptionalInput[T](input, name)` also accepts names outside the current
-wiring and returns `nil` for absent values. `input.Params()` reads the
-parameter object.
+The SDK selects each connected input by its schema ID and validates the
+payload before calling `run`. Use a generated accessor such as
+`input.Number()` or look up a port with `RequireInput[T]`. A mixed Merge
+appears as a struct with exactly one candidate pointer set. A Collect port
+contains the fixed `Collected` table with its opaque envelope items under
+`tsugumi/tsugumi/builtin`. Output fields take pointers. Leaving a
+`(required)` output unset returns `output_invalid`. Optional outputs can
+be omitted.
 
-Table types use the FlatBuffers object API. Import generated tables, structs,
-enums and unions under `tsugumi/inputs/...` and `tsugumi/outputs/...`.
-A mixed Merge appears as a generated struct with a pointer to each member
-type. The SDK verifies the selected member's nested FlatBuffer and sets only
-that field. For a mixed Merge output, populate exactly one variant field.
-The output fields take pointers and the SDK checks that required outputs are set.
+`tsugumi.Parameters()` returns a typed snapshot of the evaluated build-time
+parameters. Parameter values affect the run build. The API derivation
+depends on parameter types. The entry also exports the Input Card
+builders `sdk.input` and `sdk.artifact`.
 
 `tsugumi.Send(view, bytes)` takes a declared view name and a byte slice.
 `tsugumi.SendValue(value)` encodes strings, numbers, `Markdown`, `Scalar`,
@@ -76,7 +76,10 @@ Declare the matching views in your Card's `default.nix` with
 The bundled `markdown` view displays scalar values.
 See the [view protocol](cpp-sdk.md#display-a-value).
 
-A goroutine may send live updates between calls. Run background work inside `tsugumi.Guard(func() error { ... })`
+The SDK frames and splits sends at the ABI message limit.
+`tsugumi.Recv(view, timeoutMS)` returns the bytes and a status of
+`Message`, `Timeout`, or `CancelledReceive`. A negative timeout waits
+without a deadline. A goroutine may send and receive between calls. Run background work inside `tsugumi.Guard(func() error { ... })`
 in that goroutine to turn a panic into an error. Handle the error there or
 send it back to `run` over a channel. An unhandled goroutine panic terminates
 the worker. `Cancelled()` and `RemainingMS()` query the current
@@ -89,10 +92,14 @@ caller's file and line when they belong to the Card module. Set
 `src` relative to the Card definition. Ordinary errors and panics in
 `run` use `worker_failed`.
 
-A Path is a string. Its optional representation and output field are
-`*string`. Write new files and directories under the Card's working
-directory and finish writing before returning. Copy an input path string
-unchanged into an output field to forward it. Go package initialization runs once when the payload
+`tsugumi.Dir()` creates an Artifact and returns its writable directory.
+`tsugumi.Upload(path)` copies an existing file or directory into a new
+Artifact. Call `artifact.Open()` to get the granted read-only directory.
+Use the `tsugumi.Artifact` type for generated fields and forward an input
+Artifact by returning the value. The SDK lists IDs from nested tables,
+vectors and unions in each output.
+
+Go package initialization runs once when the payload
 loads and its state persists for the worker's lifetime. A panic in `init()`
 terminates the worker. For setup that can fail, use an error-returning
 `sync.OnceValue` or `sync.OnceValues` function called by `run` and propagate

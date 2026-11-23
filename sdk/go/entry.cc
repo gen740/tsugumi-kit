@@ -7,7 +7,7 @@ namespace {
 auto RunCard(tsugumi_bytes input) -> Tsugumi::Card::CardResultT {
   const tsugumi::abi::Buffer buffer(input);
   if (!buffer.Verify<Tsugumi::Card::CardInput>()) {
-    tsugumi::abi::Reject(tsugumi::abi::FailureKind::invalid_request,
+    tsugumi::abi::Reject(tsugumi::abi::FailureKind::input_invalid,
                           "Invalid CardInput");
   }
   Tsugumi::Card::CardResultT result;

@@ -1,0 +1,77 @@
+package tsugumi
+
+/*
+#include <stdlib.h>
+#include "../host.h"
+*/
+import "C"
+
+import (
+	"errors"
+	"strings"
+	"unsafe"
+)
+
+func artifactID(bytes [16]byte) *ArtifactIdT {
+	return &ArtifactIdT{
+		Byte0:  bytes[0],
+		Byte1:  bytes[1],
+		Byte2:  bytes[2],
+		Byte3:  bytes[3],
+		Byte4:  bytes[4],
+		Byte5:  bytes[5],
+		Byte6:  bytes[6],
+		Byte7:  bytes[7],
+		Byte8:  bytes[8],
+		Byte9:  bytes[9],
+		Byte10: bytes[10],
+		Byte11: bytes[11],
+		Byte12: bytes[12],
+		Byte13: bytes[13],
+		Byte14: bytes[14],
+		Byte15: bytes[15],
+	}
+}
+
+func (id *ArtifactIdT) bytes() [16]byte {
+	return [16]byte{id.Byte0, id.Byte1, id.Byte2, id.Byte3, id.Byte4, id.Byte5, id.Byte6, id.Byte7, id.Byte8, id.Byte9, id.Byte10, id.Byte11, id.Byte12, id.Byte13, id.Byte14, id.Byte15}
+}
+
+// Dir creates a writable artifact directory for the current call.
+func Dir() (*ArtifactT, string, error) {
+	var id [16]byte
+	var path *C.char
+	if C.tsugumi_go_artifact_dir((*C.uint8_t)(&id[0]), &path) != 0 {
+		return nil, "", errors.New("the host could not create an Artifact")
+	}
+	defer C.free(unsafe.Pointer(path))
+	return &ArtifactT{Id: artifactID(id)}, C.GoString(path), nil
+}
+
+// Upload copies a directory or a single file into a new artifact.
+func Upload(source string) (*ArtifactT, error) {
+	if strings.IndexByte(source, 0) >= 0 {
+		return nil, errors.New("artifact source contains a NUL byte")
+	}
+	path := C.CString(source)
+	defer C.free(unsafe.Pointer(path))
+	var id [16]byte
+	if C.tsugumi_go_artifact_upload(path, (*C.uint8_t)(&id[0])) != 0 {
+		return nil, errors.New("could not upload the Artifact")
+	}
+	return &ArtifactT{Id: artifactID(id)}, nil
+}
+
+// Open returns the read-only directory granted to the current call.
+func (artifact *ArtifactT) Open() (string, error) {
+	if artifact == nil || artifact.Id == nil {
+		return "", errors.New("Artifact is missing an ID")
+	}
+	id := artifact.Id.bytes()
+	var path *C.char
+	if C.tsugumi_go_artifact_open((*C.uint8_t)(&id[0]), &path) != 0 {
+		return "", errors.New("the host could not open the Artifact")
+	}
+	defer C.free(unsafe.Pointer(path))
+	return C.GoString(path), nil
+}

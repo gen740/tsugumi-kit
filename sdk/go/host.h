@@ -16,6 +16,12 @@ int tsugumi_go_failure(void* result, uint16_t kind, const char* message,
                        size_t cell_size);
 
 int tsugumi_go_send(const char* view, const uint8_t* data, size_t size);
+/* On success, the caller frees the returned data or path. */
+int tsugumi_go_recv(const char* view, int64_t timeout_ms, uint8_t** data,
+                    size_t* size);
+int tsugumi_go_artifact_dir(uint8_t* id, char** path);
+int tsugumi_go_artifact_upload(const char* path, uint8_t* id);
+int tsugumi_go_artifact_open(const uint8_t* id, char** path);
 int tsugumi_go_cancelled(void);
 int64_t tsugumi_go_remaining_ms(void);
 

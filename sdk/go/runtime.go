@@ -17,6 +17,7 @@ import (
 	wire "tsugumi/Tsugumi/Card"
 	"tsugumi/Tsugumi/Data"
 	"tsugumi/flatbuffers"
+	artifact "tsugumi/tsugumi"
 )
 
 // Failure carries a Card failure kind and an optional definition-relative location.
@@ -100,7 +101,7 @@ func Guard(work func() error) (err error) {
 }
 
 func invoke(data []byte, result unsafe.Pointer, run func(Inputs) (Output, error)) (stage string, err error) {
-	stage = "invalid_request"
+	stage = "input_invalid"
 	defer catchPanic(&err)
 
 	input, err := readInput(wire.GetRootAsCardInput(data, 0))
@@ -167,10 +168,13 @@ func pack(value interface {
 	return builder.FinishedBytes()
 }
 
-func writePath(result unsafe.Pointer, index int, value string) bool {
-	if value == "" || strings.ContainsRune(value, 0) {
-		return false
-	}
-	return C.tsugumi_go_output(result, C.size_t(index),
-		(*C.uint8_t)(unsafe.Pointer(unsafe.StringData(value))), C.size_t(len(value))) != 0
-}
+// Artifact is the native object for a tsugumi.Artifact field.
+type Artifact = artifact.ArtifactT
+
+// Dir creates an Artifact and returns its writable directory.
+func Dir() (*Artifact, string, error) { return artifact.Dir() }
+
+// Upload copies a file or directory into a new Artifact.
+func Upload(source string) (*Artifact, error) { return artifact.Upload(source) }
+
+func unknownInput() error { return errors.New("unknown input port") }

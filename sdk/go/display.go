@@ -70,6 +70,39 @@ func Send(view string, bytes []byte) error {
 	return nil
 }
 
+// ReceiveStatus describes the result of receiving from a view.
+type ReceiveStatus int
+
+const (
+	Message ReceiveStatus = iota
+	Timeout
+	CancelledReceive
+)
+
+// Recv waits for a view message, timeout, or cancellation. A negative timeout
+// waits without a deadline. The returned bytes are owned by Go.
+func Recv(view string, timeoutMS int64) ([]byte, ReceiveStatus, error) {
+	if strings.IndexByte(view, 0) >= 0 {
+		return nil, Message, fmt.Errorf("view name contains a NUL byte")
+	}
+	name := C.CString(view)
+	defer C.free(unsafe.Pointer(name))
+	var data *C.uint8_t
+	var size C.size_t
+	status := C.tsugumi_go_recv(name, C.int64_t(timeoutMS), &data, &size)
+	defer C.free(unsafe.Pointer(data))
+	switch status {
+	case 0:
+		return C.GoBytes(unsafe.Pointer(data), C.int(size)), Message, nil
+	case 1:
+		return nil, Timeout, nil
+	case 2:
+		return nil, CancelledReceive, nil
+	default:
+		return nil, Message, fmt.Errorf("the host rejected the display receive")
+	}
+}
+
 // SendValue encodes a typed value for its corresponding view.
 func SendValue(value any) error {
 	message, err := encodeDisplay(value)
