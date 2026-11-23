@@ -1,12 +1,11 @@
-{ self, ... }:
 {
   perSystem =
     {
       pkgs,
-      system,
+      kit,
       ...
     }:
     {
-      checks.rubyAbi = pkgs.callPackage ../tests/ruby/check.nix { kit = self.lib.${system}; };
+      checks.rubyAbi = pkgs.callPackage ../tests/ruby/check.nix { inherit kit; };
     };
 }

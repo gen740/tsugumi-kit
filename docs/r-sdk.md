@@ -4,24 +4,21 @@ Put `main(input)` in `src/main.R`. The SDK embeds R in the Card's
 `lib/main.so`.
 
 ```nix
-{ pkgs, params, inputs, schemas }:
+{ params, inputs }:
 let
-  sdk = inputs.tsugumi.rSdk;
+  pkgs = import <nixpkgs> { };
+  sdk = import <tsugumi-kit/sdk/r> { inherit pkgs; };
+  common = { inherit inputs; outputs = ./_outputs.fbs; };
 in
 {
-  run = sdk.rCard {
-    inherit schemas;
-    src = ./src;
-  };
+  run = sdk.rCard (common // { src = ./src; });
+  api = sdk.rApi common;
   views = sdk.views;
 }
 ```
 
-The builder uses the current `_inputs.fbs`, `_outputs.fbs`, and
-`_params.fbs` in `schemas`. The Card editor's SDK section and the build
-output's `share/tsugumi/api/` expose `card.R`, the schemas, and
-a README describing the current port and parameter types. Set `entry` to
-choose another file relative to `src`.
+`rApi` publishes `card.R`, the FlatBuffers schemas, and a typed README
+under `share/tsugumi/api/`. Set `entry` to choose another file relative to `src`.
 
 ```r
 main <- function(input) {
@@ -87,7 +84,7 @@ views. Local argument and encoding errors raise an R error before calling
 the host. If the host cannot accept the message, `send` raises
 `"display rejected"`.
 
-The SDK at `lib.${system}.rSdk` bundles the `line-chart` and `points` HTML views.
+The SDK bundles the `line-chart` and `points` HTML views.
 Declare the matching views in your Card's `default.nix` with
 `views = sdk.views ++ [ ... ];`.
 The bundled `text` view displays values sent with `send("text")`.

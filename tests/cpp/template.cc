@@ -105,7 +105,7 @@ auto main(int argc, char** argv) -> int {
         port_result->kind() == PortKind::FlatBuffer && !port_result->path());
   const auto* bytes = port_result->bytes();
   CHECK(bytes);
-  using Temperature = outputs::fahrenheit::thermometer::Temperature;
+  using Temperature = thermometer::Temperature;
   flatbuffers::Verifier verifier(bytes->data(), bytes->size());
   CHECK(verifier.VerifyBuffer<Temperature>());
   CHECK(flatbuffers::GetRoot<Temperature>(bytes->data())->value() == 68.0);

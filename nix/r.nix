@@ -1,10 +1,9 @@
-{ self, ... }:
 {
   perSystem =
-    { pkgs, system, ... }:
+    { pkgs, kit, ... }:
     {
       checks.rAbi = pkgs.callPackage ../tests/r {
-        kit = self.lib.${system};
+        inherit kit;
       };
     };
 }

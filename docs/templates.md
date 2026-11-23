@@ -12,6 +12,7 @@ filter-counts/
   filter/
     _card.json
     _outputs.fbs
+    params.nix
     default.nix
     src/card.cc
 ```
@@ -24,7 +25,7 @@ for `"dawn"`. A Card sends opaque bytes to the view by name at runtime.
 Both C++ templates include the bundled HTML views. The CSV filter uses
 `LineChart` to preview counts by channel. For a Card that calls external
 executables, pass `tools = [ pkgs.coreutils ];` inside the builder call and
-add `pkgs` to the arguments of `default.nix`.
+import `pkgs` with `import <nixpkgs> { }` inside `default.nix`.
 
 [Display a value](cpp-sdk.md#display-a-value) · [Runtime tools](../README.md#runtime-tools)
 
@@ -36,7 +37,12 @@ A template may include a `layout.bin` fragment (the FlatBuffers layout a project
 
 On copy, the core allocates fresh Card IDs and remaps references in the copied graph and layout. Copying the temperature pair twice should produce two independent pairs, each with its own internal wire. Connect ports at the boundary of each copy to the rest of your project.
 
-The decided format specifies the folder, its contents and the remapping behavior. It leaves the on-disk representation of a template's connections unspecified. The two-Card example uses a **provisional** `tsugumi.json` fragment with the existing project `canvas.cards` and `canvas.connections` fields. See the [connection](../templates/temperature-conversion/tsugumi.json) and the matching [layout](../templates/temperature-conversion/layout.bin).
+Project templates carry `tsugumi.json` and `tsugumi.lock`. The declaration
+names nixpkgs and tsugumi-kit and the lock records their exact source
+revisions. A project created from the template keeps both files. See the
+[temperature project](../templates/temperature-conversion/tsugumi.json), its
+[lock](../templates/temperature-conversion/tsugumi.lock), and its
+[layout](../templates/temperature-conversion/layout.bin).
 
 ## Import from Git
 

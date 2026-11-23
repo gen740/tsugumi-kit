@@ -4,23 +4,22 @@ A Python Card puts its entry function in `src/main.py`. The SDK embeds
 CPython in the Card's `lib/main.so`.
 
 ```nix
-{ pkgs, params, inputs, schemas }:
+{ params, inputs }:
 let
-  sdk = inputs.tsugumi.pythonSdk;
+  pkgs = import <nixpkgs> { };
+  sdk = import <tsugumi-kit/sdk/python> { inherit pkgs; };
+  common = { inherit inputs; outputs = ./_outputs.fbs; };
 in
 {
-  run = sdk.pythonCard {
-    inherit schemas;
-    src = ./src;
-  };
+  run = sdk.pythonCard (common // { src = ./src; });
+  api = sdk.pythonApi common;
   views = sdk.views;
 }
 ```
 
-The builder uses the current `_inputs.fbs`, `_outputs.fbs`, and
-`_params.fbs` in `schemas`. Open the Card editor's SDK section or inspect
-the build output's `share/tsugumi/api/` for `card.pyi`, the FlatBuffers
-object stubs, and a README describing the current ports and parameters.
+`pythonApi` publishes `card.pyi`, the FlatBuffers object stubs, and a typed
+README under `share/tsugumi/api/`. Use **Build SDK** in the Card editor to
+inspect the API for the current wiring.
 
 ```python
 from pathlib import Path

@@ -1,6 +1,7 @@
 # Ruby Cards
 
-The Ruby SDK embeds Ruby and generates a Card-specific API from the current
-FlatBuffers schemas supplied by Tsugumi. See the
-[Ruby Card SDK guide](../../docs/ruby-sdk.md) for the Card entry, generated
-RBS, port values, effects, and dependency setup.
+Import `<tsugumi-kit/sdk/ruby>` with the Card's `pkgs`.
+`rubyCard` builds the worker library and `rubyApi` publishes the
+generated API under `share/tsugumi/api/`.
+
+[Ruby Card SDK guide](../../docs/ruby-sdk.md)

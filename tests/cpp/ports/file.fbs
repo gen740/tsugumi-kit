@@ -1,0 +1,6 @@
+attribute "tsugumi";
+namespace inputs;
+table Inputs {
+  file:string (id: 0, tsugumi: "path");
+}
+root_type Inputs;

@@ -1,3 +1,0 @@
-namespace parameters;
-table Params { mode:int; fd:int; ack_fd:int; }
-root_type Params;

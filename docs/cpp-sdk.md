@@ -25,15 +25,15 @@ For an input of 20, the next Card receives 68 on the output port. The value also
 
 | Card definition file | What to put there |
 | --- | --- |
-| `_card.json` | The Card type, input port names and parameter declarations. Connected producers supply the input types. |
-| `_outputs.fbs` | The FlatBuffers root table `Outputs`. Each field names an output port and its FlatBuffer table or Path type. Mark required ports with `(required)`. |
+| `_card.json` | The Card type, input port names and parameter overrides. Connected producers supply the input types. |
+| `_outputs.fbs` | A FlatBuffers catalog with a root table. Each field names an output port and its FlatBuffer table or Path type. Mark required ports with `(required)`. |
+| `params.nix` | Optional parameter declarations and default values. |
 | `src/*.cc` | The Card implementation, including `run`. |
-| `default.nix` | Select the injected C++ SDK, expose its build result as `run` and forward its `views`. The run derivation contains `lib/main.so`. |
+| `default.nix` | Import the C++ SDK and expose `run`, `api`, and `views`. The run derivation contains `lib/main.so`. |
 
-The build publishes `card.hh`, its generated FlatBuffers headers, and a
-README under `share/tsugumi/api/`. Use **Build SDK** in the Card editor to
-see the API for the current wiring. The builder reads the three files in
-`schemas`. [Card SDK contract](sdk-contract.md)
+The `api` derivation publishes `card.hh`, its generated FlatBuffers headers,
+and a README under `share/tsugumi/api/`. Use **Build SDK** in the Card editor
+to see the API for the current wiring. [Card SDK contract](sdk-contract.md)
 
 - Connected input members hold `std::optional<T>`. Use
   `input.get<T>("port")` when you need the input or
@@ -56,15 +56,18 @@ see the API for the current wiring. The builder reads the three files in
 - The C++ generator renames reserved identifiers in its headers. Use the original
   port name in `input.get`.
 
-Pass the schemas supplied to `default.nix` to the SDK builder.
+Pass the wiring, authored output catalog, and optional parameter declarations to the SDK.
 
 ```nix
-{ pkgs, params, inputs, schemas }:
+{ params, inputs }:
 let
-  sdk = inputs.tsugumi.cppSdk;
+  pkgs = import <nixpkgs> { };
+  sdk = import <tsugumi-kit/sdk/cpp> { inherit pkgs; };
+  common = { inherit inputs; outputs = ./_outputs.fbs; params = ./params.nix; };
 in
 {
-  run = sdk.cppCard { inherit schemas; src = ./src; };
+  run = sdk.cppCard (common // { src = ./src; });
+  api = sdk.cppApi common;
   views = sdk.views;
 }
 ```
@@ -75,9 +78,6 @@ executables on the Card's runtime `PATH`. The SDK initializes `PATH` when
 the Card library loads. Use `execvp` or `posix_spawnp` with an argument array
 to start a declared tool directly. See [Runtime tools](../README.md#runtime-tools).
 SDK selection belongs in `default.nix`. Omit `language` from `_card.json`.
-
-The same builder is available to standalone builds under
-`tsugumi-kit.lib.${system}.cppSdk`. Pass the `schemas` directory explicitly.
 
 ## Display a value
 
@@ -117,7 +117,8 @@ Declare the bundled views and any custom views at the top level of the Card's
 
 ```nix
 {
-  run = sdk.cppCard { inherit schemas; src = ./src; };
+  run = sdk.cppCard (common // { src = ./src; });
+  api = sdk.cppApi common;
   views = sdk.views ++ [
     { name = "notes"; type = "html"; blob = ./notes.html; }
   ];

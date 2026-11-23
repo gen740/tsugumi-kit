@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from tsugumi_ports import load_card_schemas, reflect_schema, write_api_readme
+from tsugumi_ports import load_card_schemas, reflect_schema, schema_tokens, write_api_readme
 
 KEYWORDS = set("""
 alignas alignof and and_eq asm auto bitand bitor bool break case catch char
@@ -30,19 +30,10 @@ CPP_KEYWORDS = KEYWORDS | {
 FLATC_KEYWORDS = CPP_KEYWORDS - {"char8_t", "consteval", "constinit", "contract_assert", "reflexpr"}
 SCHEMAS = ("_inputs", "_outputs", "_params")
 IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z_0-9]*")
-TOKEN = re.compile(
-    r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|'
-    r'[A-Za-z_][A-Za-z_0-9]*|\d[\w.]*|[^\s]'
-)
 
 
 def reserved_identifier(name):
     return name in CPP_KEYWORDS or "__" in name or name.startswith("_")
-
-
-def schema_tokens(source):
-    return [match for match in TOKEN.finditer(source)
-            if not match.group().startswith(("//", "/*"))]
 
 
 def flatc_identifier(name):
@@ -127,7 +118,7 @@ def generate_headers(schemas, out, reflection):
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(normalize_schema(source, tokens[path], names))
         for schema in SCHEMAS:
-            subprocess.run(["flatc", "--cpp", "--gen-object-api", "--scoped-enums",
+            subprocess.run(["flatc", "--cpp", "--gen-all", "--gen-object-api", "--scoped-enums",
                             "-o", str(out / "include"), f"{schema}.fbs"],
                            cwd=work, check=True)
         return names, reflect_schema(work / "_outputs.fbs", reflection)
@@ -380,7 +371,7 @@ def generate(card, out, names, output_schema):
             body.append(f"  input.{member} = {read};")
     body += [
         "  buffer.CheckConsumed();",
-        f'  input.params = ReadValue<{params}>(buffer.Params(), "params");',
+        f'  input.params = ReadValue<{params}, {str(not card.params).lower()}>(buffer.Params(), "params");',
         "  const auto output = run(input);" if outputs else "  run(input);",
         "  Tsugumi::Card::CardResultT result;",
     ]

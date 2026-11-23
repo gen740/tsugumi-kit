@@ -3,20 +3,22 @@
 The Go builder takes the Card's source and the current wiring schemas.
 
 ```nix
-{ pkgs, params, inputs, schemas }:
+{ params, inputs }:
 let
-  sdk = inputs.tsugumi.goSdk;
+  pkgs = import <nixpkgs> { };
+  sdk = import <tsugumi-kit/sdk/go> { inherit pkgs; };
+  common = { inherit inputs; outputs = ./_outputs.fbs; };
 in
 {
-  run = sdk.goCard { inherit schemas; src = ./src; };
+  run = sdk.goCard (common // { src = ./src; });
+  api = sdk.goApi common;
   views = sdk.views;
 }
 ```
 
-The builder reads `_inputs.fbs`, `_outputs.fbs`, and `_params.fbs` and
-installs the typed API and its README under `share/tsugumi/api/`.
-`lib/main.so` loads the sibling `lib/go-card.so` on the first call with the
-matching ABI version. Keep both libraries together.
+`goApi` publishes the generated Go API and a typed README under
+`share/tsugumi/api/`. The run output contains `lib/main.so` and
+`lib/go-card.so`. Keep both libraries together.
 
 `src` contains a Go module with a `main` package and a `go.mod` that
 requires `tsugumi v0.0.0` and replaces it with `./tsugumi`.
@@ -64,7 +66,7 @@ their corresponding views. Local argument and encoding errors are returned
 before calling the host. A nonzero host status produces a transport error
 indicating the host could not accept the message.
 
-The SDK at `lib.${system}.goSdk` bundles the `line-chart` and `points` HTML views.
+The SDK bundles the `line-chart` and `points` HTML views.
 Declare the matching views in your Card's `default.nix` with
 `views = sdk.views ++ [ ... ];`.
 The bundled `markdown` view displays scalar values.
@@ -96,13 +98,11 @@ the error as a Card failure.
 
 ## Local development
 
-Expose the SDK generated from the same schemas in your Card's flake.
+Expose the SDK package from the same Card build in your local development flake.
+Here, `card` is the evaluated Card definition with the desired input wiring.
 
 ```nix
-packages.${system}.goSdk = kit.lib.${system}.goCardSdk {
-  inherit schemas;
-  goMod = ./src/go.mod;
-};
+packages.${system}.goSdk = card.run.sdk;
 ```
 
 From the flake root, link the output into your Card module. Use the same Go

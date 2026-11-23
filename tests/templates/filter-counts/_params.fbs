@@ -1,3 +1,0 @@
-namespace parameters;
-table Params { minimum:ulong (id: 0); }
-root_type Params;

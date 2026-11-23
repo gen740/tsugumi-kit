@@ -61,7 +61,7 @@ def fix_pack_collisions(sources):
 def generate_bindings(schemas, out):
     """Run flatc and make its output compile for any port namespace."""
     for schema in SCHEMAS:
-        subprocess.run(["flatc", "--csharp", "--gen-object-api", "-o", str(out),
+        subprocess.run(["flatc", "--csharp", "--gen-all", "--gen-object-api", "-o", str(out),
                         str(schemas / f"{schema}.fbs")], check=True)
     sources = {source: source.read_text(encoding="utf-8") for source in out.rglob("*.cs")}
     pack_methods = fix_pack_collisions(sources)
@@ -165,7 +165,8 @@ class Generator:
             "",
             "    internal Input(InputPorts ports)",
             "    {",
-            f'        Params = {params}.GetRootAs{card.params_type.rsplit(".", 1)[-1]}('
+            '        Params = ' + ('' if card.params else f'ports.Params.Length == 0 ? new {params}T() : ')
+            + f'{params}.GetRootAs{card.params_type.rsplit(".", 1)[-1]}('
             f'InputPorts.Verify(ports.Params, {params}Verify.Verify, "params", FailureKind.invalid_request)).UnPack();',
         ]
         for index, (port, prop) in enumerate(inputs):

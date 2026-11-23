@@ -1,17 +1,21 @@
-{
-  pkgs,
-  params,
-  inputs,
-  schemas,
-}:
+{ params, inputs }:
 let
-  sdk = inputs.tsugumi.goSdk;
+  pkgs = import <nixpkgs> { };
+  sdk = import <tsugumi-kit/sdk/go> { inherit pkgs; };
+  common = {
+    inherit inputs;
+    outputs = ./_outputs.fbs;
+    params = ./params.nix;
+  };
 in
 {
-  run = sdk.goCard {
-    inherit schemas;
-    inherit (params) src;
-    name = "tsugumi-go-output-only-card";
-  };
+  run = sdk.goCard (
+    common
+    // {
+      src = ./src;
+      name = "tsugumi-go-output-only-card";
+    }
+  );
+  api = sdk.goApi common;
   views = sdk.views;
 }

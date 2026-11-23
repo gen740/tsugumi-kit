@@ -7,30 +7,46 @@
   python3,
   runtime,
   portCodegen,
+  cardInterface,
+  publishApi,
 }:
+let
+  generate =
+    {
+      inputs,
+      outputs,
+      params ? null,
+    }:
+    let
+      interface = cardInterface { inherit inputs outputs params; };
+    in
+    runCommand "tsugumi-cpp-card-headers"
+      {
+        nativeBuildInputs = [
+          flatbuffers
+          (python3.withPackages (_: [ portCodegen ]))
+        ];
+      }
+      ''
+        python3 ${../sdk/cpp/card_cpp.py} ${lib.escapeShellArg "${interface}"} "$out" \
+          ${flatbuffers.src}/reflection/reflection.fbs
+      '';
+
+in
 {
   cppCard =
     {
       src,
-      schemas,
+      inputs,
+      outputs,
+      params ? null,
       buildInputs ? [ ],
       cxxflags ? [ ],
       tools ? [ ],
     }:
     let
       sourceFlags = [ "-ffile-prefix-map=${src}=${baseNameOf (toString src)}" ];
-      generated =
-        runCommand "tsugumi-cpp-card-headers"
-          {
-            nativeBuildInputs = [
-              flatbuffers
-              (python3.withPackages (_: [ portCodegen ]))
-            ];
-          }
-          ''
-            python3 ${../sdk/cpp/card_cpp.py} ${lib.escapeShellArg "${schemas}"} "$out" \
-              ${flatbuffers.src}/reflection/reflection.fbs
-          '';
+      generated = generate { inherit inputs outputs params; };
     in
     runCommandCC "tsugumi-cpp-card"
       {
@@ -38,9 +54,7 @@
         buildInputs = [ flatbuffers ] ++ buildInputs;
       }
       ''
-        mkdir -p "$out/lib" "$out/share/tsugumi/api"
-        cp "${generated}/README.md" "${generated}/include/"*.h "${generated}/include/card.hh" \
-          "$out/share/tsugumi/api/"
+        mkdir -p "$out/lib"
         ${
           if stdenv.hostPlatform.isDarwin then
             ''
@@ -69,4 +83,12 @@
           "''${sources[@]}" "${generated}/src/card_adapter.cc" \
           "${runtime}/lib/libtsugumi_abi.a" ${lib.escapeShellArgs cxxflags} -pthread -o "$out/lib/main.so"
       '';
+  cppApi =
+    args:
+    let
+      generated = generate args;
+    in
+    publishApi "cpp" ''
+      cp "${generated}/README.md" "${generated}/include/"*.h "${generated}/include/card.hh" "$api/"
+    '';
 }

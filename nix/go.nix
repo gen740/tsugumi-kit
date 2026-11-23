@@ -1,15 +1,14 @@
-{ self, ... }:
 {
   perSystem =
     {
       pkgs,
       config,
-      system,
+      kit,
       ...
     }:
     {
       checks.goAbi = pkgs.callPackage ../tests/go/check.nix {
-        kit = self.lib.${system};
+        inherit kit;
         runtime = config.packages.cppRuntime;
       };
     };

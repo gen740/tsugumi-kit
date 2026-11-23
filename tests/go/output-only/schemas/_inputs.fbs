@@ -1,3 +1,0 @@
-namespace inputs;
-table Inputs {}
-root_type Inputs;

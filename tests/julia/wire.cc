@@ -178,7 +178,7 @@ extern "C" auto make_input(input_case scenario, int mode, int fd)
   }
   Add(input, "table", PortKind::FlatBuffer,
       Pack<inputs::table::Table>(TableInput()));
-  using Reserved = inputs::tsugumi_class_2::tsugumi_template::tsugumi_union;
+  using Reserved = inputs::Params::tsugumi_class_2::tsugumi_template::tsugumi_union;
   Reserved::NativeTableType reserved;
   reserved.return_ = 43;
   reserved.tsugumi_value = 7;

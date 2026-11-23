@@ -55,9 +55,12 @@ class Buffer {
 
 [[noreturn]] auto Reject(FailureKind kind, const std::string& message) -> void;
 
-template <class Table>
+template <class Table, bool AllowEmpty = false>
 auto ReadValue(tsugumi_bytes bytes, std::string_view name) ->
     typename Table::NativeTableType {
+  if constexpr (AllowEmpty) {
+    if (bytes.size == 0) return {};
+  }
   Buffer buffer(bytes);
   const auto* value = buffer.Verify<Table>();
   if (!value) {

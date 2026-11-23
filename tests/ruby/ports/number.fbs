@@ -1,0 +1,9 @@
+attribute "tsugumi";
+namespace inputs.number;
+table Number { value:long; }
+
+namespace inputs;
+table Inputs {
+  number:inputs.number.Number (id: 0);
+}
+root_type Inputs;

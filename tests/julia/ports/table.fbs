@@ -1,0 +1,21 @@
+attribute "tsugumi";
+namespace inputs.table;
+enum Label:ubyte { Normal, Special }
+struct Center { xy:[float:2]; }
+table Text { value:string (required); }
+union Choice { Note:Text, Coordinate:Center, String:string }
+table Row {
+  label:Label;
+  center:Center (required);
+  measure:double;
+  bytes:[ubyte];
+  maybe:short = null;
+  choice:Choice;
+}
+table Table { rows:[Row] (required); }
+
+namespace inputs;
+table Inputs {
+  table:inputs.table.Table (id: 0);
+}
+root_type Inputs;

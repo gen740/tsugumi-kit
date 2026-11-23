@@ -1,12 +1,13 @@
-{
-  pkgs,
-  params,
-  inputs,
-  schemas,
-}:
+{ params, inputs }:
 let
-  sdk = inputs.tsugumi.rSdk;
-  runtime = inputs.tsugumi.cppRuntime;
+  pkgs = import <nixpkgs> { };
+  sdk = import <tsugumi-kit/sdk/r> { inherit pkgs; };
+  common = {
+    inherit inputs;
+    outputs = ../interface/_outputs.fbs;
+    params = ../interface/params.nix;
+  };
+  runtime = (import <tsugumi-kit> { inherit pkgs; }).cppRuntime;
   # The fixture's native extension calls the SDK's registered C effects.
   src =
     pkgs.runCommandCC "tsugumi-r-test-source"
@@ -27,6 +28,7 @@ let
       '';
 in
 {
-  run = sdk.rCard { inherit schemas src; };
+  run = sdk.rCard (common // { inherit src; });
+  api = sdk.rApi common;
   views = sdk.views;
 }

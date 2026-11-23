@@ -2,13 +2,39 @@
   pkgs,
   runtime,
   portCodegen,
+  cardInterface,
+  publishApi,
 }:
 let
   inherit (pkgs) lib;
-  rubyCardFor =
+  sdk = ../sdk/ruby;
+  cpp = ../sdk/cpp;
+  generate =
+    {
+      inputs,
+      outputs,
+      params ? null,
+    }:
+    let
+      interface = cardInterface { inherit inputs outputs params; };
+    in
+    pkgs.runCommand "tsugumi-ruby-card-glue"
+      {
+        nativeBuildInputs = [
+          pkgs.flatbuffers
+          (pkgs.python3.withPackages (_: [ portCodegen ]))
+        ];
+      }
+      ''
+        python3 ${sdk}/card_ruby.py ${cpp} ${lib.escapeShellArg "${interface}"} "$out" \
+          ${pkgs.flatbuffers.src}/reflection/reflection.fbs
+      '';
+  rubyCard =
     {
       src,
-      schemas,
+      inputs,
+      outputs,
+      params ? null,
       name ? "tsugumi-ruby-card",
       ruby ? pkgs.ruby,
       sourcePrefix ? baseNameOf (toString src),
@@ -82,21 +108,8 @@ let
         '';
         dontInstall = true;
       };
-      sdk = ../sdk/ruby;
-      cpp = ../sdk/cpp;
-      generated =
-        pkgs.runCommand "${name}-api"
-          {
-            nativeBuildInputs = [
-              pkgs.flatbuffers
-              (pkgs.python3.withPackages (_: [ portCodegen ]))
-            ];
-          }
-          ''
-            python3 ${sdk}/card_ruby.py ${cpp} ${lib.escapeShellArg "${schemas}"} "$out" \
-              ${pkgs.flatbuffers.src}/reflection/reflection.fbs
-          '';
       define = key: value: lib.escapeShellArg "-DTSUGUMI_${key}=${builtins.toJSON value}";
+      generated = generate { inherit inputs outputs params; };
     in
     pkgs.runCommandCC name
       {
@@ -114,8 +127,6 @@ let
       }
       ''
         test -f ${lib.escapeShellArg "${src}/main.rb"}
-        mkdir -p "$out/share/tsugumi/api"
-        cp ${generated}/api/* "$out/share/tsugumi/api/"
 
         libruby=$(ruby -rrbconfig -e 'print File.join(RbConfig::CONFIG.fetch("libdir"), RbConfig::CONFIG.fetch("LIBRUBY_SO"))')
         read -r -a rubyIncludes <<< "$(pkg-config --cflags ruby-${ruby.version.majMin})"
@@ -150,5 +161,15 @@ let
           -I${cpp}/src -I${sdk} ${generated}/src/card_glue.cc ${sdk}/adapter.cc ${sdk}/json_codec.cc embed.o \
           ${runtime}/lib/libtsugumi_abi.a "''${rubyLibs[@]}" -pthread -o "$out/lib/main.so"
       '';
+  rubyApi =
+    args:
+    let
+      generated = generate args;
+    in
+    publishApi "ruby" ''
+      cp -r "${generated}/api/." "$api/"
+    '';
 in
-rubyCardFor
+{
+  inherit rubyCard rubyApi;
+}

@@ -21,7 +21,7 @@ struct JavaPort {
   Verify verify;
 };
 
-auto RunJava(tsugumi_bytes bytes, Verify params,
+auto RunJava(tsugumi_bytes bytes, Verify params, bool allow_empty_params,
              std::span<const JavaPort> inputs,
              std::span<const JavaPort> outputs) -> Tsugumi::Card::CardResultT;
 

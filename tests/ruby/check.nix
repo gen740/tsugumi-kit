@@ -10,7 +10,7 @@
   kit,
 }:
 let
-  inherit (kit.rubySdk) rubyCard;
+  inherit (kit.ruby) rubyCard;
   runtime = kit.cppRuntime;
   tests = lib.fileset.toSource {
     root = ../.;
@@ -20,34 +20,33 @@ let
       ../wire.h
     ];
   };
-  schemas = ./schemas;
-  definition = import ./card {
-    inherit pkgs schemas;
-    inputs.tsugumi = kit;
-    params = { };
+  fixtureEval = import ../card-eval.nix { inherit pkgs; };
+  common = {
+    inputs = fixtureEval.inputs (./ports);
+    outputs = ./interface/_outputs.fbs;
+    params = ./interface/params.nix;
   };
+  definition = fixtureEval.call ./card { inherit (common) inputs; };
   card = definition.run;
-  lockedCard = rubyCard {
-    src = ./card/src;
-    inherit schemas;
-    lock = ./bundle/Gemfile.lock;
-    hash = "sha256-5kqVDjqNFrsQddobC5KlZFUALvji0gKYs/Bbur3Mf8w=";
-  };
-  starter = import ../../templates/ruby-write-text/write {
-    inherit pkgs;
-    inputs.tsugumi = kit;
-    params = { };
-    schemas = ../templates/text-to-path;
+  lockedCard = rubyCard (
+    common
+    // {
+      src = ./card/src;
+      lock = ./bundle/Gemfile.lock;
+      hash = "sha256-5kqVDjqNFrsQddobC5KlZFUALvji0gKYs/Bbur3Mf8w=";
+    }
+  );
+  starter = fixtureEval.call ../templates/ruby-write-text {
+    inputs = fixtureEval.inputs ../templates/text-to-path;
   };
   inherit (stdenv.hostPlatform) isDarwin;
 in
-assert definition.views == kit.rubySdk.views;
+assert definition.views == kit.ruby.views;
 runCommandCC "tsugumi-ruby-abi-check"
   {
-    passthru.apiCards = [
-      card
-      lockedCard
-      starter.run
+    passthru.apis = [
+      definition.api
+      starter.api
     ];
     nativeBuildInputs = [ ruby ];
     buildInputs = [
@@ -60,12 +59,12 @@ runCommandCC "tsugumi-ruby-abi-check"
     tests=${tests}
     include=${runtime}/include
     export HOME="$TMPDIR"
-    for api in ${card}/share/tsugumi/api ${lockedCard}/share/tsugumi/api ${starter.run}/share/tsugumi/api; do
+    for api in ${definition.api}/share/tsugumi/api ${starter.api}/share/tsugumi/api; do
       test -s "$api/card.rbs"
       rbs --no-collection -I "$api" validate
     done
-    grep -Fq '"center" => inputs__rows__Position?' "${card}/share/tsugumi/api/card.rbs"
-    grep -q '^- `arrival` — `({ "type" => "Temperature"' "${card}/share/tsugumi/api/README.md"
+    grep -Fq '"center" => inputs__rows__Position?' "${definition.api}/share/tsugumi/api/card.rbs"
+    grep -q '^- `arrival` — `({ "type" => "Temperature"' "${definition.api}/share/tsugumi/api/README.md"
     for view in ${lib.escapeShellArgs (map (view: "${view.blob}") starter.views)}; do
       test -s "$view"
     done

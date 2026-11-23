@@ -37,7 +37,6 @@ auto main(int argc, char** argv) -> int {
   CHECK(entry);
   const tsugumi_effects effects{nullptr, [](void*) { return 0; }, nullptr};
   CardInputT input;
-  input.params = Pack<parameters::Params>({});
 
   auto invoke = [&] {
     const auto bytes = Pack<CardInput>(input);

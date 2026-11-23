@@ -59,8 +59,8 @@ auto main(int argc, char** argv) -> int {
     auto* data = reinterpret_cast<uint8_t*>(aligned.data());
     std::copy(bytes->begin(), bytes->end(), data);
     flatbuffers::Verifier value_verifier(data, bytes->size());
-    CHECK(value_verifier.VerifyBuffer<outputs::number::Number>());
-    CHECK(flatbuffers::GetRoot<outputs::number::Number>(data)->value() == 42);
+    CHECK(value_verifier.VerifyBuffer<Number>());
+    CHECK(flatbuffers::GetRoot<Number>(data)->value() == 42);
   }
 
   std::ifstream file(marker);

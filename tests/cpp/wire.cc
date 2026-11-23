@@ -43,7 +43,7 @@ extern "C" auto make_cpp_input(int test_case, int mode, int fd)
       input.UnPackTo(&with_port);
       if (test_case == RESERVED_IDENTIFIERS) {
         using ParamsPort =
-            inputs::tsugumi_class_2::tsugumi_template::tsugumi_union;
+            inputs::Params::tsugumi_class_2::tsugumi_template::tsugumi_union;
         ParamsPort::NativeTableType params_port;
         params_port.value = 43;
         AddPort(with_port, "Params", PortKind::FlatBuffer,

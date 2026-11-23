@@ -7,22 +7,24 @@
   kit,
 }:
 let
-  inherit (kit) pythonSdk;
+  sdk = kit.python;
   runtime = kit.cppRuntime;
-  schemas = ./schemas;
+  fixtureEval = import ../card-eval.nix { inherit pkgs; };
+  common = {
+    inputs = fixtureEval.inputs (./ports);
+    outputs = ./interface/_outputs.fbs;
+    params = ./interface/params.nix;
+  };
+  interface = (import ../../nix/card-interface.nix { inherit pkgs; }) common;
   definition =
     withTools:
-    import ./card.nix {
-      inherit pkgs schemas;
-      inputs.tsugumi = kit;
+    fixtureEval.call ./card.nix {
+      inherit (common) inputs;
       params = { inherit withTools; };
     };
   card = (definition false).run;
-  starter = import ../../templates/python-write-text/write {
-    inherit pkgs;
-    inputs.tsugumi = kit;
-    params = { };
-    schemas = ../templates/text-to-path;
+  starter = fixtureEval.call ../templates/python-write-text {
+    inputs = fixtureEval.inputs ../templates/text-to-path;
   };
   withTools = (definition true).run;
   host = lib.fileset.toSource {
@@ -35,10 +37,10 @@ let
   };
   inherit (stdenv.hostPlatform) isDarwin;
 in
-assert (definition false).views == pythonSdk.views && starter.views == pythonSdk.views;
+assert (definition false).views == sdk.views && starter.views == sdk.views;
 assert !(card ? views);
 assert
-  map (view: view.name) pythonSdk.views == [
+  map (view: view.name) sdk.views == [
     "text"
     "markdown"
     "table"
@@ -47,15 +49,14 @@ assert
     "points"
     "plotly"
   ];
-assert lib.all (view: view.type == "html" && view ? blob) pythonSdk.views;
+assert lib.all (view: view.type == "html" && view ? blob) sdk.views;
 runCommandCC "tsugumi-python-abi-check"
   {
     nativeBuildInputs = [ flatbuffers ];
     buildInputs = [ flatbuffers ];
-    passthru.apiCards = [
-      card
-      withTools
-      starter.run
+    passthru.apis = [
+      (definition false).api
+      starter.api
     ];
   }
   ''
@@ -63,12 +64,12 @@ runCommandCC "tsugumi-python-abi-check"
     card=${card}/lib/main.so
     tests=${host}
     include=${runtime}/include
-    for view in ${lib.escapeShellArgs (map (view: "${view.blob}") pythonSdk.views)}; do
+    for view in ${lib.escapeShellArgs (map (view: "${view.blob}") sdk.views)}; do
       test -s "$view"
     done
 
     for schema in _inputs _outputs _params; do
-      flatc --cpp --gen-object-api --scoped-enums -o . "${schemas}/$schema.fbs"
+      flatc --cpp --gen-object-api --scoped-enums -o . "${interface}/$schema.fbs"
     done
     $CC -std=c11 -D_DEFAULT_SOURCE -DIN_CALL_DISPLAY_COUNT=10 \
       -Wall -Wextra -Werror -I"$include" -c "$tests/fake_host.c"
@@ -89,8 +90,9 @@ runCommandCC "tsugumi-python-abi-check"
     mkdir no-tools-work
     (cd no-tools-work && env -i HOME="$PWD" ../effects --no-tools "$card")
 
-    test -s "${starter.run}/share/tsugumi/api/card.pyi"
-    api=${card}/share/tsugumi/api
+    test -s "${starter.api}/share/tsugumi/api/card.pyi"
+    test -s "${starter.run}/lib/main.so"
+    api=${(definition false).api}/share/tsugumi/api
     test -s "$api/card.pyi"
     test -s "$api/inputs/arrival/tsugumi/merge/t0/Temperature.pyi"
     test ! -e "$api/inputs/arrival/tsugumi/merge/TemperatureBox.pyi"

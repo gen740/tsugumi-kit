@@ -7,12 +7,19 @@
   kit,
 }:
 let
-  definition = import ./definition.nix {
-    inherit pkgs;
-    schemas = ./schemas;
-    inputs.tsugumi = kit;
-    params = { };
+  fixtureEval = import ../card-eval.nix { inherit pkgs; };
+  common = {
+    inputs = fixtureEval.inputs (./ports);
+    outputs = ./interface/_outputs.fbs;
+    params = ./interface/params.nix;
   };
+  interface = (import ../../nix/card-interface.nix { inherit pkgs; }) common;
+  sharedInterface = (import ../../nix/card-interface.nix { inherit pkgs; }) {
+    inputs = { inherit (common.inputs) number file directory; };
+    outputs = ../contract/_outputs.fbs;
+    params = ../contract/params.nix;
+  };
+  definition = fixtureEval.call ./definition.nix { inherit (common) inputs; };
   card = definition.run;
   headers = pkgs.callPackage ../../nix/abi-headers.nix { };
   inherit (stdenv.hostPlatform) isDarwin;
@@ -21,12 +28,12 @@ runCommandCC "tsugumi-rust-abi-check"
   {
     nativeBuildInputs = [ flatbuffers ];
     buildInputs = [ flatbuffers ];
-    passthru.apiCards = [ card ];
+    passthru.apis = [ definition.api ];
   }
   ''
     card=${card}/lib/main.so
     include=${headers}/include
-    api=${card}/share/tsugumi/api
+    api=${definition.api}/share/tsugumi/api
     test -s "$api/lib.rs"
     test -s "$api/_inputs_generated.rs"
     grep -q '## Params' "$api/README.md"
@@ -34,8 +41,8 @@ runCommandCC "tsugumi-rust-abi-check"
     cp ${../fake_host.c} shared_fake_host.c
     cp ${../wire.h} wire.h
     for schema in _inputs _outputs _params; do
-      flatc --cpp --gen-object-api --scoped-enums -o . ${./schemas}/"$schema.fbs"
-      flatc --cpp --gen-object-api --scoped-enums -o cpp ${../contract}/"$schema.fbs"
+      flatc --cpp --gen-object-api --scoped-enums -o . ${interface}/"$schema.fbs"
+      flatc --cpp --gen-object-api --scoped-enums -o cpp ${sharedInterface}/"$schema.fbs"
     done
 
     $CC -std=c11 -D_DEFAULT_SOURCE -Wall -Wextra -Werror -I. -I"$include" \

@@ -1,6 +1,7 @@
 """Generate the Go Card API and its typed ABI verification and output bridge."""
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -25,7 +26,8 @@ def members(ports, reserved=()):
 
 
 class GoTypes:
-    def __init__(self):
+    def __init__(self, global_package):
+        self.global_package = global_package
         self.packages = {}
         self.variants = []
         self.functions = []
@@ -33,7 +35,7 @@ class GoTypes:
 
     def table(self, name):
         namespace, _, leaf = name.rpartition(".")
-        package = namespace.replace(".", "/")
+        package = namespace.replace(".", "/") or self.global_package
         alias = self.packages.setdefault(package, f"port{len(self.packages)}")
         return f"{alias}.{leaf}"
 
@@ -108,8 +110,8 @@ class GoTypes:
         return function
 
 
-def generate_go(card, inputs, outputs):
-    types = GoTypes()
+def generate_go(card, inputs, outputs, global_package):
+    types = GoTypes(global_package)
     types.used = {"Input" + member for _, member in inputs} | {"Output" + member for _, member in outputs}
     helpers = {}
     for side, entries in (("Input", inputs), ("Output", outputs)):
@@ -153,8 +155,16 @@ def generate_go(card, inputs, outputs):
         "func readInput(frame *wire.CardInput) (Inputs, error) {",
         "var input Inputs",
         "params := frame.ParamsBytes()",
+    ]
+    if not card.params:
+        lines += ["if len(params) == 0 {", "input.params = &Params{}", "} else {"]
+    lines += [
         'if !verifyInput(0, params) { return input, fmt.Errorf("invalid params FlatBuffer") }',
         f"input.params = {package}.GetRootAs{root}(params, 0).UnPack()",
+    ]
+    if not card.params:
+        lines.append("}")
+    lines += [
         "for i := 0; i < frame.InputsLength(); i++ {",
         "var port wire.CardPort",
         "frame.Inputs(&port, i)",
@@ -321,6 +331,39 @@ def generate_cpp(card, inputs, outputs, names):
     return "\n".join([*lines, ""])
 
 
+def group_global_types(directory):
+    # flatc writes each unnamespaced type as a different package at the
+    # output root. Keep the types together so they can reference one another.
+    files = sorted(directory.glob("*.go"))
+    if not files:
+        return None
+    package = "schema"
+    while (directory / package).exists():
+        package += "_"
+    (directory / package).mkdir()
+    for file in files:
+        source = re.sub(r"(?m)^package \w+$", f"package {package}", file.read_text())
+        (directory / package / file.name).write_text(source)
+        file.unlink()
+
+    names = "|".join(re.escape(file.stem) for file in files)
+    pattern = re.compile(rf'^\t(\w+) "(?:{names})"\n', re.M)
+    for file in directory.rglob("*.go"):
+        source = file.read_text()
+        aliases = pattern.findall(source)
+        if not aliases:
+            continue
+        source = pattern.sub("", source)
+        alias = "tsugumiSchema"
+        while re.search(rf"\b{alias}\b", source):
+            alias += "_"
+        source = source.replace("import (\n", f'import (\n\t{alias} "tsugumi/{package}"\n', 1)
+        for old in aliases:
+            source = re.sub(rf"\b{re.escape(old)}\.", f"{alias}.", source)
+        file.write_text(source)
+    return package
+
+
 def main(schemas, directory, reflection, cpp_directory, cpp_sdk):
     # The verification bridge uses the same C++ identifier handling as the C++ SDK.
     sys.path.insert(0, str(cpp_sdk))
@@ -330,8 +373,9 @@ def main(schemas, directory, reflection, cpp_directory, cpp_sdk):
     inputs = members(card.inputs, ("Params",))
     outputs = members(card.outputs)
     names, _ = generate_headers(schemas, cpp_directory, reflection)
-    (directory / "card.go").write_text(generate_go(card, inputs, outputs))
-    (directory / "card_ports.cc").write_text(generate_cpp(card, inputs, outputs, names))
+    global_package = group_global_types(directory)
+    (directory / "card.go").write_text(generate_go(card, inputs, outputs, global_package))
+    (cpp_directory / "card_ports.cc").write_text(generate_cpp(card, inputs, outputs, names))
     write_api_readme(
         directory / "README.md",
         ((port.name, f"*Input{member}") for port, member in inputs),

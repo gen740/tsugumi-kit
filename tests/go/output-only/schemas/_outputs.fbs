@@ -1,5 +1,0 @@
-namespace outputs.number;
-table Number { value:long; }
-namespace outputs;
-table Outputs { number:outputs.number.Number (required); }
-root_type Outputs;

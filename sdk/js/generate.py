@@ -34,9 +34,12 @@ def camel(name):
     return snake[0] + re.sub(r"_(.)", lambda m: m[1].upper(), snake[1:])
 
 
-def js_type(name):
-    namespace, cls = name.rsplit(".", 1)
-    return f"{namespace}.{escape(cls)}"
+def js_type(name, *, output=False):
+    namespace, _, cls = name.rpartition(".")
+    if output:
+        namespace = "outputs" if namespace == "outputs" else ".".join(
+            filter(None, ("outputs", namespace.removeprefix("outputs."))))
+    return ".".join(filter(None, (namespace, escape(cls))))
 
 
 def export_escaped_objects(js):
@@ -97,7 +100,7 @@ def union_rules(schema):
                     kind = variant["union_type"]
                     variants[variant["value"]] = (
                         "String" if kind["base_type"] == "String"
-                        else js_type(objects[kind["index"]]["name"]) + "T"
+                        else js_type(objects[kind["index"]]["name"], output=True) + "T"
                     )
                 unions.setdefault(index, []).append(
                     (member, tag, vector, field.get("required", False), variants))
@@ -115,7 +118,7 @@ def union_rules(schema):
 
     lines = ["export const outputChecks = new Map<unknown, any>(["]
     for index in sorted(checked):
-        cls = js_type(objects[index]["name"]) + "T"
+        cls = js_type(objects[index]["name"], output=True) + "T"
         lines.append(f"  [{cls}, {{ unions: [")
         for member, tag, vector, required, variants in unions.get(index, []):
             choices = ", ".join(f"{value}: {kind}" for value, kind in variants.items())
@@ -124,50 +127,50 @@ def union_rules(schema):
         lines.append("  ], children: [")
         for member, vector, child in children.get(index, []):
             if child in checked:
-                target = js_type(objects[child]["name"]) + "T"
+                target = js_type(objects[child]["name"], output=True) + "T"
                 lines.append(f"    [{json.dumps(member)}, {str(vector).lower()}, {target}],")
         lines.append("  ] }],")
     lines.append("]);")
     return lines
 
 
-def ts_value_type(type_, members):
+def ts_value_type(type_, members, *, output=False):
     if members:
-        return " | ".join(ts_value_type(member.type, member.merge) for member in members)
-    return js_type(type_) + "T"
+        return " | ".join(ts_value_type(member.type, member.merge, output=output) for member in members)
+    return js_type(type_, output=output) + "T"
 
 
-def ts_type(port):
-    return "string" if port.kind == "Path" else ts_value_type(port.type, port.merge)
+def ts_type(port, *, output=False):
+    return "string" if port.kind == "Path" else ts_value_type(port.type, port.merge, output=output)
 
 
-def descriptor(type_, members):
+def descriptor(type_, members, *, output=False):
     """The runtime's view of one FlatBuffer type, with a Merge's boxed members."""
-    cls = js_type(type_)
+    cls = js_type(type_, output=output)
     table = type_.rsplit(".", 1)[-1]
     entries = [f"read: {cls}.{camel('get_root_as_' + table)}", f"object: {cls}T"]
     if members:
         boxed = ", ".join(
-            f"{{ tag: {member.value}, box: {js_type(member.box_type)}, "
-            f"boxObject: {js_type(member.box_type)}T, "
-            f"type: {descriptor(member.type, member.merge)} }}"
+            f"{{ tag: {member.value}, box: {js_type(member.box_type, output=output)}, "
+            f"boxObject: {js_type(member.box_type, output=output)}T, "
+            f"type: {descriptor(member.type, member.merge, output=output)} }}"
             for member in members)
         entries.append(f"members: [{boxed}]")
     return "{ " + ", ".join(entries) + " }"
 
 
-def port_descriptor(port):
+def port_descriptor(port, *, output=False):
     entries = [f"name: {json.dumps(port.name)}", f"kind: {json.dumps(port.kind)}",
                f"required: {str(port.required).lower()}"]
     if port.kind == "FlatBuffer":
-        entries.append(f"type: {descriptor(port.type, port.merge)}")
+        entries.append(f"type: {descriptor(port.type, port.merge, output=output)}")
     return "  { " + ", ".join(entries) + " },"
 
 
 def js_bindings(card, output_schema):
     lines = [
         "import { inputs } from './_inputs.js';",
-        "import { outputs } from './_outputs.js';",
+        "import * as outputs from './output-types.js';",
         "import { parameters } from './_params.js';",
         "export { inputs, outputs, parameters };",
         "",
@@ -191,22 +194,25 @@ def js_bindings(card, output_schema):
     for port in card.outputs:
         optional = "" if port.required else "?"
         suffix = "" if port.required else " | undefined"
-        lines.append(f"  {json.dumps(port.name)}{optional}: {ts_type(port)}{suffix};")
+        lines.append(f"  {json.dumps(port.name)}{optional}: {ts_type(port, output=True)}{suffix};")
     table = card.params_type.rsplit(".", 1)[-1]
     lines += [
         "}",
         "",
-        f"export const readParams = {js_type(card.params_type)}.{camel('get_root_as_' + table)};",
+        "export function readParams(bytes: Uint8Array): parameters.ParamsT {",
+        *([] if card.params else ["  if (!bytes.length) return new parameters.ParamsT();"]),
+        f"  return {js_type(card.params_type)}.{camel('get_root_as_' + table)}(new ByteBuffer(bytes)).unpack();",
+        "}",
         "export const inputPorts = [",
         *map(port_descriptor, card.inputs),
         "];",
         "export const outputPorts = [",
-        *map(port_descriptor, card.outputs),
+        *(port_descriptor(port, output=True) for port in card.outputs),
         "];",
         "",
         *union_rules(output_schema),
     ]
-    return "\n".join(lines) + "\n"
+    return 'import { ByteBuffer } from "flatbuffers";\n' + "\n".join(lines) + "\n"
 
 
 def cpp_adapter(card, names):
@@ -257,7 +263,8 @@ def cpp_adapter(card, names):
             ]
     body += [
         "    input.CheckConsumed();",
-        "    " + verify_value(card.params_type, (), "input.Params()", '"params"',
+        "    " + ("" if card.params else "if (input.Params().size != 0) ")
+        + verify_value(card.params_type, (), "input.Params()", '"params"',
                               "FailureKind::invalid_request"),
         "  }",
         "  auto result = RunNodeCard(bytes);",
@@ -317,7 +324,7 @@ def write_readme(card, path):
     write_api_readme(
         path,
         ((port.name, f"{ts_type(port)} | undefined") for port in card.inputs),
-        ((port.name, ts_type(port) + (" (required output)" if port.required
+        ((port.name, ts_type(port, output=True) + (" (required output)" if port.required
                                       else " | undefined")) for port in card.outputs),
         ((param.name, param.type) for param in card.params),
     )
@@ -335,6 +342,12 @@ if __name__ == "__main__":
     native.joinpath("card_adapter.cc").write_text(cpp_adapter(card, names))
     export_escaped_objects(js)
     link_namespace_barrels(js)
+    output_schema = reflect_schema(schemas / "_outputs.fbs", reflection)
+    output_names = [item["name"] for item in output_schema["objects"] + output_schema["enums"]]
+    exports = ["export * from './_outputs.js';"]
+    if any(name.startswith("outputs.") for name in output_names):
+        exports.append("export * from './outputs.js';")
+    (js / "output-types.ts").write_text("\n".join(exports) + "\n")
     js.joinpath("bindings.ts").write_text(
-        js_bindings(card, reflect_schema(schemas / "_outputs.fbs", reflection)))
+        js_bindings(card, output_schema))
     write_readme(card, readme)

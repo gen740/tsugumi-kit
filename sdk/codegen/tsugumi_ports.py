@@ -1,4 +1,4 @@
-"""Reflect the three Card catalogs supplied to an SDK by Tsugumi."""
+"""Reflect the three catalogs prepared for each Card SDK."""
 
 from dataclasses import dataclass
 import json
@@ -6,6 +6,8 @@ from pathlib import Path
 import re
 import subprocess
 from tempfile import TemporaryDirectory
+
+from card_interface import schema_tokens
 
 
 @dataclass(frozen=True)

@@ -1,9 +1,0 @@
-namespace parameters;
-table Params {
-  mode:int (id: 0);
-  fd:int (id: 1);
-  unread:double = nan (id: 2);
-  high:double = inf (id: 3);
-  low:double = -inf (id: 4);
-}
-root_type Params;

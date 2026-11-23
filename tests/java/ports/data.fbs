@@ -1,0 +1,16 @@
+attribute "tsugumi";
+namespace inputs.data;
+table Row { value:long; }
+table Text { text:string; }
+table Count { value:long; }
+union Choice { Text, Count }
+table Data {
+  rows:[Row] (required);
+  choice:Choice;
+}
+
+namespace inputs;
+table Inputs {
+  data:inputs.data.Data (id: 0);
+}
+root_type Inputs;

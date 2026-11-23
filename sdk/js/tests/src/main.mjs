@@ -21,7 +21,7 @@ export default async function run({ ports, params, need }, ctx) {
   const { file, directory, arrival } = ports;
   assert.equal(Object.hasOwn(ports, "unwired"), false);
 
-  switch (params.mode) {
+  switch (Number(params.mode)) {
     case 0:
       calls++;
       break;
@@ -50,7 +50,7 @@ export default async function run({ ports, params, need }, ctx) {
       display.send(new LineChart([{ id: "id", label: "line", x: [2], y: [3] }]));
       assert.equal(send("custom", new Uint8Array([99, ...bytes, 99]).subarray(1, 4)), 0);
       const worker = new Worker(new URL("./display-worker.mjs", import.meta.url),
-        { workerData: params.fd });
+        { workerData: Number(params.fd) });
       worker.on("error", error => console.error(error));
       break;
     }

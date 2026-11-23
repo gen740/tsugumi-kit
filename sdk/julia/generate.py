@@ -345,7 +345,8 @@ def generate(card, schemas, names, output_schema):
         "  try {",
         *read,
         "    input.CheckConsumed();",
-        f"    const auto params = Encode(ReadValue<{cpp_type(card.params_type, names)}>"
+        f"    const auto params = Encode(ReadValue<{cpp_type(card.params_type, names)}, "
+        f"{str(not card.params).lower()}>"
         '(input.Params(), "params"));',
         '    request = Json{{"ports", members}, {"params", params}}.dump();',
         "  } catch (const Json::exception& error) {",

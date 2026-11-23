@@ -176,7 +176,7 @@ def invoke(params, ports):
         except Exception as error:
             return _failure(Failure("invalid_request", f"Invalid input {name}: {error}"))
     try:
-        input = Input(params=Params.InitFromPackedBuf(params), **values)
+        input = Input(params=Params.InitFromPackedBuf(params) if params else Params(), **values)
         return list(_outputs_to_ports(run(input), Output, outputs, union_checks))
     except BaseException as error:
         return _failure(error)

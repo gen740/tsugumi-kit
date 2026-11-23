@@ -1,15 +1,14 @@
-{ self, ... }:
 {
   perSystem =
     {
       config,
       pkgs,
+      kit,
       system,
       ...
     }:
     let
       inherit (pkgs) lib;
-      kit = self.lib.${system};
       pendingSdkChecks = import ./pending-sdk-checks.nix;
       enabled = sdk: !(builtins.elem sdk pendingSdkChecks);
       abiChecks = [
@@ -24,9 +23,7 @@
         "ruby"
         "rust"
       ];
-      apiCards = lib.concatMap (sdk: config.checks."${sdk}Abi".apiCards) (
-        builtins.filter enabled abiChecks
-      );
+      apis = lib.concatMap (sdk: config.checks."${sdk}Abi".apis) (builtins.filter enabled abiChecks);
       # A nixpkgs pin other than the flake's, standing in for a project's pin.
       projectPkgs = import (builtins.fetchTarball {
         url = "https://github.com/NixOS/nixpkgs/archive/c78b9f9c117e3ad7a6c1a161a48dc388693049b0.tar.gz";
@@ -36,11 +33,9 @@
       checkTextTemplate =
         name: definitionDir: libraries:
         let
-          definition = import definitionDir {
-            inherit pkgs;
-            inputs.tsugumi = kit;
-            params = { };
-            schemas = ../tests/templates/text-to-path;
+          fixtureEval = import ../tests/card-eval.nix { inherit pkgs; };
+          definition = fixtureEval.call definitionDir {
+            inputs = fixtureEval.inputs ../tests/templates/text-to-path;
           };
         in
         assert builtins.elem "text" (map (view: view.name) definition.views);
@@ -60,27 +55,33 @@
         cppAbiProjectPkgs =
           assert projectKit.cppRuntime.drvPath != kit.cppRuntime.drvPath;
           projectPkgs.callPackage ./cpp-check.nix { kit = projectKit; };
-        sdkApi = pkgs.runCommand "tsugumi-sdk-api-check" { } ''
-          for card in ${lib.escapeShellArgs (map toString apiCards)}; do
-            test -s "$card/lib/main.so"
-            test -s "$card/share/tsugumi/api/README.md"
-          done
-          touch "$out"
-        '';
+        sdkApi =
+          assert import ../tests/param-validation.nix { inherit pkgs; };
+          pkgs.runCommand "tsugumi-sdk-api-check" { } ''
+            for api in ${lib.escapeShellArgs (map toString apis)}; do
+              test ! -e "$api/lib/main.so"
+              readme="$api/share/tsugumi/api/README.md"
+              test -s "$readme"
+              for section in Inputs Outputs Params; do
+                grep -Fxq "## $section" "$readme"
+              done
+            done
+            touch "$out"
+          '';
       }
       // lib.optionalAttrs (enabled "js") {
         jsAbi = pkgs.callPackage ./js-check.nix { inherit kit; };
       }
       // lib.optionalAttrs (enabled "java") {
         javaAbi = pkgs.callPackage ./java-check.nix { inherit kit; };
-        javaWriteTextTemplate = checkTextTemplate "java-write-text" ../templates/java-write-text/write [
+        javaWriteTextTemplate = checkTextTemplate "java-write-text" ../tests/templates/java-write-text [
           "main.so"
           "card.jar"
         ];
       }
       // lib.optionalAttrs (enabled "go") {
         goNormalizeTextTemplate =
-          checkTextTemplate "go-normalize-text" ../templates/go-normalize-text/normalize
+          checkTextTemplate "go-normalize-text" ../tests/templates/go-normalize-text
             [
               "main.so"
               "go-card.so"
@@ -88,7 +89,7 @@
       }
       // lib.optionalAttrs (enabled "rust") {
         rustNumberLinesTemplate =
-          checkTextTemplate "rust-number-lines" ../templates/rust-number-lines/number
+          checkTextTemplate "rust-number-lines" ../tests/templates/rust-number-lines
             [ "main.so" ];
       };
     };

@@ -27,7 +27,7 @@ public final class Main {
 
     public static Card.Output run(Card.Input input) throws Exception {
         ++calls;
-        switch (input.params().getMode()) {
+        switch (Math.toIntExact(input.params().getMode())) {
             case 1 -> {
                 // Three scenario calls and five failures preceded this call.
                 check(calls == 9);
@@ -41,7 +41,7 @@ public final class Main {
                 queries.join();
                 if (errors.get() != null) throw new AssertionError(errors.get());
                 display();
-                int fd = input.params().getFd();
+                int fd = Math.toIntExact(input.params().getFd());
                 background = new Thread(() -> displayLater(fd));
                 background.start();
             }

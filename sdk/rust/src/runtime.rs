@@ -170,7 +170,7 @@ impl<'a> Input<'a> {
             .transpose()
     }
 
-    pub(crate) fn params<T>(self) -> Result<T>
+    pub(crate) fn params<T>(self, allow_empty: bool) -> Result<T>
     where
         T: Follow<'a, Inner = T> + Verifiable + 'a,
     {
@@ -180,7 +180,14 @@ impl<'a> Input<'a> {
                 "Unknown input port",
             ));
         }
-        read_value::<T>(self.params, "params")
+        // A FlatBuffers root offset, followed by an empty vtable and table.
+        const EMPTY_PARAMS: &[u8] = &[8, 0, 0, 0, 4, 0, 4, 0, 4, 0, 0, 0];
+        let bytes = if allow_empty && self.params.is_empty() {
+            EMPTY_PARAMS
+        } else {
+            self.params
+        };
+        read_value::<T>(bytes, "params")
     }
 }
 

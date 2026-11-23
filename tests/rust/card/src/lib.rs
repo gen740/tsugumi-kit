@@ -65,7 +65,8 @@ fn run(input: Inputs<'_>) -> Result<Output> {
             display_samples()?;
             // The fake host keeps the descriptor open. The Card thread owns
             // its duplicate and can wait until the host returns from the call.
-            let fd = unsafe { BorrowedFd::borrow_raw(input.params.fd()) }.try_clone_to_owned()?;
+            let fd = i32::try_from(input.params.fd()).expect("test file descriptor fits in i32");
+            let fd = unsafe { BorrowedFd::borrow_raw(fd) }.try_clone_to_owned()?;
             *BACKGROUND.lock().unwrap() = Some(thread::spawn(move || {
                 let mut file = File::from(fd);
                 file.read_exact(&mut [0]).unwrap();

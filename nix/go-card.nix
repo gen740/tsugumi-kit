@@ -1,15 +1,45 @@
-{ pkgs, runtime }:
+{
+  pkgs,
+  runtime,
+  portCodegen,
+  cardInterface,
+  publishApi,
+}:
 let
   inherit (pkgs) lib;
   sdk = ../sdk/go;
-  portCodegen = pkgs.callPackage ./port-codegen.nix { };
   nativeFlags = ''
     cxx_flags=(-std=c++2c -O2 -DNDEBUG -fPIC -fvisibility=hidden -fvisibility-inlines-hidden
       -Wall -Wextra -Werror -Wformat=2 -Wimplicit-fallthrough)
   '';
-  mkGoCardSdk =
+  generate =
     {
-      schemas,
+      inputs,
+      outputs,
+      params ? null,
+    }:
+    let
+      interface = cardInterface { inherit inputs outputs params; };
+    in
+    pkgs.runCommand "tsugumi-go-card-bindings"
+      {
+        nativeBuildInputs = [
+          pkgs.go
+          pkgs.flatbuffers
+          (pkgs.python3.withPackages (_: [ portCodegen ]))
+        ];
+      }
+      ''
+        mkdir -p "$out/go" "$out/native/include"
+        flatc --go --gen-all --gen-object-api --go-import tsugumi/flatbuffers --go-module-name tsugumi \
+          -o "$out/go" "${interface}"/_{inputs,outputs,params}.fbs
+        python3 ${sdk}/card_go.py "${interface}" "$out/go" \
+          ${pkgs.flatbuffers.src}/reflection/reflection.fbs "$out/native" ${../sdk/cpp}
+        gofmt -w "$out/go/card.go"
+      '';
+  buildSdk =
+    {
+      generated,
       goMod,
       sourcePrefix ? "src",
     }:
@@ -17,8 +47,8 @@ let
       {
         nativeBuildInputs = [
           pkgs.go
+          pkgs.python3
           pkgs.flatbuffers
-          (pkgs.python3.withPackages (_: [ portCodegen ]))
         ];
         buildInputs = [ pkgs.flatbuffers ];
         env = {
@@ -28,22 +58,17 @@ let
         };
       }
       ''
-        mkdir -p "$out/flatbuffers" "$out/lib" cpp/include module
+        mkdir -p "$out/flatbuffers" "$out/lib" module
+        cp -r "${generated}/go/." "$out/"
         cp ${sdk}/{go.mod,runtime.go,display.go,native.go,host.h} "$out/"
         for file in ${pkgs.flatbuffers.src}/go/*.go; do
           case "$file" in *_test.go|*/doc.go) continue;; esac
           cp "$file" "$out/flatbuffers/"
         done
 
-        schemas=${lib.escapeShellArg "${schemas}"}
         abi=${../abi}
         flatc --go --gen-object-api --go-import tsugumi/flatbuffers --go-module-name tsugumi \
           -o "$out" "$abi/card_enums.fbs" "$abi/card.fbs"
-        flatc --go --gen-object-api --go-import tsugumi/flatbuffers --go-module-name tsugumi \
-          -o "$out" "$schemas"/_{inputs,outputs,params}.fbs
-        python3 ${sdk}/card_go.py "$schemas" "$out" \
-          ${pkgs.flatbuffers.src}/reflection/reflection.fbs cpp ${../sdk/cpp}
-        gofmt -w "$out/card.go"
 
         cp ${lib.escapeShellArg "${goMod}"} module/go.mod
         export GOCACHE="$TMPDIR/go-cache" GOMODCACHE="$TMPDIR/go-modules"
@@ -60,9 +85,8 @@ let
         CODE
 
         ${nativeFlags}
-        mv "$out/card_ports.cc" .
-        for source in ${sdk}/{host,entry}.cc card_ports.cc; do
-          $CXX "''${cxx_flags[@]}" -Icpp/include -I${sdk} -I${runtime}/include \
+        for source in ${sdk}/{host,entry}.cc "${generated}/native/card_ports.cc"; do
+          $CXX "''${cxx_flags[@]}" -I"${generated}/native/include" -I${sdk} -I${runtime}/include \
             -I${../sdk/cpp/src} -c "$source"
         done
         $AR rcs "$out/lib/go-host.a" host.o card_ports.o entry.o
@@ -71,7 +95,9 @@ let
   mkGoCard =
     {
       src,
-      schemas,
+      inputs,
+      outputs,
+      params ? null,
       name ? "tsugumi-go-card",
       sourcePrefix ? "src",
       lock ? null,
@@ -84,8 +110,9 @@ let
       (lock == null) == (hash == null)
     ) "goCard: supply lock (go.sum) and hash together for external Go modules";
     let
-      generatedSdk = mkGoCardSdk {
-        inherit schemas sourcePrefix;
+      generatedSdk = buildSdk {
+        generated = generate { inherit inputs outputs params; };
+        inherit sourcePrefix;
         goMod = "${src}/go.mod";
       };
       inherit (pkgs.stdenv.hostPlatform) isDarwin;
@@ -122,6 +149,7 @@ let
     in
     pkgs.runCommandCC name
       {
+        passthru.sdk = generatedSdk;
         nativeBuildInputs = [
           pkgs.go
         ]
@@ -137,20 +165,14 @@ let
         };
       }
       ''
-        api="$out/share/tsugumi/api"
-        mkdir -p card "$out/lib" "$api"
-        cp ${generatedSdk}/{README.md,card.go} "$api/"
-        for package in ${generatedSdk}/*/; do
-          case "$(basename "$package")" in flatbuffers|lib|Tsugumi) continue;; esac
-          cp -r "$package" "$api/"
-        done
+        mkdir -p card "$out/lib"
         cp -r --no-preserve=mode ${src}/. card/
         cd card
         if [ -e tsugumi_adapter.go ]; then
           echo "goCard: tsugumi_adapter.go is reserved for the generated SDK" >&2
           exit 1
         fi
-        # Replace any development copy or symlink with the SDK for these schemas.
+        # Replace any development copy or symlink with the SDK for this wiring.
         rm -rf tsugumi
         ln -s ${generatedSdk} tsugumi
         cp ${sdk}/adapter.go.in tsugumi_adapter.go
@@ -190,5 +212,12 @@ let
 in
 {
   goCard = mkGoCard;
-  goCardSdk = mkGoCardSdk;
+  goApi =
+    args:
+    let
+      generated = generate args;
+    in
+    publishApi "go" ''
+      cp -r "${generated}/go/." "$api/"
+    '';
 }

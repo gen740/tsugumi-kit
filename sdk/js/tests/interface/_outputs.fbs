@@ -1,0 +1,33 @@
+attribute "tsugumi";
+
+namespace outputs.number;
+table Code { value:long; }
+union Detail { Code }
+table Value { value:long; nested_detail:Detail; }
+table Number { number:Value (required); }
+
+namespace outputs.arrival.tsugumi.merge.t0;
+table Temperature { value:double; }
+
+namespace outputs.arrival.tsugumi.merge.t1;
+table Reading { name:string (required); }
+
+namespace outputs.arrival.tsugumi.merge;
+table TemperatureBox { bytes:[ubyte] (id: 0, nested_flatbuffer: "outputs.arrival.tsugumi.merge.t0.Temperature"); }
+table ReadingBox { bytes:[ubyte] (id: 0, nested_flatbuffer: "outputs.arrival.tsugumi.merge.t1.Reading"); }
+union Arrival { TemperatureBox, ReadingBox }
+table Merged { value:Arrival (id: 1); }
+
+namespace weather;
+table Reading { temperature:double; }
+
+namespace report;
+table ResultPorts {
+  number:outputs.number.Number (id: 0, required);
+  file:string (id: 1, tsugumi: "path");
+  directory:string (id: 2, tsugumi: "path");
+  arrival:outputs.arrival.tsugumi.merge.Merged (id: 3);
+  weather:weather.Reading (id: 4);
+}
+
+root_type ResultPorts;

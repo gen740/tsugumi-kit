@@ -39,7 +39,7 @@ internal sealed class InputPorts
             if (!ports.TryAdd(port.Name, port))
                 throw Rejected(FailureKind.invalid_request, $"Duplicate input {port.Name}");
         }
-        Params = input.GetParamsArray();
+        Params = input.GetParamsArray() ?? [];
     }
 
     internal byte[] Params { get; }

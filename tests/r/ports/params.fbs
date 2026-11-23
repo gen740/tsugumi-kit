@@ -1,0 +1,29 @@
+attribute "tsugumi";
+namespace inputs.params;
+enum Unit : ubyte { Counts, Volts }
+struct Position { coordinates:[int:2]; units:[Unit:2]; depth:[int:1]; }
+table Number { value:double; unit:Unit; }
+table Choice { name:string (required); }
+union Selection { Choice, Alias:Choice, Description:string }
+table Row {
+  name:string (required);
+  signed_value:long;
+  unsigned_value:ulong;
+  special:[double];
+  single:[double];
+  empty:[int];
+  wide:[ulong];
+  bytes:[ubyte];
+  enabled:[bool];
+  unit:[Unit];
+  nullable:int = null;
+  position:Position;
+  selection:Selection;
+}
+table DataTable { rows:[Row] (required); }
+
+namespace inputs;
+table Inputs {
+  params:inputs.params.Number (id: 0);
+}
+root_type Inputs;

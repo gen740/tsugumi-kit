@@ -113,30 +113,30 @@ auto MakeInput(input_case scenario, int mode, int fd, bool zero_root)
     input.params.assign(bad.data, bad.data + bad.size);
 
   if (scenario != MISSING_INPUT) {
-    rust_inputs::number::NumberT number;
-    number.position = std::make_unique<rust_inputs::number::Position>(40, 2);
+    inputs::number::NumberT number;
+    number.position = std::make_unique<inputs::number::Position>(40, 2);
     const auto kind = scenario == UNKNOWN_KIND ? static_cast<PortKind>(255)
                       : scenario == WRONG_KIND ? PortKind::Path
                                                : PortKind::FlatBuffer;
     AddPort(input, "number", kind,
             scenario == MALFORMED_PORT
                 ? std::vector<uint8_t>(bad.data, bad.data + bad.size)
-                : Encode<rust_inputs::number::Number>(number));
+                : Encode<inputs::number::Number>(number));
     if (scenario == UNKNOWN_PORT)
       AddPort(input, "unknown", kind,
-              Encode<rust_inputs::number::Number>(number));
+              Encode<inputs::number::Number>(number));
     if (scenario == DUPLICATE_PORT)
       AddPort(input, "number", kind,
-              Encode<rust_inputs::number::Number>(number));
+              Encode<inputs::number::Number>(number));
   }
 
-  rust_inputs::payload::PayloadT payload;
-  rust_inputs::payload::LabelT label;
+  inputs::payload::PayloadT payload;
+  inputs::payload::LabelT label;
   label.text = "choice";
   payload.data.Set(std::move(label));
   payload.values = {3, 5};
   AddPort(input, "payload", PortKind::FlatBuffer,
-          Encode<rust_inputs::payload::Payload>(payload));
+          Encode<inputs::payload::Payload>(payload));
 
   if (scenario == OPTIONAL_PORTS) {
     const auto file = std::filesystem::absolute("input.txt").string();
@@ -148,7 +148,7 @@ auto MakeInput(input_case scenario, int mode, int fd, bool zero_root)
   }
 
   if (mode == 21 || mode == 22 || mode == 23 || mode == 26) {
-    using namespace rust_inputs::arrival::tsugumi::merge;
+    using namespace inputs::arrival::tsugumi::merge;
     MergedT merged;
     if (mode == 26) {
       t1::ReadingT value;

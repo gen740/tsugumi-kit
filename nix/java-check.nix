@@ -2,38 +2,19 @@
   pkgs,
   lib,
   stdenv,
-  runCommand,
   runCommandCC,
-  writeShellScriptBin,
   flatbuffers,
-  coreutils,
-  jdk21_headless,
   kit,
 }:
 let
-  schemas = ../tests/java/schemas;
-  testJar =
-    runCommand "tsugumi-java-test-dependency.jar"
-      {
-        nativeBuildInputs = [ jdk21_headless ];
-      }
-      ''
-        mkdir classes
-        cp ${../tests/java/Offset.java} Offset.java
-        javac -d classes Offset.java
-        jar --create --date=1980-01-01T00:00:02Z --file "$out" -C classes .
-      '';
-  testSort = writeShellScriptBin "tsugumi-test-sort" ''
-    exec ${coreutils}/bin/sort "$@"
-  '';
-  definition = import ../tests/java/card {
-    pkgs = pkgs // {
-      inherit testJar testSort;
-    };
-    inherit schemas;
-    inputs.tsugumi = kit;
-    params = { };
+  fixtureEval = import ../tests/card-eval.nix { inherit pkgs; };
+  common = {
+    inputs = fixtureEval.inputs (../tests/java/ports);
+    outputs = ../tests/java/interface/_outputs.fbs;
+    params = ../tests/java/interface/params.nix;
   };
+  interface = (import ../tests/../nix/card-interface.nix { inherit pkgs; }) common;
+  definition = fixtureEval.call ../tests/java/card { inherit (common) inputs; };
   card = definition.run;
   host = lib.fileset.toSource {
     root = ../tests;
@@ -46,24 +27,24 @@ let
   inherit (stdenv.hostPlatform) isDarwin;
 in
 assert !(card ? views);
-assert definition.views == kit.javaSdk.views;
+assert definition.views == kit.java.views;
 runCommandCC "tsugumi-java-abi-check"
   {
     nativeBuildInputs = [ flatbuffers ];
     buildInputs = [ flatbuffers ];
-    passthru.apiCards = [ card ];
+    passthru.apis = [ definition.api ];
   }
   ''
     card=${card}/lib/main.so
     include=${kit.cppRuntime}/include
-    test -s ${card}/share/tsugumi/api/tsugumi/Card.java
-    test -s ${card}/share/tsugumi/api/inputs/arrival/tsugumi/merge/t0/TemperatureT.java
-    grep -Eq 'TemperatureT \| .*\.ReadingT' ${card}/share/tsugumi/api/README.md
+    test -s ${definition.api}/share/tsugumi/api/tsugumi/Card.java
+    test -s ${definition.api}/share/tsugumi/api/inputs/arrival/tsugumi/merge/t0/TemperatureT.java
+    grep -Eq 'TemperatureT \| .*\.ReadingT' ${definition.api}/share/tsugumi/api/README.md
     for view in ${lib.escapeShellArgs (map (view: "${view.blob}") definition.views)}; do
       test -s "$view"
     done
     for schema in _inputs _outputs _params; do
-      flatc --cpp --gen-object-api --scoped-enums -o . ${schemas}/"$schema.fbs"
+      flatc --cpp --gen-object-api --scoped-enums -o . ${interface}/"$schema.fbs"
     done
     $CC -std=c11 -D_DEFAULT_SOURCE -DIN_CALL_DISPLAY_COUNT=7 -Dmain=check_shared_abi \
       -Wall -Wextra -Werror -I"$include" -c ${host}/fake_host.c

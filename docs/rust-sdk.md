@@ -3,19 +3,21 @@
 The Rust builder takes the Card's Cargo package and the current wiring schemas.
 
 ```nix
-{ pkgs, params, inputs, schemas }:
+{ params, inputs }:
 let
-  sdk = inputs.tsugumi.rustSdk;
+  pkgs = import <nixpkgs> { };
+  sdk = import <tsugumi-kit/sdk/rust> { inherit pkgs; };
+  common = { inherit inputs; outputs = ./_outputs.fbs; };
 in
 {
-  run = sdk.rustCard { inherit schemas; src = ./src; sourcePrefix = "src"; };
+  run = sdk.rustCard (common // { src = ./src; sourcePrefix = "src"; });
+  api = sdk.rustApi common;
   views = sdk.views;
 }
 ```
 
-The builder reads `_inputs.fbs`, `_outputs.fbs`, and `_params.fbs` and
-installs `lib/main.so` and the typed API with its README under
-`share/tsugumi/api/`.
+`rustApi` publishes the generated Rust API and a typed README under
+`share/tsugumi/api/`. The run output contains `lib/main.so`.
 
 Use a Cargo library package with `crate-type = ["staticlib"]` and
 `tsugumi = { path = "tsugumi" }` in `[dependencies]`. The builder places a
@@ -65,7 +67,7 @@ errors return a `Failure` with kind `invalid_request` before calling the host.
 A nonzero host status returns `worker_failed` and includes the transport status.
 The core forwards the view name and the UI looks up the corresponding declared view.
 
-The SDK at `lib.${system}.rustSdk` bundles the `line-chart` and `points` HTML views.
+The SDK bundles the `line-chart` and `points` HTML views.
 Declare the matching views in your Card's `default.nix` with
 `views = sdk.views ++ [ ... ];`.
 The bundled `markdown` view displays scalar values.

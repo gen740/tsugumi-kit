@@ -1,8 +1,8 @@
 # Julia Cards
 
-Use `inputs.tsugumi.juliaSdk.juliaCard { inherit schemas; src = ./src; }`
-from a Card definition that takes `{ pkgs, params, inputs, schemas }`.
-Write `main(input)` in `src/main.jl`.
+Import `<tsugumi-kit/sdk/julia>` with the Card's `pkgs`.
+`juliaCard` builds the worker library and `juliaApi` publishes the
+generated API under `share/tsugumi/api/`.
 
 - [Julia SDK guide](../../docs/julia-sdk.md)
 - [Julia Card starter](../../templates/julia-write-text/)

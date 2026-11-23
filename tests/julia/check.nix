@@ -18,28 +18,25 @@ let
     ];
   };
   runtime = kit.cppRuntime;
-  definition = import ./card {
-    inherit pkgs;
-    inputs.tsugumi = kit;
-    params = { };
-    schemas = ./schemas;
+  fixtureEval = import ../card-eval.nix { inherit pkgs; };
+  common = {
+    inputs = fixtureEval.inputs (./ports);
+    outputs = ./interface/_outputs.fbs;
+    params = ./interface/params.nix;
   };
+  definition = fixtureEval.call ./card { inherit (common) inputs; };
   card = definition.run;
-  starter =
-    (import ../../templates/julia-write-text/write {
-      inherit pkgs;
-      inputs.tsugumi = kit;
-      params = { };
-      schemas = ../templates/text-to-path;
-    }).run;
+  starter = fixtureEval.call ../templates/julia-write-text {
+    inputs = fixtureEval.inputs ../templates/text-to-path;
+  };
 in
-assert definition.views == kit.juliaSdk.views;
+assert definition.views == kit.julia.views;
 runCommandCC "tsugumi-julia-abi-check"
   {
     buildInputs = [ flatbuffers ];
-    passthru.apiCards = [
-      card
-      starter
+    passthru.apis = [
+      definition.api
+      starter.api
     ];
   }
   ''
@@ -47,10 +44,10 @@ runCommandCC "tsugumi-julia-abi-check"
     include=${runtime}/include
     card=${card}/lib/main.so
 
-    test -s "${card}/share/tsugumi/api/README.md"
-    test -s "${card}/share/tsugumi/api/_inputs.fbs"
-    test -s "${card}/share/tsugumi/api/card.jl"
-    grep -F '`arrival` — `(type="Temperature"' "${card}/share/tsugumi/api/README.md"
+    test -s "${definition.api}/share/tsugumi/api/README.md"
+    test -s "${definition.api}/share/tsugumi/api/_inputs.fbs"
+    test -s "${definition.api}/share/tsugumi/api/card.jl"
+    grep -F '`arrival` — `(type="Temperature"' "${definition.api}/share/tsugumi/api/README.md"
     $CC -std=c11 -D_DEFAULT_SOURCE -Dmain=shared_main -Dalarm=julia_test_alarm -Wall -Wextra -Werror \
       -I"$include" -c "$shared/fake_host.c"
     $CC -std=c11 -Wall -Wextra -Werror -c ${./watchdog.c} -o watchdog.o
@@ -69,10 +66,10 @@ runCommandCC "tsugumi-julia-abi-check"
     (cd "$HOME" && ../fake_host "$card" "$OLDPWD/legacy.so")
     test -d "$HOME/.julia"
 
-    $CXX -std=c++2c -Wall -Wextra -Werror -isystem "${starter.generated}/include" \
+    $CXX -std=c++2c -Wall -Wextra -Werror -isystem "${starter.run.generated}/include" \
       -I"$include" -I"$shared" ${./text_template.cc} \
       ${lib.optionalString (!isDarwin) "-ldl"} -o text-host
-    (cd "$HOME" && ../text-host "${starter}/lib/main.so")
+    (cd "$HOME" && ../text-host "${starter.run}/lib/main.so")
 
     ${
       if isDarwin then

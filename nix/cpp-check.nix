@@ -4,17 +4,16 @@
   stdenv,
   runCommandCC,
   flatbuffers,
-  coreutils,
-  writeShellScriptBin,
   zlib,
   # The kit's root entry, `import ./. { inherit pkgs; }`.
   kit,
 }:
 let
-  inherit (kit) cppSdk;
-  inherit (cppSdk) cppCard;
+  sdk = kit.cpp;
   runtime = kit.cppRuntime;
-  schemas = ../tests/cpp/schemas;
+  fixtureEval = import ../tests/card-eval.nix { inherit pkgs; };
+  inputs = fixtureEval.inputs ../tests/cpp/ports;
+  params = import ../tests/cpp/interface/params.nix;
   tests = lib.fileset.toSource {
     root = ../tests;
     fileset = lib.fileset.unions [
@@ -28,45 +27,29 @@ let
       ../tests/cpp/template.cc
     ];
   };
-  testTool = writeShellScriptBin "tsugumi-test-tool" "exit 42";
-  cardArgs = {
-    pkgs = pkgs // {
-      inherit testTool;
-    };
-    inputs.tsugumi = kit;
-    params = { };
-    inherit schemas;
+  definition = fixtureEval.call ../tests/card {
+    inherit inputs;
+    params = params.build;
   };
-  definition = import ../tests/card cardArgs;
   card = definition.run;
-  withoutTools = cppCard {
-    inherit schemas;
+  withoutTools = sdk.cppCard {
+    inherit inputs;
+    outputs = ../tests/cpp/interface/_outputs.fbs;
+    params = ../tests/cpp/interface/params.nix;
     src = ../tests/card/src;
     buildInputs = [ zlib ];
-    cxxflags = [
-      "-DABI_TEST_CARD"
-      "-lz"
-    ];
+    inherit (params.build) cxxflags;
   };
-  template =
-    definitionDir: schemas:
-    import definitionDir {
-      inherit pkgs schemas;
-      inputs.tsugumi = kit;
-      params = { };
-    };
-  filter = template ../templates/filter-counts/filter ../tests/templates/filter-counts;
-  convert = template ../templates/temperature-conversion/convert ../tests/templates/temperature-conversion;
-  convertUnwired = template ../templates/temperature-conversion/convert (
-    pkgs.runCommand "tsugumi-unwired-converter-schemas" { } ''
-      mkdir "$out"
-      cp ${../tests/templates/temperature-conversion}/_{outputs,params}.fbs "$out/"
-      printf 'namespace inputs; table Inputs {} root_type Inputs;\n' > "$out/_inputs.fbs"
-    ''
-  );
+  filter = fixtureEval.call ../tests/templates/filter-counts {
+    inputs = fixtureEval.inputs ../tests/templates/filter-counts;
+  };
+  convert = fixtureEval.call ../tests/templates/temperature-conversion {
+    inputs = fixtureEval.inputs ../tests/templates/temperature-conversion;
+  };
+  convertUnwired = fixtureEval.call ../tests/templates/temperature-conversion { };
   inherit (stdenv.hostPlatform) isDarwin;
 in
-assert definition.views == cppSdk.views;
+assert definition.views == sdk.views;
 assert !(card ? views);
 assert
   map (view: view.name) definition.views == [
@@ -80,32 +63,31 @@ assert
 assert lib.all (view: view.type == "html" && view ? blob) definition.views;
 assert lib.all
   (
-    sdk:
-    lib.filter (view: view.name == "line-chart" || view.name == "points") sdk.views
-    == lib.filter (view: view.name == "line-chart" || view.name == "points") cppSdk.views
+    languageSdk:
+    lib.filter (view: view.name == "line-chart" || view.name == "points") languageSdk.views
+    == lib.filter (view: view.name == "line-chart" || view.name == "points") sdk.views
   )
   (
     with kit;
     [
-      pythonSdk
-      goSdk
-      rustSdk
-      csharpSdk
-      juliaSdk
-      rSdk
-      rubySdk
+      python
+      go
+      rust
+      csharp
+      julia
+      r
+      ruby
     ]
   );
-assert filter.views == cppSdk.views && convert.views == cppSdk.views;
+assert filter.views == sdk.views && convert.views == sdk.views;
 runCommandCC "tsugumi-cpp-abi-check"
   {
     buildInputs = [ flatbuffers ];
-    passthru.apiCards = [
-      card
-      withoutTools
-      filter.run
-      convert.run
-      convertUnwired.run
+    passthru.apis = [
+      definition.api
+      filter.api
+      convert.api
+      convertUnwired.api
     ];
   }
   ''

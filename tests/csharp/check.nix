@@ -9,34 +9,36 @@
 }:
 let
   inherit (stdenv.hostPlatform) isDarwin;
-  schemas = ./schemas;
-  definition = import ./card {
-    inherit pkgs schemas;
-    inputs.tsugumi = kit;
-    params = { };
+  fixtureEval = import ../card-eval.nix { inherit pkgs; };
+  common = {
+    inputs = fixtureEval.inputs (./ports);
+    outputs = ./interface/_outputs.fbs;
+    params = ./interface/params.nix;
   };
+  interface = (import ../../nix/card-interface.nix { inherit pkgs; }) common;
+  definition = fixtureEval.call ./card { inherit (common) inputs; };
   card = definition.run;
 in
-assert definition.views == kit.csharpSdk.views;
+assert definition.views == kit.csharp.views;
 runCommandCC "tsugumi-csharp-abi-check"
   {
     nativeBuildInputs = [ flatbuffers ];
     buildInputs = [ flatbuffers ];
-    passthru.apiCards = [ card ];
+    passthru.apis = [ definition.api ];
   }
   ''
     card=${card}/lib/main.so
     shared=${../.}
     include=${kit.cppRuntime}/include
 
-    test -s ${card}/share/tsugumi/api/Card.g.cs
-    grep -q 'Input.Arrival: object' ${card}/share/tsugumi/api/README.md
+    test -s ${definition.api}/share/tsugumi/api/Card.g.cs
+    grep -q 'Input.Arrival: object' ${definition.api}/share/tsugumi/api/README.md
     for schema in _inputs _params; do
-      flatc --cpp --gen-object-api --scoped-enums -o . ${schemas}/"$schema.fbs"
+      flatc --cpp --gen-object-api --scoped-enums -o . ${interface}/"$schema.fbs"
     done
     # The fake host only reads outputs. The C++ object API's Pack method also
     # conflicts with the fixture's Pack table name.
-    flatc --cpp --scoped-enums -o . ${schemas}/_outputs.fbs
+    flatc --cpp --scoped-enums -o . ${interface}/_outputs.fbs
     $CC -std=c11 -D_DEFAULT_SOURCE -Dmain=check_shared_abi -Wall -Wextra -Werror \
       -I"$include" -c "$shared/fake_host.c"
     $CC -std=c11 -Wall -Wextra -Werror -fPIC -shared "$shared/legacy.c" -o legacy.so

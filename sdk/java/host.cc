@@ -249,15 +249,16 @@ auto CheckPorts(const auto* ports, std::span<const JavaPort> catalog,
 
 }  // namespace
 
-auto RunJava(tsugumi_bytes bytes, Verify params,
+auto RunJava(tsugumi_bytes bytes, Verify params, bool allow_empty_params,
              std::span<const JavaPort> inputs,
              std::span<const JavaPort> outputs) -> CardResultT {
   const Buffer input_buffer(bytes);
   const auto* input = input_buffer.Verify<CardInput>();
   if (!input) Reject(FailureKind::invalid_request, "Invalid CardInput");
   const auto* param_bytes = input->params();
-  if (!param_bytes ||
-      !params(Buffer({param_bytes->data(), param_bytes->size()}))) {
+  const auto size = param_bytes ? param_bytes->size() : 0;
+  if (!(allow_empty_params && size == 0) &&
+      !params(Buffer({param_bytes ? param_bytes->data() : nullptr, size}))) {
     Reject(FailureKind::invalid_request, "Invalid FlatBuffer for params");
   }
   CheckPorts(input->inputs(), inputs, FailureKind::invalid_request);

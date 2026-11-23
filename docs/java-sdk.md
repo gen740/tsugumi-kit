@@ -34,29 +34,22 @@ Put the source in `src/card/Main.java` under the Card definition. Use the
 [Java text template](../templates/java-write-text/) for the complete project fragment.
 
 ```nix
-{
-  pkgs,
-  params,
-  inputs,
-  schemas,
-}:
+{ params, inputs }:
 let
-  sdk = inputs.tsugumi.javaSdk;
+  pkgs = import <nixpkgs> { };
+  sdk = import <tsugumi-kit/sdk/java> { inherit pkgs; };
+  common = { inherit inputs; outputs = ./_outputs.fbs; };
 in
 {
-  run = sdk.javaCard {
-    inherit schemas;
-    src = ./src;
-  };
+  run = sdk.javaCard (common // { src = ./src; });
+  api = sdk.javaApi common;
   views = sdk.views;
 }
 ```
 
-The builder uses the three FlatBuffers files in `schemas`. Outside the core,
-call `lib.<system>.javaSdk.javaCard` with those same arguments. The run output
-ships the generated `tsugumi/Card.java`, the port bindings and their README
-under `share/tsugumi/api/`. Use **Build SDK** in the Card editor to see the API
-for the current wiring. [Card SDK contract](sdk-contract.md)
+`javaApi` publishes `tsugumi/Card.java`, the port bindings, and a typed README
+under `share/tsugumi/api/`. Use **Build SDK** in the Card editor to inspect
+the API for the current wiring. [Card SDK contract](sdk-contract.md)
 
 - Set `mainClass = "example.Main";` to choose a different package-qualified entry class.
 - Pass `jars = [ "${package}/share/java/dependency.jar" ];` to put Nix-provided

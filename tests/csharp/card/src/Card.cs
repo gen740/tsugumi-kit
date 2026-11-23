@@ -26,7 +26,7 @@ public static class Card
                     throw new InvalidOperationException("Active effects failed");
 
                 DisplaySamples();
-                var fd = input.Params.Fd;
+                var fd = checked((nint)input.Params.Fd);
                 background = Task.Run(() =>
                 {
                     using var pipe = new FileStream(new SafeFileHandle(fd, ownsHandle: false), FileAccess.Read);

@@ -9,26 +9,26 @@
 }:
 let
   fixture = ../sdk/js/tests;
-  schemas = fixture + "/schemas";
-  sdk = kit.jsSdk;
-  definition = import fixture {
-    inherit pkgs schemas;
-    inputs.tsugumi = kit;
-    params = { };
+  fixtureEval = import ../tests/card-eval.nix { inherit pkgs; };
+  common = {
+    inputs = fixtureEval.inputs (fixture + "/ports");
+    outputs = fixture + "/interface/_outputs.fbs";
+    params = fixture + "/interface/params.nix";
   };
+  interface = (import ../tests/../nix/card-interface.nix { inherit pkgs; }) common;
+  sdk = kit.js;
+  definition = fixtureEval.call fixture { inherit (common) inputs; };
   card = definition.run;
   withoutTools = sdk.jsCard {
-    inherit schemas;
+    inherit (common) inputs outputs params;
     src = fixture + "/src";
   };
-  template =
-    schemas:
-    import ../templates/js-write-note/note {
-      inherit pkgs schemas;
-      inputs.tsugumi = kit;
-      params = { };
-    };
-  note = template ../tests/templates/js-write-note;
+  note = fixtureEval.call ../tests/templates/js-write-note { };
+  noteInterface = (import ./card-interface.nix { inherit pkgs; }) {
+    inputs = { };
+    outputs = ../templates/js-write-note/note/_outputs.fbs;
+    params = ../tests/templates/js-write-note/params.nix;
+  };
   tests = lib.fileset.toSource {
     root = ../tests;
     fileset = lib.fileset.unions [
@@ -40,16 +40,15 @@ let
   };
   inherit (stdenv.hostPlatform) isDarwin;
 in
-assert definition.views == kit.jsSdk.views;
-assert note.views == kit.jsSdk.views;
+assert definition.views == kit.js.views;
+assert note.views == kit.js.views;
 runCommandCC "tsugumi-js-abi-check"
   {
     nativeBuildInputs = [ flatbuffers ];
     buildInputs = [ flatbuffers ];
-    passthru.apiCards = [
-      card
-      withoutTools
-      note.run
+    passthru.apis = [
+      definition.api
+      note.api
     ];
   }
   ''
@@ -59,7 +58,7 @@ runCommandCC "tsugumi-js-abi-check"
     for view in ${lib.escapeShellArgs (map (view: "${view.blob}") definition.views)}; do
       test -s "$view"
     done
-    api=${card}/share/tsugumi/api
+    api=${definition.api}/share/tsugumi/api
     for file in README.md bindings.ts index.d.ts _inputs.ts _outputs.ts _params.ts; do
       test -s "$api/$file"
     done
@@ -67,11 +66,12 @@ runCommandCC "tsugumi-js-abi-check"
     grep -F '"arrival"?: inputs.arrival.tsugumi.merge.t0.TemperatureT | inputs.arrival.tsugumi.merge.t1.ReadingT;' "$api/bindings.ts"
     grep -F '"file"?: string;' "$api/bindings.ts"
     grep -F -- '- `number` — `outputs.number.NumberT (required output)`' "$api/README.md"
+    grep -F -- '- `weather` — `outputs.weather.ReadingT | undefined`' "$api/README.md"
 
     library=${card}/lib/main.so
     include=${kit.cppRuntime}/include
     for schema in _inputs _outputs _params; do
-      flatc --cpp --gen-object-api --scoped-enums -o . "${schemas}/$schema.fbs"
+      flatc --cpp --gen-object-api --scoped-enums -o . "${interface}/$schema.fbs"
     done
     $CC -std=c11 -D_DEFAULT_SOURCE -DIN_CALL_DISPLAY_COUNT=7 \
       -Wall -Wextra -Werror -I"$include" -c "${tests}/fake_host.c"
@@ -102,7 +102,7 @@ runCommandCC "tsugumi-js-abi-check"
 
     # The note template writes its parameter to a Path output.
     mkdir note note-schemas
-    flatc --cpp --gen-object-api -o note-schemas ${../tests/templates/js-write-note}/_params.fbs
+    flatc --cpp --gen-object-api -o note-schemas ${noteInterface}/_params.fbs
     $CXX -std=c++2c -Wall -Wextra -Werror -Inote-schemas -I"${tests}" -I"$include" -I${../sdk/cpp/src} \
       "${fixture}/note.cc" "${kit.cppRuntime}/lib/libtsugumi_abi.a" \
       -pthread ${lib.optionalString (!isDarwin) "-ldl"} -o note_host

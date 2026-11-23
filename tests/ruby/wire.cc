@@ -6,6 +6,7 @@
 #include <array>
 #include <cmath>
 #include <filesystem>
+#include <limits>
 #include <fstream>
 #include <limits>
 #include <nlohmann/json.hpp>
@@ -176,6 +177,9 @@ extern "C" auto make_input(input_case scenario, int mode, int fd)
   parameters::ParamsT params;
   params.mode = mode;
   params.fd = fd;
+  params.unread = std::numeric_limits<double>::quiet_NaN();
+  params.high = std::numeric_limits<double>::infinity();
+  params.low = -std::numeric_limits<double>::infinity();
   input.params = Encode<parameters::Params>(params);
   if (scenario == MALFORMED_PARAMS) input.params = {1, 2, 3};
   if (scenario != MISSING_INPUT) {

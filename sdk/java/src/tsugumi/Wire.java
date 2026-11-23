@@ -37,7 +37,10 @@ final class Wire {
         }
 
         ParamsT params() {
-            return Params.getRootAsParams(input.paramsAsByteBuffer().slice()).unpack();
+            var bytes = input.paramsAsByteBuffer();
+            return bytes == null || !bytes.hasRemaining()
+                ? new ParamsT()
+                : Params.getRootAsParams(bytes.slice()).unpack();
         }
 
         // An input that did not arrive stays absent from the values.

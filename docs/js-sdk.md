@@ -20,25 +20,25 @@ export default async function run({ params }, { cancelled, display }) {
 ```
 
 The [note template](../templates/js-write-note/) includes the matching Card
-definition. Declare inputs and parameters in `_card.json`, output types in
-`_outputs.fbs`, and select the SDK in `default.nix`.
+definition. Declare input ports in `_card.json`, output types in `_outputs.fbs`, and
+parameter defaults in `params.nix`. Select the SDK in `default.nix`.
 
 ```nix
-{ pkgs, params, inputs, schemas }:
+{ params, inputs }:
 let
-  sdk = inputs.tsugumi.jsSdk;
+  pkgs = import <nixpkgs> { };
+  sdk = import <tsugumi-kit/sdk/js> { inherit pkgs; };
+  common = { inherit inputs; outputs = ./_outputs.fbs; params = ./params.nix; };
 in
 {
-  run = sdk.jsCard { inherit schemas; src = ./src; };
+  run = sdk.jsCard (common // { src = ./src; });
+  api = sdk.jsApi common;
   views = sdk.views;
 }
 ```
 
-`schemas` contains the generated `_inputs.fbs`, `_outputs.fbs`, and
-`_params.fbs`. For standalone builds, pass the same directory to
-`kit.lib.${system}.jsSdk.jsCard { inherit src schemas; }`.
-`jsCard` installs `lib/main.so` and publishes the generated TypeScript sources,
-`index.d.ts`, and a typed README under `share/tsugumi/api/`.
+`jsApi` publishes the generated TypeScript sources, `index.d.ts`, and a typed
+README under `share/tsugumi/api/`. The run output contains `lib/main.so`.
 
 ## Types and dependencies
 
@@ -51,7 +51,8 @@ needed value of type `T`. If the port is absent, including when it is
 disconnected, `need` throws a `Failure` with kind `input_missing` and a
 message naming the port.
 
-Use `outputs.<port>.<Table>T` to construct a FlatBuffer output. The generated
+Use the generated type under `outputs` to construct a FlatBuffer output.
+For example, `outputs.weather.ReadingT` uses the authored `weather.Reading` table. The generated
 namespaces expose child tables, structs, and enums. For mixed-type Merge
 ports, the generated input and output types are unions of the member object
 types. Narrow an input with `instanceof`, and return an instance of the

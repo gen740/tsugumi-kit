@@ -9,35 +9,32 @@
 }:
 let
   runtime = kit.cppRuntime;
-  definition = import ./card {
-    inherit pkgs;
-    inputs.tsugumi = kit;
-    params = { };
-    schemas = ./schemas;
+  fixtureEval = import ../card-eval.nix { inherit pkgs; };
+  common = {
+    inputs = fixtureEval.inputs (./ports);
+    outputs = ./interface/_outputs.fbs;
+    params = ./interface/params.nix;
   };
+  definition = fixtureEval.call ./card { inherit (common) inputs; };
   card = definition.run;
-  starter =
-    (import ../../templates/r-write-text/write {
-      inherit pkgs;
-      inputs.tsugumi = kit;
-      params = { };
-      schemas = ../templates/text-to-path;
-    }).run;
+  starter = fixtureEval.call ../templates/r-write-text {
+    inputs = fixtureEval.inputs ../templates/text-to-path;
+  };
   inherit (stdenv.hostPlatform) isDarwin;
 in
-assert definition.views == kit.rSdk.views;
+assert definition.views == kit.r.views;
 runCommandCC "tsugumi-r-abi-check"
   {
     buildInputs = [ flatbuffers ];
-    passthru.apiCards = [
-      card
-      starter
+    passthru.apis = [
+      definition.api
+      starter.api
     ];
   }
   ''
-    api=${card}/share/tsugumi/api
+    api=${definition.api}/share/tsugumi/api
     test -s "$api/README.md" && test -s "$api/_outputs.fbs" && test -s "$api/card.R"
-    grep -F '`params` — `list <inputs.rtest.Number> or NULL`' "$api/README.md"
+    grep -F '`params` — `list <inputs.params.Number> or NULL`' "$api/README.md"
     grep -F '`arrival` — `list(type = "Temperature"' "$api/README.md"
     card=${card}/lib/main.so
     include=${runtime}/include
@@ -48,7 +45,7 @@ runCommandCC "tsugumi-r-abi-check"
     $CC -std=c11 -Wall -Wextra -Werror -fPIC -shared "${../legacy.c}" -o legacy.so
     $CXX -std=c++2c -Wall -Wextra -Werror -I. -isystem "${card.generated}/include" -I"$include" \
       ${./wire.cc} host.o -pthread ${lib.optionalString (!isDarwin) "-ldl"} -o fake-host
-    $CXX -std=c++2c -Wall -Wextra -Werror -I. -isystem "${starter.generated}/include" \
+    $CXX -std=c++2c -Wall -Wextra -Werror -I. -isystem "${starter.run.generated}/include" \
       -I"$include" ${../julia/text_template.cc} ${lib.optionalString (!isDarwin) "-ldl"} -o text-host
 
     mkdir home
@@ -60,7 +57,7 @@ runCommandCC "tsugumi-r-abi-check"
     printf 'directory\n' > directory/child
     touch scratch/clear-me
     ../fake-host "$card" "$OLDPWD/legacy.so"
-    ../text-host "${starter}/lib/main.so"
+    ../text-host "${starter.run}/lib/main.so"
     popd
 
     ${

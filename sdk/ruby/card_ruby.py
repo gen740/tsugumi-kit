@@ -253,7 +253,8 @@ def run_card(card, glue):
                   f"    values[{name}] = {value};"]
     lines += [
         "  input.CheckConsumed();",
-        f'  const auto params = abi::ReadValue<{cxx(card.params_type)}>(input.Params(), "params");',
+        f'  const auto params = abi::ReadValue<{cxx(card.params_type)}, '
+        f'{str(not card.params).lower()}>(input.Params(), "params");',
         '  const auto reply = InvokeRuby(Json{{"ports", std::move(values)}, {"params", Encode(params)}});',
         '  if (reply.contains("failure")) return FailureResult(reply.at("failure"));',
         '  const auto& outputs = reply.at("outputs");',

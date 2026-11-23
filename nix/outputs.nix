@@ -1,19 +1,9 @@
 {
-  self,
-  config,
-  lib,
-  withSystem,
-  ...
-}:
-{
-  flake.lib = lib.genAttrs config.systems (
-    system: withSystem system ({ pkgs, ... }: import ../. { inherit pkgs; })
-  );
-
   perSystem =
-    { pkgs, system, ... }:
+    { pkgs, kit, ... }:
     {
+      _module.args.kit = import ../. { inherit pkgs; };
       formatter = pkgs.nixfmt;
-      packages.cppRuntime = self.lib.${system}.cppRuntime;
+      packages.cppRuntime = kit.cppRuntime;
     };
 }

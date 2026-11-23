@@ -351,7 +351,8 @@ def generate(card, schemas):
     params = codecs.use(card.params_type)
     read += [
         "  buffer.CheckConsumed();",
-        f'  const auto params = To{params}(ReadValue<{cpp(card.params_type)}>(buffer.Params(), "params"));',
+        f'  const auto params = To{params}(ReadValue<{cpp(card.params_type)}, '
+        f'{str(not card.params).lower()}>(buffer.Params(), "params"));',
         '  input = Json{{"ports", std::move(ports)}, {"params", params}};',
     ]
     for port in card.outputs:

@@ -1,28 +1,25 @@
 # Ruby Card SDK
 
 This guide targets **the Card ABI (unreleased)**. Put
-`main(input)` in `src/main.rb` and use `inputs.tsugumi.rubySdk` in the
+`main(input)` in `src/main.rb` and import the Ruby SDK in the
 Card's `default.nix`.
 
 ```nix
-{ pkgs, params, inputs, schemas }:
+{ params, inputs }:
 let
-  sdk = inputs.tsugumi.rubySdk;
+  pkgs = import <nixpkgs> { };
+  sdk = import <tsugumi-kit/sdk/ruby> { inherit pkgs; };
+  common = { inherit inputs; outputs = ./_outputs.fbs; };
 in
 {
-  run = sdk.rubyCard {
-    inherit schemas;
-    src = ./src;
-  };
+  run = sdk.rubyCard (common // { src = ./src; });
+  api = sdk.rubyApi common;
   views = sdk.views;
 }
 ```
 
-The builder uses the current `_inputs.fbs`, `_outputs.fbs`, and
-`_params.fbs` under `schemas`. Its output contains `lib/main.so` and
-`share/tsugumi/api/`, with `card.rbs` and a README describing the
-Card's inputs, outputs, and parameters. Use **Build SDK** in the Card editor
-to see these files for the current wiring.
+`rubyApi` publishes `card.rbs` and a typed README under `share/tsugumi/api/`.
+Use **Build SDK** in the Card editor to inspect the API for the current wiring.
 
 ```ruby
 def main(input)

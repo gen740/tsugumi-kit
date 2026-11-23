@@ -1,8 +1,0 @@
-attribute "tsugumi";
-
-namespace outputs.file;
-table File { value:string (id: 0, required); }
-
-namespace outputs;
-table Outputs { file:outputs.file.File (id: 0, tsugumi: "file"); }
-root_type Outputs;

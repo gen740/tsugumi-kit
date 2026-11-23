@@ -10,30 +10,29 @@
   runtime,
 }:
 let
-  schemas = ./schemas;
-  definition = import ./default.nix {
-    inherit pkgs schemas;
-    inputs.tsugumi = kit;
-    params = { };
+  fixtureEval = import ../card-eval.nix { inherit pkgs; };
+  common = {
+    inputs = fixtureEval.inputs (./ports);
+    outputs = ./interface/_outputs.fbs;
+    params = ./interface/params.nix;
   };
+  interface = (import ../../nix/card-interface.nix { inherit pkgs; }) common;
+  definition = fixtureEval.call ./default.nix { inherit (common) inputs; };
   card = definition.run;
-  outputSchemas = ./output-only/schemas;
-  developmentSdk = kit.goSdk.goCardSdk {
-    schemas = outputSchemas;
-    goMod = ./output-only/src/go.mod;
+  outputOnlyDefinition = fixtureEval.call ./output-only { };
+  outputCommon = {
+    inputs = { };
+    outputs = ./output-only/_outputs.fbs;
+    params = ./output-only/params.nix;
   };
+  outputInterface = (import ../../nix/card-interface.nix { inherit pkgs; }) outputCommon;
+  developmentSdk = outputOnlyDefinition.run.sdk;
   developmentSrc = runCommand "tsugumi-go-development-source" { } ''
     mkdir "$out"
     cp -r ${./output-only/src}/. "$out/"
     ln -s ${developmentSdk} "$out/tsugumi"
   '';
-  outputOnly =
-    (import ./output-only {
-      inherit pkgs;
-      schemas = outputSchemas;
-      inputs.tsugumi = kit;
-      params.src = developmentSrc;
-    }).run;
+  outputOnly = kit.go.goCard (outputCommon // { src = developmentSrc; });
   inherit (stdenv.hostPlatform) isDarwin;
 in
 runCommandCC "tsugumi-go-abi-check"
@@ -43,15 +42,15 @@ runCommandCC "tsugumi-go-abi-check"
       go
     ];
     buildInputs = [ flatbuffers ];
-    passthru.apiCards = [
-      card
-      outputOnly
+    passthru.apis = [
+      definition.api
+      outputOnlyDefinition.api
     ];
   }
   ''
     card=${card}/lib/main.so
     payload=${card}/lib/go-card.so
-    for api in ${card}/share/tsugumi/api ${outputOnly}/share/tsugumi/api; do
+    for api in ${definition.api}/share/tsugumi/api ${outputOnlyDefinition.api}/share/tsugumi/api; do
       test -s "$api/card.go"
       test -s "$api/parameters/Params.go"
       grep -q '## Params' "$api/README.md"
@@ -60,7 +59,7 @@ runCommandCC "tsugumi-go-abi-check"
     include=${runtime}/include
 
     for schema in _inputs _outputs _params; do
-      flatc --cpp --gen-object-api --scoped-enums -o . ${schemas}/"$schema.fbs"
+      flatc --cpp --gen-object-api --scoped-enums -o . ${interface}/"$schema.fbs"
     done
     $CC -std=c11 -D_DEFAULT_SOURCE -Wall -Wextra -Werror -I"$include" -c "$shared/fake_host.c"
     $CC -std=c11 -Wall -Wextra -Werror -fPIC -shared "$shared/legacy.c" -o legacy.so
@@ -72,7 +71,7 @@ runCommandCC "tsugumi-go-abi-check"
     ./cancel "$card"
 
     mkdir output-only
-    flatc --cpp --scoped-enums -o output-only ${outputSchemas}/{_outputs,_params}.fbs
+    flatc --cpp --scoped-enums -o output-only ${outputInterface}/{_outputs,_params}.fbs
     $CXX -std=c++2c -Wall -Wextra -Werror -Ioutput-only -I"$shared" -I"$include" \
       ${./output-only/startup.cc} ${lib.optionalString (!isDarwin) "-ldl"} -o startup
     ./startup ${outputOnly}/lib/{main,go-card}.so

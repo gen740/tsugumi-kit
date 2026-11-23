@@ -237,7 +237,7 @@ def generate(card, inputs, outputs):
                 value += f".map(|merged| {function}(merged, {name})).transpose()?"
         lines.append(f"            {field}: {value},")
     lines += [
-        "            params: input.params()?,",
+        f"            params: input.params({str(not card.params).lower()})?,",
         "        })", "    }", "}", "",
         "impl runtime::PackOutput for Output {",
         "    fn pack(self, builder: &mut flatbuffers::FlatBufferBuilder<'_>) -> Result<()> {",

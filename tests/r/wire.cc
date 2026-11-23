@@ -110,7 +110,7 @@ auto Failure(tsugumi_bytes bytes, FailureKind kind) -> const CardFailure& {
 
 extern "C" auto make_input(input_case scenario, int mode, int fd)
     -> tsugumi_bytes {
-  namespace rtest = inputs::rtest;
+  namespace rtest = inputs::number;
   static constexpr uint8_t bad[] = {1, 2, 3};
   if (scenario == MALFORMED_ENVELOPE) return {bad, sizeof(bad)};
   CardInputT input;
@@ -143,8 +143,8 @@ extern "C" auto make_input(input_case scenario, int mode, int fd)
   AddPort(input, "params_", PortKind::FlatBuffer,
           Encode<rtest::Number>(number));
 
-  rtest::DataTableT table;
-  auto row = std::make_unique<rtest::RowT>();
+  inputs::table::DataTableT table;
+  auto row = std::make_unique<inputs::table::RowT>();
   row->name = "résumé";
   row->signed_value = INT64_MIN;
   row->unsigned_value = UINT64_MAX;
@@ -155,18 +155,18 @@ extern "C" auto make_input(input_case scenario, int mode, int fd)
   row->bytes = SampleBytes();
   row->enabled.push_back(true);
   row->enabled.push_back(false);
-  row->unit = {rtest::Unit::Volts};
+  row->unit = {inputs::table::Unit::Volts};
   const std::array<int32_t, 2> coordinates{15, -14};
-  const std::array units{rtest::Unit::Counts, rtest::Unit::Volts};
+  const std::array units{inputs::table::Unit::Counts, inputs::table::Unit::Volts};
   const std::array<int32_t, 1> depth{10};
-  row->position = std::make_unique<rtest::Position>(coordinates, units, depth);
-  auto choice = std::make_unique<rtest::ChoiceT>();
+  row->position = std::make_unique<inputs::table::Position>(coordinates, units, depth);
+  auto choice = std::make_unique<inputs::table::ChoiceT>();
   choice->name = "selected";
-  row->selection.type = rtest::Selection::Alias;
+  row->selection.type = inputs::table::Selection::Alias;
   row->selection.value = choice.release();
   table.rows.push_back(std::move(row));
   AddPort(input, "table", PortKind::FlatBuffer,
-          Encode<rtest::DataTable>(table));
+          Encode<inputs::table::DataTable>(table));
 
   AddPath(input, "file", std::filesystem::absolute("input.txt"));
   if (scenario == VALID)
@@ -198,12 +198,12 @@ extern "C" auto check_success(tsugumi_bytes bytes, int call_number) -> void {
   CHECK(number_port.kind() == PortKind::FlatBuffer);
   const auto number = DecodePort<rtest::Number>(number_port);
   CHECK(number.value == 41.5 + call_number &&
-        number.unit == rtest::Unit::Volts);
+        number.unit == outputs::rtest::Unit::Volts);
 
   const auto& table_port = *result.outputs()->Get(1);
   CHECK(table_port.name()->string_view() == "table");
   CHECK(table_port.kind() == PortKind::FlatBuffer);
-  const auto table = DecodePort<rtest::DataTable>(table_port);
+  const auto table = DecodePort<inputs::table::DataTable>(table_port);
   CHECK(table.rows.size() == 1);
   const auto& row = *table.rows.front();
   CHECK(row.name == "résumé");
@@ -218,9 +218,9 @@ extern "C" auto check_success(tsugumi_bytes bytes, int call_number) -> void {
   CHECK((row.wide == std::vector<uint64_t>{7, UINT64_MAX}));
   CHECK(row.bytes == SampleBytes());
   CHECK((row.enabled == std::vector<bool>{true, false}));
-  CHECK((row.unit == std::vector{rtest::Unit::Volts}));
+  CHECK((row.unit == std::vector{inputs::table::Unit::Volts}));
   CHECK(row.position && row.position->coordinates()->Get(1) == -14);
-  CHECK(row.position->units()->Get(1) == rtest::Unit::Volts);
+  CHECK(row.position->units()->Get(1) == inputs::table::Unit::Volts);
   CHECK(row.position->depth()->Get(0) == 10);
   CHECK(row.selection.AsAlias() && row.selection.AsAlias()->name == "selected");
 

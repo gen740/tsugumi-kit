@@ -4,24 +4,21 @@ Put `main(input)` in `src/main.jl`. The SDK embeds Julia in the Card's
 `lib/main.so`.
 
 ```nix
-{ pkgs, params, inputs, schemas }:
+{ params, inputs }:
 let
-  sdk = inputs.tsugumi.juliaSdk;
+  pkgs = import <nixpkgs> { };
+  sdk = import <tsugumi-kit/sdk/julia> { inherit pkgs; };
+  common = { inherit inputs; outputs = ./_outputs.fbs; };
 in
 {
-  run = sdk.juliaCard {
-    inherit schemas;
-    src = ./src;
-  };
+  run = sdk.juliaCard (common // { src = ./src; });
+  api = sdk.juliaApi common;
   views = sdk.views;
 }
 ```
 
-The builder uses the current `_inputs.fbs`, `_outputs.fbs`, and
-`_params.fbs` in `schemas`. The Card editor's SDK section and the build
-output's `share/tsugumi/api/` expose `card.jl`, the schemas, and
-a README describing the current port and parameter types. Set `entry` to
-choose another file relative to `src`.
+`juliaApi` publishes `card.jl`, the FlatBuffers schemas, and a typed README
+under `share/tsugumi/api/`. Set `entry` to choose another file relative to `src`.
 
 ```julia
 function main(input::Inputs)
@@ -76,7 +73,7 @@ A `[ubyte]` field uses standard padded base64, with `base64encode` and
 calling the host. If the host cannot accept the message, `send` throws
 `ErrorException("display was rejected")`.
 
-The SDK at `lib.${system}.juliaSdk` bundles the `line-chart` and `points` HTML views.
+The SDK bundles the `line-chart` and `points` HTML views.
 Declare the matching views in your Card's `default.nix` with
 `views = sdk.views ++ [ ... ];`.
 The bundled `text` view displays values sent with `send("text")`.

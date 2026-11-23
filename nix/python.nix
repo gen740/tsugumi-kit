@@ -1,14 +1,13 @@
-{ self, ... }:
 {
   perSystem =
     {
       pkgs,
-      system,
+      kit,
       ...
     }:
     {
       checks.pythonAbi = pkgs.callPackage ../tests/python {
-        kit = self.lib.${system};
+        inherit kit;
       };
     };
 }

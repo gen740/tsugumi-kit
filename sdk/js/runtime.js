@@ -48,7 +48,7 @@ function decode(bytes) {
     if (value !== undefined) return value;
     throw new Failure(FailureKind.input_missing, `Missing input ${name}`);
   };
-  return { params: readParams(new ByteBuffer(envelope.paramsArray())).unpack(), ports, need };
+  return { params: readParams(envelope.paramsArray() ?? new Uint8Array()), ports, need };
 }
 
 function checkUnion(item, tag, variants, required, member) {

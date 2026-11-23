@@ -43,11 +43,11 @@ whole or to Tsugumi's worker, which belongs to the core.
 
 ## Entry
 
-`default.nix` takes `{ pkgs }` and returns the SDK set built with that
-nixpkgs. The Tsugumi core imports it with the project's `pkgs` and passes the
-result as `inputs.tsugumi`. Each Card passes its `schemas` directory
-explicitly to its SDK builder. The flake's `lib.${system}` is the same SDK set
-built with the kit's own nixpkgs. [Card SDK contract](docs/sdk-contract.md)
+A Card imports its language SDK through the project's locked `nixPath`,
+for example `import <tsugumi-kit/sdk/cpp> { inherit pkgs; }`. The SDK uses
+the nixpkgs instance chosen by the Card. The root `default.nix` groups the
+SDKs by language for callers that want the full set. The flake provides
+development and verification outputs. [Card SDK contract](docs/sdk-contract.md)
 
 ## Runtime tools
 
@@ -55,16 +55,15 @@ Each Card builder accepts `tools`, a list of nixpkgs packages whose executable
 files are installed into the Card's `bin` directory. For example:
 
 ```nix
-{ pkgs, params, inputs, schemas }:
+{ params, inputs }:
 let
-  sdk = inputs.tsugumi.cppSdk;
+  pkgs = import <nixpkgs> { };
+  sdk = import <tsugumi-kit/sdk/cpp> { inherit pkgs; };
+  common = { inherit inputs; outputs = ./_outputs.fbs; };
 in
 {
-  run = sdk.cppCard {
-    inherit schemas;
-    src = ./src;
-    tools = [ pkgs.coreutils ];
-  };
+  run = sdk.cppCard (common // { src = ./src; tools = [ pkgs.coreutils ]; });
+  api = sdk.cppApi common;
   views = sdk.views;
 }
 ```
@@ -79,9 +78,7 @@ explicitly, for example `bash -c …`.
 
 ## Views
 
-Each language SDK exposes a builder and a `views` list under
-`lib.${system}`. The SDK attributes are `cppSdk`, `pythonSdk`, `goSdk`,
-`rustSdk`, `csharpSdk`, `juliaSdk`, `rSdk`, `rubySdk`, `javaSdk`, and `jsSdk`.
+Each language entry point exposes its `views` list.
 Every SDK bundles `text`, `markdown`, `table`, `image`, `line-chart`, and `points`
 HTML views. The Python SDK also bundles `plotly`.
 

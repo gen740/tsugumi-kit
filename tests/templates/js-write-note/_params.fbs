@@ -1,3 +1,0 @@
-namespace parameters;
-table Params { text:string (id: 0); }
-root_type Params;

@@ -1,0 +1,6 @@
+attribute "tsugumi";
+namespace inputs.draft;
+table Draft {}
+namespace inputs;
+table Inputs { draft:inputs.draft.Draft (id: 0); }
+root_type Inputs;

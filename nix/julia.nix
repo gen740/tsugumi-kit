@@ -1,10 +1,9 @@
-{ self, ... }:
 {
   perSystem =
-    { pkgs, system, ... }:
+    { pkgs, kit, ... }:
     {
       checks.juliaAbi = pkgs.callPackage ../tests/julia/check.nix {
-        kit = self.lib.${system};
+        inherit kit;
       };
     };
 }

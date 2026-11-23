@@ -1,3 +1,0 @@
-namespace parameters;
-table Params { value:long; }
-root_type Params;

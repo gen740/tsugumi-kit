@@ -170,7 +170,7 @@ def generate_python(card, names, output_schema, out):
         types = (python_type(type_) for type_ in merge_leaves(port.type, port.merge))
         return " | ".join(type_ + "T" if qualified else import_type(type_) for type_ in types)
 
-    catalogs = ("inputs.Inputs", "outputs.Outputs")
+    catalogs = ("inputs.Inputs", output_schema["root_table"]["name"])
     hidden = set(catalogs)
 
     def bindings(type_, merge):
@@ -292,7 +292,8 @@ def generate_cpp(card, python_names, cpp_names, out):
             lines.append(f"  input.ReadPort<{table(port.type)}>({name});")
     lines.extend([
         "  input.CheckConsumed();",
-        f'  VerifyValue<{table(card.params_type)}>(input.Params(), "params");',
+        "  " + ("" if card.params else "if (input.Params().size != 0) ")
+        + f'VerifyValue<{table(card.params_type)}>(input.Params(), "params");',
         "  auto result = RunPython(input);",
     ])
     flat_outputs = [port for port in card.outputs if port.kind == "FlatBuffer"]
@@ -330,9 +331,9 @@ def main(schemas, out, reflection):
     with TemporaryDirectory() as directory:
         work = Path(directory)
         names = python_schemas(schemas, work)
-        for side in ("inputs", "outputs", "params"):
+        for schema in sorted(work.rglob("*.fbs")):
             command = ["flatc", "--python", "--gen-object-api",
-                       "-o", str(out / "python"), f"_{side}.fbs"]
+                       "-o", str(out / "python"), str(schema.relative_to(work))]
             subprocess.run([*command[:-1], "--python-typing", command[-1]], cwd=work, check=True)
             # Keep flatc's stubs and regenerate the runtime with deferred
             # imports so mutually recursive table types can load.
