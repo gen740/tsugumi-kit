@@ -5,7 +5,7 @@ import re
 import sys
 from pathlib import Path
 
-from tsugumi_ports import load_card_schemas, write_api_readme
+from tsugumi_ports import load_card_schemas, param_members, reflect_schema, write_api_readme
 
 KEYWORDS = set("""
 as async await break const continue crate dyn else enum extern false fn for if impl in let
@@ -80,198 +80,197 @@ def ports(entries, reserved=()):
         yield port, field, unique(alias, aliases)
 
 
-def merge_types(port, alias, module, definitions, helpers, used, *, output):
-    table = rust_type(port.type, module)
-    choices = []
-    variants = {"Self"}
-    for item in port.merge:
-        tag = item.type.rsplit(".", 1)[-1]
-        variant = unique("".join(part.capitalize() for part in snake(tag).split("_")) or "Member",
-                         variants)
-        if variant[0].isdigit():
-            variant = unique("Member" + variant, variants)
-        child = rust_type(item.type, module)
-        typ = f"super::{child}T" if output else f"super::{child}<'a>"
-        helper = None
-        if item.merge:
-            typ = unique(alias + variant, used)
-            helper = merge_types(item, typ, module, definitions, helpers, used, output=output)
-            if not output:
-                typ += "<'a>"
-        choices.append((item, variant, child, typ, helper))
+def rust_string(value):
+    return '"' + "".join(
+        f"\\u{{{ord(char):x}}}" if ord(char) < 32 or ord(char) == 127
+        else "\\" + char if char in {'"', "\\"} else char
+        for char in value
+    ) + '"'
 
-    lifetime = "" if output else "<'a>"
-    if not output:
-        definitions.append("    #[derive(Clone, Copy, Debug)]")
-    definitions += [
-        f"    pub enum {alias}{lifetime} {{",
-        *(f"        {variant}({typ})," for _, variant, _, typ, _ in choices),
-        "    }",
-    ]
-    enum = f"{'outputs' if output else 'inputs'}::{alias}"
-    if output:
-        function = f"encode_{len(helpers)}"
-        body = [
-            f"fn {function}(value: {enum}, name: &str) -> Result<{table}T> {{",
-            f"    let mut merged = {table}T::default();",
-            "    merged.value = match value {",
+
+def rust_param_type(type_):
+    if type_.startswith("["):
+        return "&'static [" + rust_param_type(type_[1:-1]) + "]"
+    return {"bool": "bool", "long": "i64", "double": "f64", "string": "&'static str"}[type_]
+
+
+def rust_literal(value, type_):
+    if type_.startswith("["):
+        return "&[" + ", ".join(rust_literal(v, type_[1:-1]) for v in value) + "]"
+    if type_ == "string":
+        return rust_string(value)
+    if type_ == "double":
+        return repr(float(value))
+    return json.dumps(value)
+
+
+def param_fields(card):
+    names = (member(p.name.replace("-", "_").replace(".", "_")) for p in card.params)
+    names = ("param" + n if not n[0].isalpha() else n for n in names)
+    return list(zip(card.params, param_members(names, KEYWORDS)))
+
+
+def params_source(card, values):
+    fields = param_fields(card)
+    lines = ["pub struct Params {",
+             *(f"    pub {name}: {rust_param_type(param.type)}," for param, name in fields),
+             "}", "pub const PARAMS: Params = Params {"]
+    for param, name in fields:
+        if values is None:
+            default = [] if param.type.startswith("[") else {
+                "bool": False, "long": 0, "double": 0.0, "string": "",
+            }[param.type]
+            value = default
+        else:
+            value = values[param.name]
+        lines.append(f"    {name}: {rust_literal(value, param.type)},")
+    return "\n".join([*lines, "};", ""])
+
+
+def visitors(schema, roots):
+    objects, enums = schema["objects"], schema["enums"]
+    indices = {obj["name"]: index for index, obj in enumerate(objects)}
+    functions = {}
+
+    def visit(index):
+        function = f"visit_{index}"
+        if index in functions:
+            return function
+        obj = objects[index]
+        typ = rust_type(obj["name"], "output_types") + "T"
+        functions[index] = body = [
+            f"fn {function}(value: &{typ}, ids: &mut Vec<[u8; 16]>) {{",
+            "    let _ = (&value, &ids);",
         ]
-        union = table.rsplit("::", 1)[0] + "::ArrivalT"
-        for item, variant, child, _, helper in choices:
-            box = rust_type(item.box_type, module)
-            body += [f"        {enum}::{variant}(value) => {{"]
-            if helper:
-                body.append(f"            let value = {helper}(value, name)?;")
-            body += [
-                f"            let mut boxed = {box}T::default();",
-                f"            boxed.bytes = Some(runtime::pack_value::<{child}>(name, |builder| {{",
-                "                let root = value.pack(builder);",
-                "                builder.finish(root, None);",
-                "            })?);",
-                f"            {union}::{item.tag}(Box::new(boxed))",
-                "        }",
-            ]
-        body += ["    };", "    Ok(merged)", "}", ""]
-    else:
-        function = f"decode_{len(helpers)}"
-        body = [
-            f"fn {function}<'a>(merged: {table}<'a>, name: &str) -> Result<{enum}<'a>> {{",
-            "    match merged.value_type().0 {",
-        ]
-        for item, variant, child, _, helper in choices:
-            accessor = flatc_snake(item.tag)
-            body += [
-                f"        {item.value} => {{",
-                f"            let boxed = merged.value_as_{accessor}()",
-                "                .ok_or_else(|| runtime::invalid_merge(name))?;",
-                "            let bytes = boxed.bytes().map_or(&[][..], |bytes| bytes.bytes());",
-                f"            let value = runtime::read_value::<{child}>(bytes, name)?;",
-            ]
-            if helper:
-                body.append(f"            let value = {helper}(value, name)?;")
-            body += [f"            Ok({enum}::{variant}(value))", "        }"]
-        body += ["        _ => Err(runtime::invalid_merge(name)),", "    }", "}", ""]
-    helpers.append(body)
-    return function
+        if obj["name"] == "tsugumi.Artifact":
+            body += ["    if !ids.contains(&value.id.bytes) { ids.push(value.id.bytes); }"]
+        else:
+            for field in obj["fields"]:
+                if field.get("deprecated"):
+                    continue
+                kind = field["type"]
+                index = kind.get("index", -1)
+                base = kind["base_type"]
+                value = "value." + flatc_snake(field["name"])
+                if field["name"] in FLATC_KEYWORDS:
+                    value += "_"
+                if base == "Obj" and not objects[index].get("is_struct"):
+                    nested = visit(index)
+                    if field.get("required"):
+                        body += [f"    {nested}(&{value}, ids);"]
+                    else:
+                        body += [f"    if let Some(child) = &{value} {{ {nested}(child, ids); }}"]
+                elif base == "Vector" and kind.get("element") == "Obj" and not objects[index].get("is_struct"):
+                    nested = visit(index)
+                    items = f"{value}.iter()" if field.get("required") else f"{value}.iter().flatten()"
+                    body += [f"    for child in {items} {{ {nested}(child, ids); }}"]
+                elif base == "Union":
+                    enum = enums[index]
+                    typ = rust_type(enum["name"], "output_types") + "T"
+                    body += [f"    match &{value} {{"]
+                    for variant in enum["values"][1:]:
+                        child = variant["union_type"]
+                        if child["base_type"] == "Obj" and not objects[child["index"]].get("is_struct"):
+                            nested = visit(child["index"])
+                            body += [f"        {typ}::{variant['name']}(child) => {nested}(child, ids),"]
+                    body += ["        _ => {},", "    }"]
+        body += ["}", ""]
+        return function
+
+    selected = {root: visit(indices[root]) for root in roots}
+    return selected, [line for body in functions.values() for line in body]
 
 
-def generate(card, inputs, outputs):
-    helpers = []
-    definitions = {}
-    adapters = {}
-    for entries, module, output in ((inputs, "input_types", False), (outputs, "output_types", True)):
-        definitions[output] = lines = []
-        used = {alias for _, _, alias in entries}
-        for port, _, alias in entries:
-            if port.kind == "Path":
-                lines.append(f"    pub type {alias} = std::path::{'PathBuf' if output else 'Path'};")
-            elif port.merge:
-                adapters[output, port.name] = merge_types(
-                    port, alias, module, lines, helpers, used, output=output,
-                )
-            else:
-                typ = rust_type(port.type, module)
-                suffix = "T" if output else "<'a>"
-                lifetime = "" if output else "<'a>"
-                lines.append(f"    pub type {alias}{lifetime} = super::{typ}{suffix};")
-
-    params = rust_type(card.params_type, "param_types")
+def generate(inputs, outputs, output_schema):
+    selected, artifact_visitors = visitors(output_schema, [port.type for port, _, _ in outputs])
+    aliases = []
+    reads = []
+    for port, field, alias in inputs:
+        name = rust_string(port.name)
+        if len(port.candidates) == 1:
+            candidate, = port.candidates
+            typ = rust_type(candidate.type, "input_types")
+            aliases += [f"    pub type {alias}<'a> = super::{typ}<'a>;"]
+            reads += [f"        let {field} = input.read({name}, {rust_string(candidate.schema)})?;"]
+        else:
+            aliases += ["    #[derive(Clone, Copy, Debug)]", f"    pub enum {alias}<'a> {{"]
+            reads += [f"        let (schema, bytes) = input.take({name})?;",
+                      f"        let {field} = match schema {{"]
+            used = set()
+            for candidate in port.candidates:
+                typ = rust_type(candidate.type, "input_types")
+                tag = candidate.type.rsplit(".", 1)[-1]
+                variant = unique("".join(x.capitalize() for x in snake(tag).split("_")), used)
+                aliases += [f"        {variant}(super::{typ}<'a>),"]
+                reads += [f"            {rust_string(candidate.schema)} => inputs::{alias}::{variant}(runtime::read_value(bytes, {name})?),"]
+            aliases += ["    }"]
+            reads += [f"            _ => return Err(runtime::unknown_schema({name})),", "        };"]
+    lifetime = "<'a>" if inputs else ""
+    borrow = "&'a " if inputs else "&"
     lines = [
         "// Generated by the Tsugumi SDK. Do not edit.",
         '#[allow(warnings)] #[path = "card_generated.rs"] mod wire;',
         '#[allow(warnings)] #[path = "_inputs_generated.rs"] pub mod input_types;',
         '#[allow(warnings)] #[path = "_outputs_generated.rs"] pub mod output_types;',
-        '#[allow(warnings)] #[path = "_params_generated.rs"] pub mod param_types;',
         "extern crate alloc;",
-        "// The generated adapter selects runtime helpers according to the schemas.",
         "#[allow(dead_code)] mod runtime;",
         "mod display;",
+        "mod params;",
         "pub extern crate flatbuffers;",
         "pub use display::*;",
+        "pub use params::{Params, PARAMS};",
+        "pub use wire::tsugumi::ArtifactT as Artifact;",
         "pub use runtime::{Failure, FailureKind, Result, cancelled, remaining_ms, require_input};",
         "#[doc(hidden)] pub use runtime::{Bytes as __Bytes, Effects as __Effects, invoke as __invoke};",
         "",
-        f"pub type Params<'a> = {params}<'a>;",
-        "pub mod inputs {",
-        *definitions[False],
-        "}",
+        "pub mod inputs {", *aliases, "}",
         "pub mod outputs {",
-        *definitions[True],
+        *(f"    pub type {alias} = super::{rust_type(port.type, 'output_types')}T;" for port, _, alias in outputs),
         "}",
         "",
-        "/// Views borrow the current call. Every input can be absent.",
-        "pub struct Inputs<'a> {",
-        "    pub params: Params<'a>,",
-    ]
-    for port, field, alias in inputs:
-        typ = f"&'a std::path::Path" if port.kind == "Path" else f"inputs::{alias}<'a>"
-        lines.append(f"    pub {field}: Option<{typ}>,")
-    lines += ["}", "", "/// Owned output objects. Only optional ports can be omitted."]
-    if not any(port.required for port, _, _ in outputs):
-        lines.append("#[derive(Default)]")
-    lines.append("pub struct Output {")
-    for port, field, alias in outputs:
-        typ = f"outputs::{alias}"
-        lines.append(f"    pub {field}: {typ if port.required else f'Option<{typ}>'},")
-    lines += [
+        f"pub struct Inputs{lifetime} {{",
+        *(f"    pub {field}: inputs::{alias}<'a>," for _, field, alias in inputs),
+        "}",
+        "",
+        "#[derive(Default)]",
+        "pub struct Output {",
+        *(f"    pub {field}: Option<outputs::{alias}>," for _, field, alias in outputs),
         "}", "",
-        "impl<'a> Inputs<'a> {",
-        "    /// Look up a Path input by its wire name, including an unwired port.",
-        "    pub fn path(&self, name: &str) -> Option<&'a std::path::Path> {",
-        "        match name {",
-        *(f"            {json.dumps(port.name)} => self.{field}," for port, field, _ in inputs
-          if port.kind == "Path"),
-        "            _ => None,", "        }", "    }", "",
+        f"impl{lifetime} Inputs{lifetime} {{",
         "    #[doc(hidden)]",
-        "    pub fn __read(bytes: &'a [u8]) -> Result<Self> {",
+        f"    pub fn __read(bytes: {borrow}[u8]) -> Result<Self> {{",
         f"        let {'mut ' if inputs else ''}input = runtime::Input::parse(bytes)?;",
-        "        Ok(Self {",
-    ]
-    for port, field, _ in inputs:
-        name = json.dumps(port.name)
-        if port.kind == "Path":
-            value = f"input.take_path({name})?"
-        else:
-            value = f"input.take_value::<{rust_type(port.type, 'input_types')}>({name})?"
-            if function := adapters.get((False, port.name)):
-                value += f".map(|merged| {function}(merged, {name})).transpose()?"
-        lines.append(f"            {field}: {value},")
-    lines += [
-        f"            params: input.params({str(not card.params).lower()})?,",
-        "        })", "    }", "}", "",
+        *reads,
+        "        input.check_consumed()?;",
+        f"        Ok(Self {{ {', '.join(field for _, field, _ in inputs)} }})",
+        "    }", "}", "",
         "impl runtime::PackOutput for Output {",
         "    fn pack(self, builder: &mut flatbuffers::FlatBufferBuilder<'_>) -> Result<()> {",
         f"        let {'mut ' if outputs else ''}ports = Vec::with_capacity({len(outputs)});",
     ]
     for port, field, _ in outputs:
-        name = json.dumps(port.name)
-        indent = "        "
+        name = rust_string(port.name)
+        typ = rust_type(port.type, "output_types")
+        visit = selected[port.type]
+        lines += [
+            f"        if let Some(value) = self.{field} {{",
+            "            let mut ids = Vec::new();",
+            f"            {visit}(&value, &mut ids);",
+            f"            runtime::write_port::<{typ}>(builder, &mut ports, {name}, &ids, |builder| {{",
+            "                let root = value.pack(builder);",
+            "                builder.finish(root, None);",
+            "            })?;",
+        ]
         if port.required:
-            lines.append(f"{indent}let value = self.{field};")
-        else:
-            lines.append(f"{indent}if let Some(value) = self.{field} {{")
-            indent += "    "
-        if port.kind == "Path":
-            lines.append(f"{indent}runtime::write_path(builder, &mut ports, {name}, &value)?;")
-        else:
-            if function := adapters.get((True, port.name)):
-                lines.append(f"{indent}let value = {function}(value, {name})?;")
-            typ = rust_type(port.type, "output_types")
-            lines += [
-                f"{indent}runtime::write_port::<{typ}>(builder, &mut ports, {name}, |builder| {{",
-                f"{indent}    let root = value.pack(builder);",
-                f"{indent}    builder.finish(root, None);",
-                f"{indent}}})?;",
-            ]
-        if not port.required:
-            lines.append("        }")
+            lines += ["        } else {", f"            return Err(runtime::invalid_output({name}));"]
+        lines += ["        }"]
     lines += [
         "        runtime::finish_outputs(builder, &ports);",
         "        Ok(())",
         "    }",
         "}",
         "",
-        *(line for body in helpers for line in body),
+        *artifact_visitors,
         """/// Register a function of type `fn(Inputs<'_>) -> Result<Output>`.
 #[macro_export]
 macro_rules! export {
@@ -297,21 +296,61 @@ macro_rules! export {
     return "\n".join(lines)
 
 
+def merge_namespace_blocks(source):
+    # flatc reopens a module when separate declarations share its namespace.
+    # Rust requires a single module declaration at each qualified path.
+    module_open = re.compile(r"pub mod (\w+) \{")
+    module_close = re.compile(r"}  // pub mod \w+")
+    root = ([], {})
+    stack = [root]
+    for line in source.splitlines():
+        if line == "#[allow(unused_imports, dead_code)]":
+            continue
+        if match := module_open.fullmatch(line):
+            child = stack[-1][1].setdefault(match[1], ([], {}))
+            stack.append(child)
+        elif module_close.fullmatch(line):
+            stack.pop()
+        else:
+            stack[-1][0].append(line)
+    if stack != [root]:
+        raise ValueError("Unexpected namespace structure from flatc")
+
+    def render(module):
+        body, children = module
+        yield from body
+        for name, child in children.items():
+            yield "#[allow(unused_imports, dead_code)]"
+            yield f"pub mod {name} {{"
+            yield from render(child)
+            yield "}"
+
+    return "\n".join(render(root)) + "\n"
+
+
 if __name__ == "__main__":
-    schemas, directory, reflection = map(Path, sys.argv[1:])
+    schemas, directory, reflection = map(Path, sys.argv[1:4])
     source_dir = directory / "src"
+    card = load_card_schemas(schemas, reflection)
+    values = json.loads(Path(sys.argv[4]).read_text()) if len(sys.argv) > 4 else None
+    (source_dir / "params.rs").write_text(params_source(card, values), encoding="utf-8")
     for generated in source_dir.glob("*_generated.rs"):
         source = generated.read_text(encoding="utf-8")
-        generated.write_text(escape_generated_rust(source), encoding="utf-8")
-    card = load_card_schemas(schemas, reflection)
-    inputs = list(ports(card.inputs, ("params",)))
+        if generated.name != "card_generated.rs":
+            source = re.sub(
+                r"(?ms)^// struct ArtifactId,.*?^impl ArtifactT \{.*?^\}",
+                "pub use crate::wire::tsugumi::{Artifact, ArtifactArgs, ArtifactBuilder, ArtifactId, ArtifactIdT, ArtifactOffset, ArtifactT};",
+                source,
+            )
+        generated.write_text(escape_generated_rust(merge_namespace_blocks(source)), encoding="utf-8")
+    inputs = list(ports(card.inputs))
     outputs = list(ports(card.outputs))
-    (source_dir / "lib.rs").write_text(generate(card, inputs, outputs), encoding="utf-8")
+    schema = reflect_schema(schemas / "_outputs.fbs", reflection)
+    (source_dir / "lib.rs").write_text(generate(inputs, outputs, schema), encoding="utf-8")
     write_api_readme(
         directory / "README.md",
-        ((port.name, "Option<&Path>" if port.kind == "Path" else f"Option<inputs::{alias}<'a>>")
-         for port, _, alias in inputs),
-        ((port.name, f"outputs::{alias} (required output)" if port.required else f"Option<outputs::{alias}>")
+        ((port.name, f"inputs::{alias}<'a>") for port, _, alias in inputs),
+        ((port.name, f"Option<outputs::{alias}>" + (" (required output)" if port.required else ""))
          for port, _, alias in outputs),
-        ((param.name, param.type) for param in card.params),
+        ((param.name, rust_param_type(param.type)) for param in card.params),
     )

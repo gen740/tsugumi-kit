@@ -1,4 +1,4 @@
-# Rust Cards for the Card ABI
+# Rust Card SDK
 
 The Rust builder takes the Card's Cargo package and the current wiring schemas.
 
@@ -9,7 +9,7 @@ let
   sdk = import <tsugumi-kit/sdk/rust> { inherit pkgs; };
   common = {
     inherit params;
-    inputs = ./_inputs.fbs;
+    inputs = if builtins.pathExists ./_inputs.fbs then ./_inputs.fbs else null;
     outputs = ./_outputs.fbs;
   };
 in
@@ -35,33 +35,34 @@ The builder uses Cargo and rustc's native link requirements when linking
 `main.so`.
 
 ```rust
-use tsugumi::{Failure, FailureKind, Inputs, Output, cancelled, require_input, send_value};
+use tsugumi::{Failure, FailureKind, Inputs, Output, cancelled, send_value};
 
 fn run(input: Inputs<'_>) -> Result<Output, Failure> {
     if cancelled() {
         return Err(Failure::new(FailureKind::cancelled, "Processing stopped"));
     }
-    let value = require_input("measurement", input.measurement)?.value();
+    let value = input.measurement.value();
     send_value(value)?;
     let mut measurement = tsugumi::outputs::Measurement::default();
     measurement.value = value * 2.0;
-    Ok(Output { measurement })
+    Ok(Output { measurement: Some(measurement) })
 }
 
 tsugumi::export!(run);
 ```
 
 The example uses a connected input and a required output named `measurement`
-with a `value:double` field. Input fields are `Option<T>`. Pass a port name
-and its option to `require_input(name, option)?` to get `T` and report
-`input_missing` for a missing value. Inputs and parameters borrow verified
-FlatBuffers for the duration of `run`.
+with a `value:double` field. Inputs borrow verified FlatBuffers for the
+duration of `run`. A mixed Merge is an enum in `tsugumi::inputs` whose variants
+contain the borrowed table selected by the envelope's schema ID. A Collect
+port borrows the fixed `Collected` table of opaque envelope items. Outputs
+use owned FlatBuffers objects in `Option` fields. Missing required outputs
+and invalid output objects produce `output_invalid`.
 
-A mixed Merge is an enum in `tsugumi::inputs` or `tsugumi::outputs`.
-Its variants contain the member type, borrowed for inputs and owned for
-outputs. The SDK verifies and decodes the nested FlatBuffer for the selected
-input member. Other output fields take FlatBuffers' owned objects. Optional
-outputs use `Option`. Invalid output objects produce `output_invalid`.
+`tsugumi::PARAMS` is a typed build-time constant. A parameter value change
+affects the run build and preserves the generated API when its type is
+unchanged. The entry also exports the shared `sdk.input` and `sdk.artifact`
+helpers for Input Cards.
 
 `tsugumi::send(view, bytes)` takes a declared view name and a byte slice.
 `tsugumi::send_value(value)` supports text, `f64`, `Scalar`, `Markdown`,
@@ -77,7 +78,11 @@ Declare the matching views in your Card's `default.nix` with
 The bundled `markdown` view displays scalar values.
 See the [view protocol](cpp-sdk.md#display-a-value).
 
-A Card-owned thread can send displays after `run` returns. Between calls
+The SDK frames and splits sends at the ABI message limit.
+`tsugumi::recv(view, timeout_ms)` returns `Received::Message(bytes)`,
+`Received::Timeout`, or `Received::Cancelled`. A negative timeout waits
+without a deadline. A Card-owned thread can send and receive after `run`
+returns. Between calls
 `cancelled()` returns `true` and `remaining_ms()` returns `0`.
 
 `Failure::new` captures its call site, and `with_cell` adds an optional
@@ -85,11 +90,13 @@ notebook cell. Set `sourcePrefix` to the Cargo package directory's path
 relative to the Card definition when they differ. For example,
 `sourcePrefix = "src"` reports `src/src/lib.rs` for a package in `src/`.
 
-Path inputs are `Option<&Path>`. Use the generated field or
-`input.path(name)`, which also accepts unwired names. Output paths are
-`PathBuf`. Write new output files and directories under the working directory
-and finish writing before returning. Use `path.to_owned()` to forward an
-input path unchanged.
+Use `Artifact::dir()` for an Artifact and its writable directory or
+`Artifact::upload(source)` to copy a file or directory into a new Artifact.
+Call `artifact.open()` during the invocation to get its granted read-only
+directory. To forward a borrowed Artifact, return `artifact.unpack()`.
+The SDK lists IDs from nested tables, vectors and unions in each output.
+The pinned FlatBuffers backend supports vectors of tables that contain a union.
+Its code generator rejects fields declared directly as a vector of unions.
 
 The builder accepts `tools` for runtime executables. See [Runtime tools](../README.md#runtime-tools).
 

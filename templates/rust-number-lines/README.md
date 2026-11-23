@@ -1,7 +1,7 @@
 # Number lines with Rust
 
 An Input Card supplies text to a Rust Card that numbers the lines, writes
-`numbered.txt` and returns it on the `file` port. **Targets the Card ABI.**
+`numbered.txt` in a new Artifact and returns it on the `file` port.
 
 ```text
 settings.text → number.text

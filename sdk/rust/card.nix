@@ -2,15 +2,17 @@
   pkgs,
   abi,
   portCodegen,
+  paramValues,
   cardInterface,
   publishApi,
 }:
 let
   generate =
     {
-      inputs,
+      inputs ? null,
       outputs,
       params ? { },
+      embed ? false,
     }:
     let
       interface = cardInterface { inherit inputs outputs params; };
@@ -27,16 +29,16 @@ let
         cp ${./Cargo.toml} "$out/Cargo.toml"
         cp ${./src}/*.rs "$out/src/"
         ln -s ${pkgs.flatbuffers.src}/rust/flatbuffers "$out/flatbuffers"
-        for schema in ${abi}/card.fbs "${interface}"/_{inputs,outputs,params}.fbs; do
-          flatc --rust --gen-all --gen-object-api -o "$out/src" "$schema"
+        for schema in "${interface}"/tsugumi/card.fbs "${interface}"/_{inputs,outputs}.fbs; do
+          flatc --rust --gen-all --gen-object-api -I "${interface}" -o "$out/src" "$schema"
         done
         python3 ${./card_rust.py} "${interface}" "$out" \
-          ${pkgs.flatbuffers.src}/reflection/reflection.fbs
+          ${pkgs.flatbuffers.src}/reflection/reflection.fbs ${pkgs.lib.optionalString embed "${paramValues params}"}
       '';
   rustCard =
     {
       src,
-      inputs,
+      inputs ? null,
       outputs,
       params ? { },
       name ? "tsugumi-rust-card",
@@ -54,7 +56,10 @@ let
       isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
       cargoLock = if lock == null then ./Cargo.lock else lock;
       vendor = pkgs.rustPlatform.importCargoLock { lockFile = cargoLock; };
-      sdk = generate { inherit inputs outputs params; };
+      sdk = generate {
+        inherit inputs outputs params;
+        embed = true;
+      };
     in
     assert lib.assertMsg (lib.elem "staticlib" (
       manifest.lib.crate-type or [ ]
@@ -124,7 +129,7 @@ let
       sdk = generate args;
     in
     publishApi "rust" ''
-      cp ${sdk}/README.md ${sdk}/src/{lib,_inputs_generated,_outputs_generated,_params_generated}.rs "$api/"
+      cp ${sdk}/README.md ${sdk}/src/{lib,_inputs_generated,_outputs_generated,card_generated,params}.rs "$api/"
     '';
 in
 {

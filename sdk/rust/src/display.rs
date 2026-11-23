@@ -2,7 +2,7 @@ use std::ffi::CString;
 
 use serde_json::{Value, json};
 
-use crate::runtime::{Failure, FailureKind, Result, send_display};
+use crate::runtime::{Failure, FailureKind, Result, recv_display, send_display};
 
 /// A value that can be sent to a view.
 pub trait DisplayValue {
@@ -25,6 +25,15 @@ pub fn send(view: &str, bytes: &[u8]) -> Result<()> {
             format!("Display failed (status {status})"),
         ))
     }
+}
+
+pub use crate::runtime::Received;
+
+/// Wait for a view message, timeout, or cancellation.
+pub fn recv(view: &str, timeout_ms: i64) -> Result<Received> {
+    let view =
+        CString::new(view).map_err(|_| invalid_display("View names cannot contain a NUL byte"))?;
+    recv_display(&view, timeout_ms)
 }
 
 /// Encode a typed value and send it to its corresponding view.

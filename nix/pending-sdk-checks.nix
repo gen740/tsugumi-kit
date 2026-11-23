@@ -6,5 +6,4 @@
   "julia"
   "r"
   "ruby"
-  "rust"
 ]

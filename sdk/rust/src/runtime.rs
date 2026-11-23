@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 use std::ffi::{CStr, c_int, c_void};
+use std::os::unix::ffi::OsStrExt;
 use std::panic::{AssertUnwindSafe, Location, catch_unwind};
-use std::path::{Component, Path};
-use std::sync::{Mutex, MutexGuard};
+use std::path::{Component, Path, PathBuf};
+use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
 
 use flatbuffers::{
     FlatBufferBuilder, Follow, ForwardsUOffset, Verifiable, Verifier, VerifierOptions,
@@ -12,7 +13,7 @@ use crate::wire::tsugumi::card::{
     CardFailure, CardFailureArgs, CardInput, CardPort, CardPortArgs, CardResult, CardResultArgs,
 };
 pub use crate::wire::tsugumi::data::FailureKind;
-pub(crate) use crate::wire::tsugumi::data::PortKind;
+use crate::wire::tsugumi::{Artifact, ArtifactId, ArtifactT};
 
 pub type Result<T> = std::result::Result<T, Failure>;
 
@@ -105,89 +106,56 @@ impl From<std::io::Error> for Failure {
 
 pub(crate) struct Input<'a> {
     ports: HashMap<&'a str, CardPort<'a>>,
-    params: &'a [u8],
 }
 
 impl<'a> Input<'a> {
     pub(crate) fn parse(bytes: &'a [u8]) -> Result<Self> {
         let input = read_root::<CardInput>(bytes, || {
-            Failure::without_location(FailureKind::invalid_request, "Invalid CardInput")
+            Failure::without_location(FailureKind::input_invalid, "Invalid CardInput")
         })?;
         let mut ports = HashMap::new();
         for port in input.inputs().into_iter().flatten() {
-            let valid = match port.kind() {
-                PortKind::Path => {
-                    port.path()
-                        .is_some_and(|path| !path.contains('\0') && Path::new(path).is_absolute())
-                        && port.bytes().is_none_or(|bytes| bytes.is_empty())
-                }
-                PortKind::FlatBuffer => port.path().is_none(),
-                _ => false,
-            };
-            if !valid {
-                return Err(Failure::without_location(
-                    FailureKind::invalid_request,
-                    format!("Invalid input port {}", port.name()),
-                ));
-            }
             if ports.insert(port.name(), port).is_some() {
                 return Err(Failure::without_location(
-                    FailureKind::invalid_request,
+                    FailureKind::input_invalid,
                     format!("Duplicate input {}", port.name()),
                 ));
             }
         }
-        Ok(Self {
-            ports,
-            params: input.params().map_or(&[], |value| value.bytes()),
-        })
+        Ok(Self { ports })
     }
 
-    fn take(&mut self, name: &str, kind: PortKind) -> Result<Option<CardPort<'a>>> {
-        let port = self.ports.remove(name);
-        if port.is_some_and(|port| port.kind() != kind) {
-            return Err(Failure::without_location(
-                FailureKind::invalid_request,
-                format!("Wrong kind for input {name}"),
-            ));
+    pub(crate) fn take(&mut self, name: &str) -> Result<(&'a str, &'a [u8])> {
+        let port = require_input(name, self.ports.remove(name))?;
+        match (port.schema(), port.bytes()) {
+            (Some(schema), Some(bytes)) => Ok((schema, bytes.bytes())),
+            _ => Err(Failure::without_location(
+                FailureKind::input_invalid,
+                format!("Missing schema or bytes for {name}"),
+            )),
         }
-        Ok(port)
     }
 
-    pub(crate) fn take_path(&mut self, name: &str) -> Result<Option<&'a Path>> {
-        Ok(self
-            .take(name, PortKind::Path)?
-            .and_then(|port| port.path())
-            .map(Path::new))
-    }
-
-    pub(crate) fn take_value<T>(&mut self, name: &str) -> Result<Option<T>>
+    pub(crate) fn read<T>(&mut self, name: &str, expected_schema: &str) -> Result<T>
     where
         T: Follow<'a, Inner = T> + Verifiable + 'a,
     {
-        self.take(name, PortKind::FlatBuffer)?
-            .map(|port| read_value(port.bytes().map_or(&[], |value| value.bytes()), name))
-            .transpose()
+        let (schema, bytes) = self.take(name)?;
+        if schema != expected_schema {
+            return Err(unknown_schema(name));
+        }
+        read_value(bytes, name)
     }
 
-    pub(crate) fn params<T>(self, allow_empty: bool) -> Result<T>
-    where
-        T: Follow<'a, Inner = T> + Verifiable + 'a,
-    {
-        if !self.ports.is_empty() {
-            return Err(Failure::without_location(
-                FailureKind::invalid_request,
-                "Unknown input port",
-            ));
-        }
-        // A FlatBuffers root offset, followed by an empty vtable and table.
-        const EMPTY_PARAMS: &[u8] = &[8, 0, 0, 0, 4, 0, 4, 0, 4, 0, 0, 0];
-        let bytes = if allow_empty && self.params.is_empty() {
-            EMPTY_PARAMS
+    pub(crate) fn check_consumed(self) -> Result<()> {
+        if self.ports.is_empty() {
+            Ok(())
         } else {
-            self.params
-        };
-        read_value::<T>(bytes, "params")
+            Err(Failure::without_location(
+                FailureKind::input_invalid,
+                "Unknown input port",
+            ))
+        }
     }
 }
 
@@ -204,22 +172,22 @@ where
 {
     read_root::<T>(bytes, || {
         Failure::without_location(
-            FailureKind::invalid_request,
+            FailureKind::input_invalid,
             format!("Invalid FlatBuffer for {name}"),
         )
     })
 }
 
-pub(crate) fn invalid_merge(name: &str) -> Failure {
+pub(crate) fn unknown_schema(name: &str) -> Failure {
     Failure::without_location(
-        FailureKind::invalid_request,
-        format!("Invalid Merge input {name}"),
+        FailureKind::input_invalid,
+        format!("Unknown schema for {name}"),
     )
 }
 
 pub(crate) type OutputPorts<'a> = Vec<flatbuffers::WIPOffset<CardPort<'a>>>;
 
-fn invalid_output(name: &str) -> Failure {
+pub(crate) fn invalid_output(name: &str) -> Failure {
     Failure::without_location(
         FailureKind::output_invalid,
         format!("Invalid output {name}"),
@@ -248,44 +216,21 @@ pub(crate) fn write_port<'a, T: Verifiable>(
     builder: &mut FlatBufferBuilder<'a>,
     ports: &mut OutputPorts<'a>,
     name: &str,
+    ids: &[[u8; 16]],
     pack: impl FnOnce(&mut FlatBufferBuilder<'_>),
 ) -> Result<()> {
     let bytes = pack_value::<T>(name, pack)?;
     let name = builder.create_string(name);
     let bytes = builder.create_vector(&bytes);
+    let artifacts: Vec<_> = ids.iter().map(ArtifactId::new).collect();
+    let artifacts = (!artifacts.is_empty()).then(|| builder.create_vector(&artifacts));
     ports.push(CardPort::create(
         builder,
         &CardPortArgs {
             name: Some(name),
-            kind: PortKind::FlatBuffer,
+            schema: None,
             bytes: Some(bytes),
-            path: None,
-        },
-    ));
-    Ok(())
-}
-
-pub(crate) fn write_path<'a>(
-    builder: &mut FlatBufferBuilder<'a>,
-    ports: &mut OutputPorts<'a>,
-    name: &str,
-    path: &Path,
-) -> Result<()> {
-    let Some(path) = path
-        .to_str()
-        .filter(|path| !path.is_empty() && !path.contains('\0'))
-    else {
-        return Err(invalid_output(name));
-    };
-    let name = builder.create_string(name);
-    let path = builder.create_string(path);
-    ports.push(CardPort::create(
-        builder,
-        &CardPortArgs {
-            name: Some(name),
-            kind: PortKind::Path,
-            bytes: None,
-            path: Some(path),
+            artifacts,
         },
     ));
     Ok(())
@@ -307,40 +252,41 @@ impl Bytes {
     }
 }
 
-type DisplayEffect =
+type SendEffect =
     unsafe extern "C" fn(*mut c_void, *const std::ffi::c_char, *const u8, usize) -> c_int;
+type RecvEffect =
+    unsafe extern "C" fn(*mut c_void, *const std::ffi::c_char, *mut Bytes, i64) -> c_int;
 type CancelEffect = unsafe extern "C" fn(*mut c_void) -> c_int;
 type DeadlineEffect = unsafe extern "C" fn(*mut c_void) -> i64;
+type CreateArtifact = unsafe extern "C" fn(*mut c_void, *mut ArtifactId, *mut Bytes) -> c_int;
+type OpenArtifact = unsafe extern "C" fn(*mut c_void, *const ArtifactId, *mut Bytes) -> c_int;
 
 #[doc(hidden)]
 #[derive(Clone, Copy)]
 #[repr(C)]
 pub struct Effects {
-    send: Option<DisplayEffect>,
+    send: Option<SendEffect>,
+    recv: Option<RecvEffect>,
     cancelled: Option<CancelEffect>,
     remaining_ms: Option<DeadlineEffect>,
+    artifact_create: Option<CreateArtifact>,
+    artifact_open: Option<OpenArtifact>,
 }
 
-struct ActiveCall {
+#[derive(Clone, Copy)]
+struct EffectTarget {
     host: *mut c_void,
     effects: Effects,
 }
 
-// The ABI permits queries from any Card thread. The mutex serializes the
-// queries and holds the context alive until the call guard can clear it.
-unsafe impl Send for ActiveCall {}
+// The host permits effects on Card threads. Call-scoped effects are accessed
+// under ACTIVE, and the send and receive callbacks have process lifetime.
+unsafe impl Send for EffectTarget {}
 
-static ACTIVE: Mutex<Option<ActiveCall>> = Mutex::new(None);
-#[derive(Clone, Copy)]
-struct DisplayTarget {
-    host: *mut c_void,
-    send: DisplayEffect,
-}
-
-// The ABI permits sends from any Card thread for the process lifetime.
-unsafe impl Send for DisplayTarget {}
-
-static DISPLAY: Mutex<Option<DisplayTarget>> = Mutex::new(None);
+static ACTIVE: Mutex<Option<EffectTarget>> = Mutex::new(None);
+static DISPLAY: Mutex<Option<EffectTarget>> = Mutex::new(None);
+static SEND_SEQUENCES: LazyLock<Mutex<HashMap<Vec<u8>, Arc<Mutex<u32>>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 static RESULT: Mutex<Vec<u8>> = Mutex::new(Vec::new());
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -352,10 +298,9 @@ struct CallScope;
 impl CallScope {
     fn enter(host: *mut c_void, effects: Option<Effects>) -> Self {
         if let Some(effects) = effects {
-            if let Some(send) = effects.send {
-                *lock(&DISPLAY) = Some(DisplayTarget { host, send });
-            }
-            *lock(&ACTIVE) = Some(ActiveCall { host, effects });
+            let target = EffectTarget { host, effects };
+            *lock(&DISPLAY) = Some(target);
+            *lock(&ACTIVE) = Some(target);
         }
         Self
     }
@@ -385,11 +330,179 @@ pub fn remaining_ms() -> i64 {
 }
 
 pub(crate) fn send_display(view: &CStr, bytes: &[u8]) -> c_int {
-    // Release the lock before invoking the process-lifetime callback.
+    const PAYLOAD_MAX: usize = (1 << 24) - 16;
+    let Some(target) = *lock(&DISPLAY) else {
+        return -1;
+    };
+    let Some(send) = target.effects.send else {
+        return -1;
+    };
+    let Ok(count) = u32::try_from(bytes.len().max(1).div_ceil(PAYLOAD_MAX)) else {
+        return -1;
+    };
+    let state = {
+        let mut sequences = lock(&SEND_SEQUENCES);
+        if let Some(state) = sequences.get(view.to_bytes()) {
+            Arc::clone(state)
+        } else {
+            let state = Arc::new(Mutex::new(0));
+            sequences.insert(view.to_bytes().to_vec(), Arc::clone(&state));
+            state
+        }
+    };
+    let mut next = lock(&state);
+    let sequence = *next;
+    *next = next.wrapping_add(1);
+    let mut frame = Vec::with_capacity(16 + bytes.len().min(PAYLOAD_MAX));
+    for index in 0..count {
+        let start = index as usize * PAYLOAD_MAX;
+        let payload = &bytes[start..bytes.len().min(start + PAYLOAD_MAX)];
+        frame.clear();
+        for word in [0x4d475354, sequence, index, count] {
+            frame.extend_from_slice(&word.to_le_bytes());
+        }
+        frame.extend_from_slice(payload);
+        let status = unsafe { send(target.host, view.as_ptr(), frame.as_ptr(), frame.len()) };
+        if status != 0 {
+            return status;
+        }
+    }
+    0
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum Received {
+    Message(Vec<u8>),
+    Timeout,
+    Cancelled,
+}
+
+pub(crate) fn recv_display(view: &CStr, timeout_ms: i64) -> Result<Received> {
     let target = *lock(&DISPLAY);
-    target.map_or(1, |target| unsafe {
-        (target.send)(target.host, view.as_ptr(), bytes.as_ptr(), bytes.len())
+    let mut bytes = Bytes::from_slice(&[]);
+    let status = target
+        .and_then(|t| {
+            t.effects
+                .recv
+                .map(|recv| unsafe { recv(t.host, view.as_ptr(), &mut bytes, timeout_ms) })
+        })
+        .unwrap_or(-1);
+    match status {
+        0 => {
+            let data = copy_effect_bytes(bytes)
+                .ok_or_else(|| effect_failure("receive display message"))?;
+            Ok(Received::Message(data))
+        }
+        1 => Ok(Received::Timeout),
+        2 => Ok(Received::Cancelled),
+        _ => Err(effect_failure("receive display message")),
+    }
+}
+
+fn copy_effect_bytes(bytes: Bytes) -> Option<Vec<u8>> {
+    if bytes.size == 0 {
+        return Some(Vec::new());
+    }
+    if bytes.data.is_null() || bytes.size > isize::MAX as usize {
+        return None;
+    }
+    // The caller is still in the effect's lifetime on this thread.
+    Some(unsafe { std::slice::from_raw_parts(bytes.data, bytes.size) }.to_vec())
+}
+
+fn effect_failure(action: &str) -> Failure {
+    Failure::new(
+        FailureKind::worker_failed,
+        format!("The host could not {action}"),
+    )
+}
+
+fn artifact_path(
+    action: &str,
+    callback: impl FnOnce(&EffectTarget, &mut Bytes) -> Option<i32>,
+) -> Result<PathBuf> {
+    let target = lock(&ACTIVE);
+    let mut bytes = Bytes::from_slice(&[]);
+    if target
+        .as_ref()
+        .and_then(|target| callback(target, &mut bytes))
+        != Some(0)
+    {
+        return Err(effect_failure(action));
+    }
+    let path = copy_effect_bytes(bytes)
+        .filter(|path| !path.is_empty() && !path.contains(&0))
+        .ok_or_else(|| effect_failure(action))?;
+    Ok(PathBuf::from(std::ffi::OsStr::from_bytes(&path)))
+}
+
+impl ArtifactT {
+    pub fn dir() -> Result<(Self, PathBuf)> {
+        let mut id = ArtifactId::default();
+        let path = artifact_path("create an Artifact", |target, out| {
+            target
+                .effects
+                .artifact_create
+                .map(|create| unsafe { create(target.host, &mut id, out) })
+        })?;
+        Ok((Self { id: id.unpack() }, path))
+    }
+
+    pub fn upload(source: impl AsRef<Path>) -> Result<Self> {
+        let source = source.as_ref();
+        let (artifact, directory) = Self::dir()?;
+        if source.is_dir() {
+            copy_directory(source, &directory)?;
+        } else {
+            let name = source
+                .file_name()
+                .ok_or_else(|| effect_failure("copy the Artifact source"))?;
+            std::fs::copy(source, directory.join(name))?;
+        }
+        Ok(artifact)
+    }
+
+    pub fn open(&self) -> Result<PathBuf> {
+        open_artifact(&self.id.pack())
+    }
+}
+
+impl Artifact<'_> {
+    pub fn open(&self) -> Result<PathBuf> {
+        open_artifact(self.id())
+    }
+}
+
+fn open_artifact(id: &ArtifactId) -> Result<PathBuf> {
+    artifact_path("open the Artifact", |target, out| {
+        target
+            .effects
+            .artifact_open
+            .map(|open| unsafe { open(target.host, id, out) })
     })
+}
+
+fn copy_directory(source: &Path, destination: &Path) -> std::io::Result<()> {
+    for entry in std::fs::read_dir(source)? {
+        let entry = entry?;
+        let path = entry.path();
+        let target = destination.join(entry.file_name());
+        let kind = entry.file_type()?;
+        if kind.is_symlink() {
+            std::os::unix::fs::symlink(std::fs::read_link(path)?, target)?;
+        } else if kind.is_dir() {
+            std::fs::create_dir(&target)?;
+            copy_directory(&path, &target)?;
+        } else if kind.is_file() {
+            std::fs::copy(path, target)?;
+        } else {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "Unsupported Artifact source entry",
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn failure_result(builder: &mut FlatBufferBuilder<'_>, error: Failure) {
