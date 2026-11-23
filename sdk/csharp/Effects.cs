@@ -3,6 +3,7 @@ using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
@@ -18,37 +19,102 @@ public sealed record Series(string Id, string Label, double[] X, double[] Y);
 public sealed record LineChart(Series[] Series);
 public sealed record Plotly(string Config);
 public sealed record VegaLite(string Config);
+public enum ReceiveStatus { Message, Timeout, Cancelled }
+public sealed record Received(ReceiveStatus Status, byte[] Bytes);
+
+[StructLayout(LayoutKind.Sequential)]
+internal unsafe struct NativeBytes
+{
+    internal byte* Data;
+    internal nuint Size;
+
+    internal readonly ReadOnlySpan<byte> Span => new(Data, checked((int)Size));
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal unsafe struct NativeEffects
+{
+    internal delegate* unmanaged[Cdecl]<byte*, byte*, nuint, int> Send;
+    internal delegate* unmanaged[Cdecl]<byte*, long, NativeBytes*, int> Recv;
+    internal delegate* unmanaged[Cdecl]<int> Cancelled;
+    internal delegate* unmanaged[Cdecl]<long> Remaining;
+    internal delegate* unmanaged[Cdecl]<byte*, NativeBytes*, int> ArtifactDir;
+    internal delegate* unmanaged[Cdecl]<byte*, byte*, int> ArtifactUpload;
+    internal delegate* unmanaged[Cdecl]<byte*, NativeBytes*, int> ArtifactOpen;
+}
+
 public static class Effects
 {
-    private static unsafe delegate* unmanaged[Cdecl]<byte*, byte*, nuint, int> send;
-    private static unsafe delegate* unmanaged[Cdecl]<int> queryCancelled;
-    private static unsafe delegate* unmanaged[Cdecl]<long> queryRemaining;
-
-    internal static unsafe void Initialize(
-        delegate* unmanaged[Cdecl]<byte*, byte*, nuint, int> sendDisplay,
-        delegate* unmanaged[Cdecl]<int> cancelled,
-        delegate* unmanaged[Cdecl]<long> remaining)
+    private static unsafe NativeEffects* effects;
+    internal static unsafe void Initialize(NativeEffects* value)
     {
-        if (send != null) return;
-        queryCancelled = cancelled;
-        queryRemaining = remaining;
-        send = sendDisplay;
+        if (effects == null) effects = value;
     }
 
-    public static unsafe bool Cancelled() => queryCancelled == null || queryCancelled() != 0;
-    public static unsafe long RemainingMilliseconds() => queryRemaining == null ? 0 : queryRemaining();
+    public static unsafe bool Cancelled() => effects == null || effects->Cancelled() != 0;
+    public static unsafe long RemainingMilliseconds() => effects == null ? 0 : effects->Remaining();
 
-    public static unsafe int Send(string view, ReadOnlySpan<byte> bytes)
+    private static byte[] ViewName(string view)
     {
         ArgumentNullException.ThrowIfNull(view);
         if (view.Contains('\0'))
             throw new ArgumentException("View names cannot contain a NUL byte", nameof(view));
-        if (send == null)
+        return Encoding.UTF8.GetBytes(view + "\0");
+    }
+
+    public static unsafe int Send(string view, ReadOnlySpan<byte> bytes)
+    {
+        if (effects == null)
             throw new InvalidOperationException("Display is not initialized");
-        var name = Encoding.UTF8.GetBytes(view + "\0");
-        fixed (byte* viewPointer = name)
+        fixed (byte* name = ViewName(view))
         fixed (byte* data = bytes)
-            return send(viewPointer, data, (nuint)bytes.Length);
+            return effects->Send(name, data, (nuint)bytes.Length);
+    }
+
+    public static unsafe Received Recv(string view, long timeoutMilliseconds = -1)
+    {
+        if (effects == null)
+            throw new InvalidOperationException("Display is not initialized");
+        NativeBytes received = default;
+        int status;
+        fixed (byte* name = ViewName(view))
+            status = effects->Recv(name, timeoutMilliseconds, &received);
+        return status switch
+        {
+            0 => new(ReceiveStatus.Message, received.Span.ToArray()),
+            1 => new(ReceiveStatus.Timeout, []),
+            2 => new(ReceiveStatus.Cancelled, []),
+            _ => throw new InvalidOperationException("The host could not receive a view message"),
+        };
+    }
+
+    internal static unsafe string ArtifactDir(byte[] id)
+    {
+        NativeBytes path = default;
+        fixed (byte* pointer = id)
+            if (effects == null || effects->ArtifactDir(pointer, &path) != 0)
+                throw new InvalidOperationException("The host could not create an Artifact");
+        return Encoding.UTF8.GetString(path.Span);
+    }
+
+    internal static unsafe void ArtifactUpload(string source, byte[] id)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        if (source.Contains('\0'))
+            throw new ArgumentException("Artifact source contains a NUL byte", nameof(source));
+        fixed (byte* path = Encoding.UTF8.GetBytes(source + "\0"))
+        fixed (byte* pointer = id)
+            if (effects == null || effects->ArtifactUpload(path, pointer) != 0)
+                throw new InvalidOperationException("Could not upload the Artifact");
+    }
+
+    internal static unsafe string ArtifactOpen(byte[] id)
+    {
+        NativeBytes path = default;
+        fixed (byte* pointer = id)
+            if (effects == null || effects->ArtifactOpen(pointer, &path) != 0)
+                throw new InvalidOperationException("The host could not open the Artifact");
+        return Encoding.UTF8.GetString(path.Span);
     }
 
     // JSON belongs only to the selected view module's config.

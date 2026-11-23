@@ -6,7 +6,8 @@ public static class Card
     public static Output Run(Input input)
     {
         const string path = "note.txt";
-        File.WriteAllText(path, input.Params.Text);
-        return new Output { File = path };
+        var (artifact, directory) = tsugumi.ArtifactT.Dir();
+        File.WriteAllText(Path.Combine(directory, path), Params.Current.Text);
+        return new Output { File = artifact };
     }
 }

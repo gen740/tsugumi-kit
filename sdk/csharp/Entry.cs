@@ -34,53 +34,32 @@ internal sealed class InputPorts
         for (var i = 0; i < input.InputsLength; i++)
         {
             var port = input.Inputs(i)!.Value;
-            if (port.Kind is not (PortKind.FlatBuffer or PortKind.Path))
-                throw Rejected(FailureKind.invalid_request, "Unknown input port kind");
             if (!ports.TryAdd(port.Name, port))
-                throw Rejected(FailureKind.invalid_request, $"Duplicate input {port.Name}");
+                throw Rejected(FailureKind.input_invalid, $"Duplicate input {port.Name}");
         }
-        Params = input.GetParamsArray() ?? [];
     }
 
-    internal byte[] Params { get; }
-
-    // Inputs are absent unless connected; the Card decides which it needs.
-    internal Wire.CardPort? Take(string name, PortKind kind)
+    internal Wire.CardPort Take(string name)
     {
         if (!ports.Remove(name, out var port))
-            return null;
-        if (port.Kind != kind)
-            throw Rejected(FailureKind.invalid_request, $"Wrong kind for input {name}");
-        if (kind == PortKind.FlatBuffer && port.Path is not null)
-            throw Rejected(FailureKind.invalid_request, $"FlatBuffer input {name} has a path");
+            throw Rejected(FailureKind.input_missing, $"Missing input {name}");
         return port;
     }
 
     internal void CheckConsumed()
     {
         if (ports.Count != 0)
-            throw Rejected(FailureKind.invalid_request, "Unknown input port");
+            throw Rejected(FailureKind.input_invalid, "Unknown input port");
     }
 
     internal static Failure Rejected(FailureKind kind, string message) =>
         new(kind, message, source: "", line: 0);
 
-    internal static string PathOf(Wire.CardPort port)
-    {
-        if (port.Path is not { Length: > 0 } path || path.Contains('\0') || port.BytesLength != 0)
-            throw Rejected(FailureKind.invalid_request, $"Invalid Path input {port.Name}");
-        return path;
-    }
+    internal static Failure UnknownSchema(string name) =>
+        Rejected(FailureKind.input_invalid, $"Unknown schema for {name}");
 
-    internal static Wire.CardPortT PathPort(string name, string path)
-    {
-        if (path.Length == 0 || path.Contains('\0'))
-            throw Rejected(FailureKind.output_invalid, $"Invalid Path output {name}");
-        return new() { Name = name, Kind = PortKind.Path, Path = path };
-    }
-
-    internal static Wire.CardPortT FlatBufferPort(string name, byte[] bytes) =>
-        new() { Name = name, Kind = PortKind.FlatBuffer, Bytes = new List<byte>(bytes) };
+    internal static Wire.CardPortT FlatBufferPort(string name, byte[] bytes, List<global::tsugumi.ArtifactIdT> ids) =>
+        new() { Name = name, Bytes = new List<byte>(bytes), Artifacts = ids.Count == 0 ? null : ids };
 
     internal static ByteBuffer Verify(byte[]? bytes, VerifyTableAction verifier, string name, FailureKind kind)
     {
@@ -123,14 +102,12 @@ internal static class Entry
     [UnmanagedCallersOnly]
     public static unsafe int Execute(
         byte* data, nuint length,
-        delegate* unmanaged[Cdecl]<byte*, byte*, nuint, int> send,
-        delegate* unmanaged[Cdecl]<int> cancelled,
-        delegate* unmanaged[Cdecl]<long> remaining,
+        NativeEffects* effects,
         void* context, delegate* unmanaged[Cdecl]<void*, byte*, nuint, int> sink)
     {
         try
         {
-            Effects.Initialize(send, cancelled, remaining);
+            Effects.Initialize(effects);
             var result = Invoke(new ReadOnlySpan<byte>(data, checked((int)length)));
             var builder = new FlatBufferBuilder(256);
             builder.Finish(Wire.CardResult.Pack(builder, result).Value);
@@ -158,7 +135,7 @@ internal static class Entry
             }
             catch (Exception error) when (error is not Failure)
             {
-                throw InputPorts.Rejected(FailureKind.invalid_request, error.Message);
+                throw InputPorts.Rejected(FailureKind.input_invalid, error.Message);
             }
 
             var output = global::Card.Run(input);

@@ -2,6 +2,7 @@
   pkgs,
   cppRuntime,
   portCodegen,
+  paramValues,
   cardInterface,
   publishApi,
 }:
@@ -9,7 +10,7 @@ let
   inherit (pkgs) lib;
   generate =
     {
-      inputs,
+      inputs ? null,
       outputs,
       params ? { },
     }:
@@ -30,7 +31,7 @@ let
   csharpCard =
     {
       src,
-      inputs,
+      inputs ? null,
       outputs,
       params ? { },
       name ? "tsugumi-csharp-card",
@@ -60,11 +61,13 @@ let
           ;
       };
       generated = generate { inherit inputs outputs params; };
+      interface = cardInterface { inherit inputs outputs params; };
       managed =
         pkgs.runCommand "${name}-managed"
           {
             nativeBuildInputs = [
               dotnet
+              (pkgs.python3.withPackages (_: [ portCodegen ]))
               pkgs.flatbuffers
             ];
             DOTNET_CLI_TELEMETRY_OPTOUT = "1";
@@ -83,6 +86,7 @@ let
             cp -r --no-preserve=mode ${lib.escapeShellArg "${src}"}/. src/
             cp ${./Entry.cs} Sdk/Entry.cs
             cp ${./Effects.cs} Sdk/Effects.cs
+            cp ${./Artifacts.cs} Sdk/Artifacts.cs
             cp ${pkgs.flatbuffers.src}/net/FlatBuffers/*.cs Sdk/FlatBuffers/
             # The vendored runtime predates nullable reference type annotations.
             sed -i '1s/^\xef\xbb\xbf//; 1i #nullable disable' Sdk/FlatBuffers/*.cs
@@ -95,9 +99,8 @@ let
             sed -i 's/CheckBufferFromStart("", 0, verifyAction)/CheckBufferFromStart(null, 0, verifyAction)/' \
               Sdk/FlatBuffers/FlatBufferVerify.cs
             cp -r --no-preserve=mode ${generated}/Ports ${generated}/Card.g.cs Sdk/Generated/
-            abi=${../../abi}
-            flatc --csharp --gen-object-api -o Sdk/Generated/Wire \
-              "$abi/card_enums.fbs" "$abi/card.fbs"
+            python3 ${./card_csharp.py} embed "${interface}" \
+              ${pkgs.flatbuffers.src}/reflection/reflection.fbs "${paramValues params}" Sdk/Generated/EmbeddedParams.g.cs
             ${lib.optionalString (lock != null) "cp ${lib.escapeShellArg "${lock}"} packages.lock.json"}
 
             cat > Card.csproj <<'PROJECT'
@@ -167,6 +170,7 @@ let
     in
     publishApi "csharp" ''
       cp -r "${generated}/." "$api/"
+      cp ${./Effects.cs} ${./Artifacts.cs} "$api/"
     '';
 in
 {
