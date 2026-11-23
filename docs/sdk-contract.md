@@ -99,7 +99,8 @@ The build produces `share/tsugumi/input/ports/<port>`,
 `artifacts/<id>/` under that same Input root. IDs are the first 16 bytes of
 SHA-256 over the UTF-8 port name, one NUL byte and the source store path.
 The build computes this byte sequence directly because Nix evaluation
-strings cannot represent NUL.
+strings cannot represent NUL. Core checks missing required Input Card
+ports when it emits the build output.
 
 ## Display and effects
 

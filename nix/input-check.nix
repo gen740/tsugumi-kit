@@ -33,6 +33,10 @@ let
       member = kit.input.artifact folder;
     };
   };
+  omittedRequired = kit.input.input {
+    outputs = schema;
+    values = { };
+  };
 in
 pkgs.runCommand "tsugumi-input-contract-check" { nativeBuildInputs = [ pkgs.python3 ]; } ''
   python3 - "${run}/share/tsugumi/input" "${file}" "${folder}" <<'PY'
@@ -54,5 +58,7 @@ pkgs.runCommand "tsugumi-input-contract-check" { nativeBuildInputs = [ pkgs.pyth
   assert wire.count(bytes.fromhex(file_id)) == 2
   assert wire.count(bytes.fromhex(folder_id)) == 2
   PY
+  test -d "${omittedRequired}/share/tsugumi/input/ports"
+  test ! -e "${omittedRequired}/share/tsugumi/input/ports/listing"
   touch "$out"
 ''

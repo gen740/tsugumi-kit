@@ -42,9 +42,8 @@ def main(schema, values_file, reflection, out):
         raise ValueError("Expected an attribute set of output port values")
     if unknown := values.keys() - ports.keys():
         raise ValueError(f"Unknown output ports: {', '.join(sorted(unknown))}")
-    missing = {name for name, port in ports.items() if port.required and name not in values}
-    if missing:
-        raise ValueError(f"Missing required output ports: {', '.join(sorted(missing))}")
+    # Core checks required ports when it emits this build's output, so it
+    # can report output_invalid for a missing port.
     (out / "ports").mkdir(parents=True)
     (out / "artifacts").mkdir()
     with TemporaryDirectory() as directory:
