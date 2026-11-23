@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from tsugumi_ports import load_card_schemas, reflect_schema, schema_tokens, write_api_readme
+from tsugumi_ports import load_card_schemas, param_members, reflect_schema, schema_tokens, write_api_readme
 
 KEYWORDS = set("""
 alignas alignof and and_eq asm auto bitand bitor bool break case catch char
@@ -28,7 +28,6 @@ CPP_KEYWORDS = KEYWORDS | {
 # The pinned flatc appends an underscore for these keywords in field and
 # enum value names. Preserve those names in the existing object API.
 FLATC_KEYWORDS = CPP_KEYWORDS - {"char8_t", "consteval", "constinit", "contract_assert", "reflexpr"}
-SCHEMAS = ("_inputs", "_outputs", "_params")
 IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z_0-9]*")
 
 
@@ -91,7 +90,7 @@ def generate_headers(schemas, out, reflection):
     # Use the same names in all schemas and in card.hh. The rewritten schemas
     # are private to the C++ build and retain field IDs, enum values and layout.
     sources = {file.relative_to(schemas): file.read_text(encoding="utf-8")
-               for file in schemas.rglob("*.fbs") if not file.name.startswith("._")}
+               for file in schemas.rglob("*.fbs") if not file.name.startswith("._") and file.parent != schemas / "tsugumi"}
     tokens = {path: schema_tokens(source) for path, source in sources.items()}
     identifiers = {token.group() for matches in tokens.values() for token in matches
                    if IDENTIFIER.fullmatch(token.group())}
@@ -117,10 +116,14 @@ def generate_headers(schemas, out, reflection):
             target = work / path
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(normalize_schema(source, tokens[path], names))
-        for schema in SCHEMAS:
-            subprocess.run(["flatc", "--cpp", "--gen-all", "--gen-object-api", "--scoped-enums",
-                            "-o", str(out / "include"), f"{schema}.fbs"],
+        (work / "tsugumi").symlink_to(schemas / "tsugumi", target_is_directory=True)
+        for schema in sources:
+            subprocess.run(["flatc", "--cpp", "--gen-object-api", "--scoped-enums",
+                            "-I", str(work), "-o", str(out / "include"), str(schema)],
                            cwd=work, check=True)
+        for header in ("artifact", "card"):
+            (out / "include" / f"{header}_generated.h").write_text(
+                f'#include "tsugumi/protocol/{header}_generated.h"\n')
         return names, reflect_schema(work / "_outputs.fbs", reflection)
 
 
@@ -139,24 +142,15 @@ def cpp_type(type_, names):
     return "::" + "::".join(names.get(part, part) for part in type_.split("."))
 
 
-def native_type(type_, members, names):
-    if members:
-        types = ", ".join(native_type(member.type, member.merge, names) for member in members)
-        return f"std::variant<{types}>"
+def native_type(type_, names):
     return f"{cpp_type(type_, names)}::NativeTableType"
 
 
 def port_type(port, names):
-    if port.kind == "Path":
-        return "std::filesystem::path"
-    return native_type(port.type, port.merge, names)
-
-
-def merged_leaves(type_, members):
-    if not members:
-        yield type_
-    for member in members:
-        yield from merged_leaves(member.type, member.merge)
+    if len(port.candidates) > 1:
+        types = ", ".join(native_type(member.type, names) for member in port.candidates)
+        return f"std::variant<{types}>"
+    return native_type(port.type, names)
 
 
 def validators(schema, roots):
@@ -167,9 +161,10 @@ def validators(schema, roots):
     def union_validator(index):
         enum = enums[index]
         tag = "::" + enum["name"].replace(".", "::")
-        signature = f"auto IsPackable(const {tag}Union& choice, bool required) -> bool"
+        signature = f"auto VisitArtifacts(const {tag}Union& choice, bool required, std::vector<tsugumi::ArtifactId>& ids) -> bool"
         if signature not in functions:
             functions[signature] = body = [
+                "  (void)ids;",
                 "  switch (choice.type) {",
                 f"    case {tag}::NONE:",
                 "      return !required && !choice.value;",
@@ -180,7 +175,7 @@ def validators(schema, roots):
                 body.append(f"    case {tag}::{variant_name}:")
                 if kind["base_type"] == "Obj" and not objects[kind["index"]].get("is_struct"):
                     table_validator(kind["index"])
-                    body.append(f"      return choice.value && IsPackable(*choice.As{variant_name}());")
+                    body.append(f"      return choice.value && VisitArtifacts(*choice.As{variant_name}(), ids);")
                 else:
                     body.append("      return choice.value != nullptr;")
             body += ["  }", "  return false;"]
@@ -188,10 +183,14 @@ def validators(schema, roots):
     def table_validator(index):
         obj = objects[index]
         table = "::" + obj["name"].replace(".", "::")
-        signature = f"auto IsPackable(const {table}::NativeTableType& value) -> bool"
+        signature = f"auto VisitArtifacts(const {table}::NativeTableType& value, std::vector<tsugumi::ArtifactId>& ids) -> bool"
         if signature in functions:
             return
-        functions[signature] = body = []
+        functions[signature] = body = ["  (void)value;", "  (void)ids;"]
+        if obj["name"] == "tsugumi.Artifact":
+            body += ["  if (!value.id) return false;", "  AddArtifact(ids, *value.id);",
+                     "  return true;"]
+            return
         for field in obj["fields"]:
             if field.get("deprecated"):
                 continue
@@ -207,29 +206,27 @@ def validators(schema, roots):
                         body.append(f"  if (!{member}) return false;")
                 else:
                     table_validator(child_index)
-                    condition = f"!IsPackable({member})" if inline else f"!IsPackable(*{member})"
+                    condition = f"!VisitArtifacts({member}, ids)" if inline else f"!VisitArtifacts(*{member}, ids)"
                     if not inline:
                         condition = (f"!{member} || {condition}" if required
                                      else f"{member} && {condition}")
                     body.append(f"  if ({condition}) return false;")
             elif base == "Union":
                 union_validator(child_index)
-                body.append(f"  if (!IsPackable({member}, {str(required).lower()})) return false;")
+                body.append(f"  if (!VisitArtifacts({member}, {str(required).lower()}, ids)) return false;")
             elif base in {"Vector", "Vector64"}:
                 element = kind["element"]
                 if element == "Union":
                     union_validator(child_index)
-                    check = "!IsPackable(child, true)"
+                    check = "!VisitArtifacts(child, true, ids)"
                 elif element == "Obj" and not objects[child_index].get("is_struct"):
                     table_validator(child_index)
-                    check = "!IsPackable(child)" if inline else "!child || !IsPackable(*child)"
+                    check = "!VisitArtifacts(child, ids)" if inline else "!child || !VisitArtifacts(*child, ids)"
                 else:
                     continue
                 body += [f"  for (const auto& child : {member}) {{",
                          f"    if ({check}) return false;", "  }"]
         body.append("  return true;")
-        if len(body) == 1:
-            body.insert(0, "  (void)value;")
 
     for table in roots:
         table_validator(tables[table.removeprefix("::")])
@@ -238,53 +235,59 @@ def validators(schema, roots):
                for line in [signature + " {", *body, "}", ""]])
 
 
-def decode_merge(type_, members, names, functions):
-    table = cpp_type(type_, names)
-    function = f"DecodeMerge{len(functions)}"
-    functions[function] = body = [
-        f"auto {function}(const {table}::NativeTableType& merged, std::string_view name)",
-        f"    -> {native_type(type_, members, names)} {{",
-    ]
-    for member in members:
-        tag = flatc_identifier(names.get(member.tag, member.tag))
-        target = cpp_type(member.type, names)
-        read = f"ReadValue<{target}>({{box->bytes.data(), box->bytes.size()}}, name)"
-        if member.merge:
-            child = decode_merge(member.type, member.merge, names, functions)
-            read = f"{child}({read}, name)"
-        body += [f"  if (const auto* box = merged.value.As{tag}())",
-                 f"    return {read};"]
-    body += ['  Reject(FailureKind::invalid_request, "Invalid Merge input " + std::string(name));',
-             "}", ""]
-    return function
+def params_fields(card):
+    return list(zip(card.params, param_members((p.name for p in card.params), CPP_KEYWORDS | {"Params"})))
 
 
-def encode_merge(type_, members, names, functions):
-    table = cpp_type(type_, names)
-    function = f"EncodeMerge{len(functions)}"
-    functions[function] = body = [
-        f"auto {function}(const {native_type(type_, members, names)}& value, std::string_view name)",
-        f"    -> {table}::NativeTableType {{",
-        f"  {table}::NativeTableType merged;",
-    ]
-    for member in members:
-        box = cpp_type(member.box_type, names)
-        target = cpp_type(member.type, names)
-        native = native_type(member.type, member.merge, names)
-        if member.merge:
-            child = encode_merge(member.type, member.merge, names, functions)
-            pack = f"PackValue<{target}>({child}(*item, name), name)"
-        else:
-            pack = f"PackValue<{target}>(*item, name, IsPackable)"
-        body += [f"  if (const auto* item = std::get_if<{native}>(&value)) {{",
-                 f"    {box}::NativeTableType box;",
-                 f"    box.bytes = {pack};",
-                 "    merged.value.Set(std::move(box));",
-                 "    return merged;",
-                 "  }"]
-    body += ['  Reject(FailureKind::output_invalid, "Invalid Merge output " + std::string(name));',
-             "}", ""]
-    return function
+def param_type(type_):
+    if type_.startswith("["):
+        return f"std::vector<{param_type(type_[1:-1])}>"
+    return {"bool": "bool", "long": "int64_t", "double": "double", "string": "std::string"}[type_]
+
+
+def cpp_value(value, type_):
+    if type_.startswith("["):
+        return "{" + ", ".join(cpp_value(item, type_[1:-1]) for item in value) + "}"
+    if type_ == "string":
+        data = value.encode("utf-8")
+        escaped = "".join(f"\\{byte:03o}" for byte in data)
+        return f'std::string("{escaped}", {len(data)})'
+    if type_ == "bool":
+        return str(value).lower()
+    if type_ == "long":
+        return "INT64_MIN" if value == -(2**63) else f"{value}LL"
+    return float(value).hex()
+
+
+def embed_params(interface, values_file, output):
+    types = json.loads((interface / "param-types.json").read_text())
+    values = json.loads(values_file.read_text())
+    members = param_members(types, CPP_KEYWORDS | {"Params"})
+    lines = ["inline const Card::Params Card::params = {"]
+    for member, (name, type_) in zip(members, types.items()):
+        lines.append(f"  .{member} = {cpp_value(values[name], type_)},")
+    output.write_text("\n".join([*lines, "};", ""]), encoding="utf-8")
+
+
+def read_cpp_port(port, member, names):
+    name = json.dumps(port.name)
+    lines = [f"  if (const auto entry = buffer.ReadPort({name})) {{"]
+    if len(port.candidates) > 1:
+        for index, candidate in enumerate(port.candidates):
+            condition = "if" if index == 0 else "else if"
+            table = cpp_type(candidate.type, names)
+            lines += [f'    {condition} (entry->schema == "{candidate.schema}")',
+                      f"      input.{member} = ReadValue<{table}>(entry->bytes, {name});"]
+        lines += [f'    else Reject(FailureKind::input_invalid, "Unknown schema for " + std::string({name}));']
+    else:
+        table = cpp_type(port.type, names)
+        schema, = port.candidates
+        if schema.schema:
+            lines.append(f'    CheckSchema(*entry, "{schema.schema}", {name});')
+        lines.append(f"    input.{member} = ReadValue<{table}>(entry->bytes, {name});")
+    return lines + ["  } else {",
+                    f'    Reject(FailureKind::input_missing, "Missing input " + std::string({name}));',
+                    "  }"]
 
 
 def generate(card, out, names, output_schema):
@@ -292,7 +295,6 @@ def generate(card, out, names, output_schema):
     out.joinpath("include").mkdir(parents=True, exist_ok=True)
     inputs = list(ports(card.inputs, {"Inputs", "get", "params"}, names))
     outputs = list(ports(card.outputs, {"Output"}, names))
-    params = cpp_type(card.params_type, names)
     hh = [
         "// Generated by the Tsugumi SDK. Do not edit.",
         "#pragma once",
@@ -305,11 +307,13 @@ def generate(card, out, names, output_schema):
         '#include "tsugumi/abi/card_runtime.hh"',
         '#include "_inputs_generated.h"',
         '#include "_outputs_generated.h"',
-        '#include "_params_generated.h"',
         "",
         "namespace Card {",
         "",
-        f"using Params = {params}::NativeTableType;",
+        "struct Params {",
+        *(f"  {param_type(param.type)} {member};" for param, member in params_fields(card)),
+        "};",
+        "extern const Params params;",
         "namespace input_types {",
     ]
     for port, member in inputs:
@@ -332,7 +336,6 @@ def generate(card, out, names, output_schema):
     for port, member in inputs:
         hh.append(f"  std::optional<input_types::{member}> {member};")
     hh += [
-        "  ::Card::Params params;",
         "",
         "  template <class T>",
         "  auto get(std::string_view name) const -> T {",
@@ -346,51 +349,30 @@ def generate(card, out, names, output_schema):
         hh.append(f"  std::optional<{port_type(port, names)}> {member};"
                   + ("  // Required." if port.required else ""))
     hh += ["};", "", "}  // namespace Card", "",
+           "#ifdef TSUGUMI_EMBED_PARAMS",
+           '#include "card_params.hh"',
+           "#endif",
+           "",
            "auto run(const Card::Inputs& input) -> Card::Output;", ""]
 
-    roots = (cpp_type(type_, names) for port, _ in outputs if port.kind == "FlatBuffer"
-             for type_ in merged_leaves(port.type, port.merge))
-    functions = {}
+    roots = [cpp_type(port.type, names) for port, _ in outputs]
     body = [
         "auto RunCard(tsugumi_bytes bytes) -> Tsugumi::Card::CardResultT {",
         "  Input buffer(bytes);",
         "  Card::Inputs input;",
     ]
     for port, member in inputs:
-        name = json.dumps(port.name)
-        if port.kind == "Path":
-            body.append(f"  input.{member} = buffer.ReadPath({name});")
-            continue
-        table = cpp_type(port.type, names)
-        read = f"buffer.ReadPort<{table}>({name})"
-        if port.merge:
-            decode = decode_merge(port.type, port.merge, names, functions)
-            body += [f"  if (const auto merged = {read})",
-                     f"    input.{member} = {decode}(*merged, {name});"]
-        else:
-            body.append(f"  input.{member} = {read};")
+        body.extend(read_cpp_port(port, member, names))
     body += [
         "  buffer.CheckConsumed();",
-        f'  input.params = ReadValue<{params}, {str(not card.params).lower()}>(buffer.Params(), "params");',
         "  const auto output = run(input);" if outputs else "  run(input);",
         "  Tsugumi::Card::CardResultT result;",
     ]
     for port, member in outputs:
+        table = cpp_type(port.type, names)
         name = json.dumps(port.name)
         required = str(port.required).lower()
-        if port.kind == "Path":
-            body.append(f"  WritePath(result, {name}, output.{member}, {required});")
-            continue
-        table = cpp_type(port.type, names)
-        value = f"output.{member}"
-        validator = ", IsPackable"
-        if port.merge:
-            encode = encode_merge(port.type, port.merge, names, functions)
-            body += [f"  std::optional<{table}::NativeTableType> {member}_boxed;",
-                     f"  if ({value}) {member}_boxed = {encode}(*{value}, {name});"]
-            value = f"{member}_boxed"
-            validator = ""
-        body.append(f"  WritePort<{table}>(result, {name}, {value}, {required}{validator});")
+        body.append(f"  WritePort<{table}>(result, {name}, output.{member}, {required}, VisitArtifacts);")
     body += ["  return result;", "}"]
     cc = [
         "// Generated by the Tsugumi SDK. Do not edit.",
@@ -400,14 +382,13 @@ def generate(card, out, names, output_schema):
         "namespace {",
         "using tsugumi::abi::FailureKind;",
         "using tsugumi::abi::Input;",
-        "using tsugumi::abi::PackValue;",
+        "using tsugumi::abi::AddArtifact;",
+        "using tsugumi::abi::CheckSchema;",
         "using tsugumi::abi::ReadValue;",
         "using tsugumi::abi::Reject;",
-        "using tsugumi::abi::WritePath;",
         "using tsugumi::abi::WritePort;",
         "",
         *validators(output_schema, roots),
-        *(line for function in reversed(functions.values()) for line in function),
         *body,
         "",
         "}  // namespace",
@@ -430,6 +411,9 @@ def generate(card, out, names, output_schema):
 
 
 if __name__ == "__main__":
+    if sys.argv[1] == "--params":
+        embed_params(*(Path(path) for path in sys.argv[2:]))
+        sys.exit(0)
     schemas, out, reflection = (Path(path).resolve() for path in sys.argv[1:])
     card = load_card_schemas(schemas, reflection)
     (out / "include").mkdir(parents=True, exist_ok=True)

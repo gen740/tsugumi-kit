@@ -7,6 +7,7 @@ import ../../nix/go-card.nix {
   inherit pkgs;
   inherit (deps) runtime;
 }
+// (import ../input { inherit pkgs; })
 // {
   views = deps.views.common;
 }

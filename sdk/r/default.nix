@@ -6,6 +6,7 @@ pkgs.callPackage ./card.nix {
   inherit (deps) portCodegen cardInterface publishApi;
   inherit (deps) runtime ipaexGothic;
 }
+// (import ../input { inherit pkgs; })
 // {
   views = deps.views.common;
 }

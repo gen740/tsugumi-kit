@@ -3,13 +3,14 @@
 import json
 import keyword
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from card_cpp import IDENTIFIER, cpp_type, generate_headers, normalize_schema, schema_tokens
-from tsugumi_ports import load_card_schemas, reflect_schema, write_api_readme
+from card_cpp import IDENTIFIER, cpp_type, generate_headers, normalize_schema, schema_tokens, validators
+from tsugumi_ports import load_card_schemas, param_members, reflect_schema, write_api_readme
 
 
 def fix_nested_accessors(source):
@@ -47,6 +48,7 @@ def python_schemas(schemas, destination):
             candidate += "_"
         names[name] = candidate
         occupied.add(candidate)
+    names.pop("tsugumi", None)
     for path, source in sources.items():
         target = destination / path
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -141,11 +143,25 @@ def port_members(ports, reserved):
         yield port, member
 
 
-def merge_leaves(type_, merge):
-    if not merge:
-        yield type_
-    for member in merge:
-        yield from merge_leaves(member.type, member.merge)
+def params_fields(card):
+    reserved = set(keyword.kwlist) | {"Params"}
+    return list(zip(card.params, param_members((p.name for p in card.params), reserved)))
+
+
+def param_type(type_):
+    if type_.startswith("["):
+        return f"tuple[{param_type(type_[1:-1])}, ...]"
+    return {"bool": "bool", "long": "int", "double": "float", "string": "str"}[type_]
+
+
+def embed_params(interface, values_file, output):
+    values = json.loads(values_file.read_text())
+    types = json.loads((interface / "param-types.json").read_text())
+    lines = ["from card import Params", "", "params = Params("]
+    for member, (name, type_) in zip(param_members(types, set(keyword.kwlist) | {"Params"}), types.items()):
+        value = tuple(values[name]) if type_.startswith("[") else values[name]
+        lines.append(f"    {member}={value!r},")
+    output.write_text("\n".join([*lines, ")", ""]), encoding="utf-8")
 
 
 def generate_python(card, names, output_schema, out):
@@ -156,59 +172,47 @@ def generate_python(card, names, output_schema, out):
         return ".".join(names.get(part, part) for part in type_.split("."))
 
     def import_type(module):
-        if module == "parameters.Params":
-            return "ParamsT"
         if module not in aliases:
             native = module.rsplit(".", 1)[-1] + "T"
             alias = aliases[module] = f"_Type{len(aliases)}"
             imports.append(f"from {module} import {native} as {alias}")
         return aliases[module]
 
-    def annotation(port, *, output=False, qualified=False):
-        if port.kind == "Path":
-            return "str | PathLike[str]" if output else "str"
-        types = (python_type(type_) for type_ in merge_leaves(port.type, port.merge))
-        return " | ".join(type_ + "T" if qualified else import_type(type_) for type_ in types)
+    def annotation(port, *, qualified=False):
+        types = ([member.type for member in port.candidates] or [port.type])
+        return " | ".join(
+            python_type(type_) + "T" if qualified else import_type(python_type(type_))
+            for type_ in types
+        )
 
     catalogs = ("inputs.Inputs", output_schema["root_table"]["name"])
-    hidden = set(catalogs)
-
-    def bindings(type_, merge):
-        cls = import_type(python_type(type_))
-        if not merge:
-            return cls, "{}"
-        hidden.add(python_type(type_))
-        hidden.add(python_type(type_.rsplit(".", 1)[0] + ".Arrival"))
-        entries = []
-        for member in merge:
-            box_name = python_type(member.box_type)
-            hidden.add(box_name)
-            inner, cases = bindings(member.type, member.merge)
-            entries.append(f"{member.value}: ({import_type(box_name)}, {inner}, {cases})")
-        return cls, "{" + ", ".join(entries) + "}"
 
     inputs = list(port_members(card.inputs, {"params", "get", "require"}))
     outputs = list(port_members(card.outputs, set()))
-    body = []
-    stubs = []
+    body = ["", "@dataclass(frozen=True)", "class Params:"]
+    body.extend(f"    {member}: {param_type(param.type)}" for param, member in params_fields(card))
+    if not card.params:
+        body.append("    pass")
+    stubs = [*body, "", "params: Params"]
     runtime_bindings = []
     for side, cls, members in (("inputs", "Input", inputs), ("outputs", "Output", outputs)):
         body.extend(["", "", "@dataclass", f"class {cls}:"])
         stubs.extend(["", "", "@dataclass", f"class {cls}:"])
-        if side == "inputs":
-            body.append("    params: ParamsT")
-            stubs.append(body[-1])
-        elif not members:
+        if not members:
             body.append("    pass")
             stubs.append(body[-1])
         entries = []
         for port, member in members:
-            type_ = annotation(port, output=side == "outputs")
+            type_ = annotation(port)
             declaration = f"    {member}: {type_} | None"
             body.append(declaration + " = None")
             stubs.append(declaration + " = None")
-            table, cases = bindings(port.type, port.merge) if port.kind == "FlatBuffer" else ("None", "{}")
-            entries.append(f"    ({port.name!r}, {member!r}, {table}, {cases}, {port.required!r}),")
+            if side == "inputs":
+                types = ", ".join(f"{v.schema!r}: {import_type(python_type(v.type))}" for v in port.candidates)
+                entries.append(f"    ({port.name!r}, {member!r}, {{{types}}}),")
+            else:
+                table = import_type(python_type(port.type))
+                entries.append(f"    ({port.name!r}, {member!r}, {table}, {port.required!r}),")
         runtime_bindings.extend(["", f"_{side} = (", *entries, ")"])
 
         if side == "inputs":
@@ -237,37 +241,39 @@ def generate_python(card, names, output_schema, out):
                 fallback = "object | None" if method == "get" else "object"
                 stubs.append(f"    def {method}(self, name: str) -> {fallback}: ...")
 
-    private_aliases = {aliases[module] for module in hidden if module in aliases}
-    public_imports = [line for line in imports if line.rsplit(" ", 1)[-1] not in private_aliases]
-    union_checks = generate_union_checks(output_schema, import_type, hidden)
+    stub_imports = list(imports)
+    union_checks = generate_union_checks(output_schema, import_type, set(catalogs))
     header = [
         "# Generated by the Tsugumi Python SDK.",
         "from dataclasses import dataclass",
-        "from os import PathLike",
-        "from parameters.Params import ParamsT as ParamsT",
+        "from tsugumi.Artifact import ArtifactT as Artifact",
     ]
     (out / "python/card.py").write_text("\n".join([
         *header, "from tsugumi import Failure", *imports, *body, *runtime_bindings,
         "_input_members = {name: member for name, member, *_ in _inputs}", "",
         *union_checks,
+        "def __getattr__(name):",
+        '    if name == "params":',
+        '        from card_params import params',
+        '        return params',
+        '    raise AttributeError(name)',
+        "",
     ]), encoding="utf-8")
     (out / "python/card.pyi").write_text("\n".join([
-        *header, "from typing import Literal, overload", *public_imports, *stubs, "",
+        *header, "from typing import Literal, overload", *stub_imports, *stubs, "",
     ]), encoding="utf-8")
-    for module in hidden:
-        (out / "python").joinpath(*module.split(".")).with_suffix(".pyi").unlink(missing_ok=True)
     for module in catalogs:
         (out / "python").joinpath(*module.split(".")).with_suffix(".py").unlink(missing_ok=True)
     write_api_readme(
         out / "README.md",
         ((port.name, annotation(port, qualified=True) + " | None") for port, _ in inputs),
-        ((port.name, annotation(port, output=True, qualified=True) + " | None"
+        ((port.name, annotation(port, qualified=True) + " | None"
           + (" (required output)" if port.required else "")) for port, _ in outputs),
         ((param.name, param.type) for param in card.params),
     )
 
 
-def generate_cpp(card, python_names, cpp_names, out):
+def generate_cpp(card, python_names, cpp_names, output_schema, out):
     def table(type_):
         return cpp_type(".".join(python_names.get(part, part) for part in type_.split(".")), cpp_names)
 
@@ -275,41 +281,36 @@ def generate_cpp(card, python_names, cpp_names, out):
         "// Generated by the Tsugumi Python SDK.",
         '#include "_inputs_generated.h"',
         '#include "_outputs_generated.h"',
-        '#include "_params_generated.h"',
         '#include "python_card.hh"',
         "",
         "namespace {",
         "using namespace tsugumi::abi;",
         "",
+        *validators(output_schema, [table(port.type) for port in card.outputs]),
         "auto RunCard(tsugumi_bytes bytes) -> Tsugumi::Card::CardResultT {",
         "  PythonInput input(bytes);",
     ]
     for port in card.inputs:
         name = json.dumps(port.name)
-        if port.kind == "Path":
-            lines.append(f"  input.ReadPath({name});")
-        else:
-            lines.append(f"  input.ReadPort<{table(port.type)}>({name});")
-    lines.extend([
-        "  input.CheckConsumed();",
-        "  " + ("" if card.params else "if (input.Params().size != 0) ")
-        + f'VerifyValue<{table(card.params_type)}>(input.Params(), "params");',
-        "  auto result = RunPython(input);",
-    ])
-    flat_outputs = [port for port in card.outputs if port.kind == "FlatBuffer"]
-    if flat_outputs:
-        lines.extend([
-            "  for (const auto& port : result.outputs) {",
-            "    if (port->kind == PortKind::Path) continue;",
-        ])
-        for port in flat_outputs:
-            lines.extend([
+        lines += [f"  if (const auto entry = input.Take({name})) {{"]
+        for index, candidate in enumerate(port.candidates):
+            condition = "if" if index == 0 else "else if"
+            match = f'entry->schema == "{candidate.schema}"' if candidate.schema else "true"
+            lines += [f"    {condition} ({match})",
+                      f"      input.Read<{table(candidate.type)}>({name}, *entry, \"{candidate.schema}\");"]
+        lines += ['    else Reject(FailureKind::input_invalid, "Unknown schema for " + std::string('
+                  f"{name}));", "  }"]
+    lines += ["  input.CheckConsumed();", "  auto result = RunPython(input);"]
+    if card.outputs:
+        lines.append("  for (auto& port : result.outputs) {")
+        for port in card.outputs:
+            lines += [
                 f"    if (port->name == {json.dumps(port.name)}) {{",
-                f"      VerifyOutput<{table(port.type)}>(*port);",
+                f"      VerifyOutput<{table(port.type)}>(*port, VisitArtifacts);",
                 "      continue;",
                 "    }",
-            ])
-        lines.extend(['    Reject(FailureKind::output_invalid, "Unknown output " + port->name);', "  }"])
+            ]
+        lines += ['    Reject(FailureKind::output_invalid, "Unknown output " + port->name);', "  }"]
     lines.extend([
         "  return result;",
         "}",
@@ -331,23 +332,62 @@ def main(schemas, out, reflection):
     with TemporaryDirectory() as directory:
         work = Path(directory)
         names = python_schemas(schemas, work)
+        abi_python = work / "abi-python"
         for schema in sorted(work.rglob("*.fbs")):
+            sdk_type = schema.parent != work / "tsugumi" or schema.name == "artifact.fbs"
+            destination = out / "python" if sdk_type else abi_python
             command = ["flatc", "--python", "--gen-object-api",
-                       "-o", str(out / "python"), str(schema.relative_to(work))]
+                       "-I", str(work), "-o", str(destination), str(schema.relative_to(work))]
             subprocess.run([*command[:-1], "--python-typing", command[-1]], cwd=work, check=True)
             # Keep flatc's stubs and regenerate the runtime with deferred
             # imports so mutually recursive table types can load.
             subprocess.run(command, cwd=work, check=True)
+        wire = out / "wire/Tsugumi"
+        wire.mkdir(parents=True)
+        for package in ("Card", "Data"):
+            shutil.copytree(abi_python / "Tsugumi" / package, wire / package)
+        shutil.copytree(abi_python / "tsugumi/builtin", out / "python/tsugumi/builtin", dirs_exist_ok=True)
+        artifact = out / "python/tsugumi/Artifact.py"
+        marker = "class ArtifactT(object):"
+        artifact.write_text(artifact.read_text().replace(marker, marker + """
+    @classmethod
+    def dir(cls):
+        from tsugumi._artifact import create
+
+        return create(cls)
+
+    @classmethod
+    def upload(cls, source):
+        from tsugumi._artifact import upload
+
+        return upload(cls, source)
+
+    def open(self):
+        from tsugumi._artifact import open_artifact
+
+        return open_artifact(self)
+"""), encoding="utf-8")
+        stub = artifact.with_suffix(".pyi")
+        stub.write_text(stub.read_text().replace(marker, marker + """
+  @classmethod
+  def dir(cls) -> tuple[ArtifactT, pathlib.Path]: ...
+  @classmethod
+  def upload(cls, source: str | os.PathLike[str]) -> ArtifactT: ...
+  def open(self) -> pathlib.Path: ...
+""").replace("import typing", "import os\nimport pathlib\nimport typing"), encoding="utf-8")
         for path in (out / "python").rglob("*.py*"):
             source = path.read_text(encoding="utf-8")
             fixed = fix_nested_accessors(source)
             if fixed != source:
                 path.write_text(fixed, encoding="utf-8")
         outputs = reflect_schema(work / "_outputs.fbs", reflection)
-        cpp_names, _ = generate_headers(work, out, reflection)
+        cpp_names, cpp_output = generate_headers(work, out, reflection)
         generate_python(card, names, outputs, out)
-        generate_cpp(card, names, cpp_names, out / "card_adapter.cc")
+        generate_cpp(card, names, cpp_names, cpp_output, out / "card_adapter.cc")
 
 
 if __name__ == "__main__":
-    main(*(Path(path).resolve() for path in sys.argv[1:]))
+    if sys.argv[1] == "--params":
+        embed_params(*(Path(path) for path in sys.argv[2:]))
+    else:
+        main(*(Path(path).resolve() for path in sys.argv[1:]))

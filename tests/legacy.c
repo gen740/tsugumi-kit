@@ -1,15 +1,12 @@
 #include <stdint.h>
-#include <string.h>
 
-// The version and phase prefix of the ABI 8 call. The ABI 8 entry has one
-// argument. The rest of the old call is irrelevant to this fixture.
-struct abi8_call {
-  uint32_t abi_version;
-  uint32_t phase;
-};
+#include "wire.h"
 
-int tsugumi_main(const struct abi8_call* call) {
-  uint32_t version;
-  memcpy(&version, call, sizeof(version));
-  return version != 8u || call->phase != 3u;
+/* A version probe can supply only the prefix of tsugumi_call. */
+void check_version(tsugumi_main_fn entry) {
+  _Alignas(tsugumi_call) const uint32_t version = TSUGUMI_ABI_VERSION + 1;
+  tsugumi_bytes result = {NULL, 123};
+  CHECK(entry((const tsugumi_call*)&version, &result) != 0);
+  CHECK(!result.data && result.size == 123);
+  CHECK(entry(NULL, &result) != 0);
 }

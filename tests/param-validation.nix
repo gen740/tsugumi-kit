@@ -5,8 +5,8 @@ let
     params:
     (builtins.tryEval
       (cardInterface {
-        inputs = ./cpp/interface/_inputs.fbs;
-        outputs = ./cpp/interface/_outputs.fbs;
+        inputs = ./contract/_inputs.fbs;
+        outputs = ./contract/_outputs.fbs;
         inherit params;
       }).drvPath
     ).success;
@@ -26,7 +26,7 @@ accepts { }
 && builtins.all (params: !(accepts params)) [
   [ ]
   null
-  ./cpp/interface/params.nix
+  ./contract/params.nix
   { run.x = 1; }
   { build.x = 2; }
   { value = null; }

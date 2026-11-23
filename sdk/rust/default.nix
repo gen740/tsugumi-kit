@@ -7,6 +7,7 @@ import ./card.nix {
   inherit pkgs;
   abi = ../../abi;
 }
+// (import ../input { inherit pkgs; })
 // {
   views = deps.views.common;
 }

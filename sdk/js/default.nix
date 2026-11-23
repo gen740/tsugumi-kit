@@ -7,6 +7,7 @@ pkgs.callPackage ../../nix/js-card.nix {
   inherit (deps) runtime;
   libnode = pkgs.callPackage ../../nix/js-libnode.nix { };
 }
+// (import ../input { inherit pkgs; })
 // {
   views = deps.views.common;
 }

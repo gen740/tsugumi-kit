@@ -19,7 +19,6 @@
 namespace tsugumi::abi {
 
 using Tsugumi::Data::FailureKind;
-using Tsugumi::Data::PortKind;
 
 using CardBody = auto (*)(tsugumi_bytes) -> Tsugumi::Card::CardResultT;
 auto Invoke(const tsugumi_call* call, tsugumi_bytes* result,
@@ -64,7 +63,7 @@ auto ReadValue(tsugumi_bytes bytes, std::string_view name) ->
   Buffer buffer(bytes);
   const auto* value = buffer.Verify<Table>();
   if (!value) {
-    Reject(FailureKind::invalid_request,
+    Reject(FailureKind::input_invalid,
            "Invalid FlatBuffer for " + std::string(name));
   }
   typename Table::NativeTableType result;
@@ -77,55 +76,29 @@ class Input {
  public:
   explicit Input(tsugumi_bytes bytes);
 
-  template <class Table>
-  auto ReadPort(std::string_view name)
-      -> std::optional<typename Table::NativeTableType> {
-    const auto bytes = ReadPortBytes(name);
-    return bytes ? std::optional{ReadValue<Table>(*bytes, name)} : std::nullopt;
-  }
+  struct Port {
+    std::string_view schema;
+    tsugumi_bytes bytes;
+  };
 
-  auto ReadPortBytes(std::string_view name) -> std::optional<tsugumi_bytes>;
-  auto ReadPath(std::string_view name) -> std::optional<std::filesystem::path>;
-  auto Params() const -> tsugumi_bytes;
+  auto ReadPort(std::string_view name) -> std::optional<Port>;
   auto CheckConsumed() const -> void;
 
  private:
-  auto TakePort(std::string_view name, PortKind kind)
-      -> const Tsugumi::Card::CardPort*;
-
   Buffer buffer_;
   const Tsugumi::Card::CardInput* input_;
   std::unordered_map<std::string_view, const Tsugumi::Card::CardPort*> ports_;
 };
 
-auto WritePath(Tsugumi::Card::CardResultT& result, std::string_view name,
-               const std::optional<std::filesystem::path>& path, bool required)
-    -> void;
+auto CheckSchema(const Input::Port& port, std::string_view schema,
+                 std::string_view name) -> void;
 
 template <class Table>
-auto PackValue(
-    const typename Table::NativeTableType& value, std::string_view name,
-    bool (*is_packable)(const typename Table::NativeTableType&) = nullptr)
-    -> std::vector<uint8_t> {
-  if (is_packable && !is_packable(value)) {
-    Reject(FailureKind::output_invalid, "Invalid output " + std::string(name));
-  }
-  flatbuffers::FlatBufferBuilder builder;
-  builder.Finish(Table::Pack(builder, &value));
-  flatbuffers::Verifier verifier(builder.GetBufferPointer(), builder.GetSize());
-  if (!verifier.VerifyBuffer<Table>()) {
-    Reject(FailureKind::output_invalid, "Invalid output " + std::string(name));
-  }
-  return {builder.GetBufferPointer(),
-          builder.GetBufferPointer() + builder.GetSize()};
-}
-
-template <class Table>
-auto WritePort(
-    Tsugumi::Card::CardResultT& result, std::string_view name,
-    const std::optional<typename Table::NativeTableType>& value, bool required,
-    bool (*is_packable)(const typename Table::NativeTableType&) = nullptr)
-    -> void {
+auto WritePort(Tsugumi::Card::CardResultT& result, std::string_view name,
+               const std::optional<typename Table::NativeTableType>& value,
+               bool required,
+               bool (*visit)(const typename Table::NativeTableType&,
+                             std::vector<ArtifactId>&)) -> void {
   if (!value) {
     if (required) {
       Reject(FailureKind::output_invalid,
@@ -135,9 +108,21 @@ auto WritePort(
   }
   auto port = std::make_unique<Tsugumi::Card::CardPortT>();
   port->name = name;
-  port->kind = PortKind::FlatBuffer;
-  port->bytes = PackValue<Table>(*value, name, is_packable);
+  if (!visit(*value, port->artifacts)) {
+    Reject(FailureKind::output_invalid, "Invalid output " + std::string(name));
+  }
+  flatbuffers::FlatBufferBuilder builder;
+  builder.Finish(Table::Pack(builder, &*value));
+  flatbuffers::Verifier verifier(builder.GetBufferPointer(), builder.GetSize());
+  if (!verifier.VerifyBuffer<Table>()) {
+    Reject(FailureKind::output_invalid, "Invalid output " + std::string(name));
+  }
+  port->bytes.assign(builder.GetBufferPointer(),
+                     builder.GetBufferPointer() + builder.GetSize());
   result.outputs.push_back(std::move(port));
 }
+
+auto AddArtifact(std::vector<ArtifactId>& artifacts, const ArtifactId& id)
+    -> void;
 
 }  // namespace tsugumi::abi

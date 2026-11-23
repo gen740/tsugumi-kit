@@ -1,3 +1,11 @@
-# Remove an SDK once its wire harness exercises the Card ABI and its check
-# exposes the codegen-only derivations in passthru.apis.
-[ ]
+# Enable each check as its SDK and fixtures adopt the p7 Card contract.
+[
+  "csharp"
+  "go"
+  "java"
+  "js"
+  "julia"
+  "r"
+  "ruby"
+  "rust"
+]

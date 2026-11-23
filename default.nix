@@ -1,6 +1,7 @@
 { pkgs }:
 builtins.mapAttrs (language: _: import (./sdk + "/${language}") { inherit pkgs; }) {
   cpp = null;
+  input = null;
   csharp = null;
   go = null;
   java = null;

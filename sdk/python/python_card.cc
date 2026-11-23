@@ -80,6 +80,68 @@ auto QueryHost(Query query, Convert convert, const char* error) -> PyObject* {
   }
 }
 
+auto Receive(PyObject*, PyObject* args) -> PyObject* {
+  const char* view;
+  long long timeout;
+  if (!PyArg_ParseTuple(args, "sL", &view, &timeout)) return nullptr;
+  return QueryHost(
+      [&] { return card::display::recv(view, timeout); },
+      [](const card::display::Received& result) -> PyObject* {
+        switch (result.status) {
+          case card::display::ReceiveStatus::kMessage:
+            return Py_BuildValue(
+                "sy#", "message",
+                result.bytes.empty()
+                    ? ""
+                    : reinterpret_cast<const char*>(result.bytes.data()),
+                static_cast<Py_ssize_t>(result.bytes.size()));
+          case card::display::ReceiveStatus::kTimeout:
+            return Py_BuildValue("sO", "timeout", Py_None);
+          case card::display::ReceiveStatus::kCancelled:
+            return Py_BuildValue("sO", "cancelled", Py_None);
+        }
+        return nullptr;
+      },
+      "The host rejected the display receive");
+}
+
+auto ArtifactCreate(PyObject*, PyObject*) -> PyObject* {
+  return QueryHost(
+      card::Artifact::dir,
+      [](const auto& result) -> PyObject* {
+        const auto& [artifact, path] = result;
+        const Object data(PyBytes_FromStringAndSize(
+            reinterpret_cast<const char*>(artifact.id->bytes()->Data()), 16));
+        const Object name(PyUnicode_DecodeFSDefaultAndSize(
+            path.c_str(), path.native().size()));
+        return data && name ? PyTuple_Pack(2, data.get(), name.get()) : nullptr;
+      },
+      "The host could not create an Artifact");
+}
+
+auto ArtifactOpen(PyObject*, PyObject* args) -> PyObject* {
+  const char* bytes;
+  Py_ssize_t size;
+  if (!PyArg_ParseTuple(args, "y#", &bytes, &size)) return nullptr;
+  if (size != 16) {
+    PyErr_SetString(PyExc_ValueError, "Expected a 16-byte Artifact ID");
+    return nullptr;
+  }
+  return QueryHost(
+      [&] {
+        card::Artifact artifact;
+        artifact.id =
+            std::make_unique<ArtifactId>(flatbuffers::span<const uint8_t, 16>(
+                reinterpret_cast<const uint8_t*>(bytes), 16));
+        return artifact.open();
+      },
+      [](const std::filesystem::path& path) {
+        return PyUnicode_DecodeFSDefaultAndSize(path.c_str(),
+                                                path.native().size());
+      },
+      "The host could not open the Artifact");
+}
+
 auto Cancelled(PyObject*, PyObject*) -> PyObject* {
   return QueryHost(card::cancelled, PyBool_FromLong,
                    "The host cancellation query failed");
@@ -92,6 +154,9 @@ auto RemainingMs(PyObject*, PyObject*) -> PyObject* {
 
 PyMethodDef methods[] = {
     {"send", Send, METH_VARARGS, nullptr},
+    {"recv", Receive, METH_VARARGS, nullptr},
+    {"artifact_create", ArtifactCreate, METH_NOARGS, nullptr},
+    {"artifact_open", ArtifactOpen, METH_VARARGS, nullptr},
     {"cancelled", Cancelled, METH_NOARGS, nullptr},
     {"remaining_ms", RemainingMs, METH_NOARGS, nullptr},
     {},
@@ -179,22 +244,20 @@ auto ToPythonBytes(tsugumi_bytes bytes) -> PyObject* {
 }
 
 auto CallDispatch(PyObject* dispatch, const PythonInput& input) -> PyObject* {
-  const Object params(ToPythonBytes(input.Params()));
   const Object ports(PyDict_New());
-  if (!params || !ports) return nullptr;
-  for (const auto& [name, data] : input.Ports()) {
+  if (!ports) return nullptr;
+  for (const auto& [name, entry] : input.Ports()) {
     const Object key(PyUnicode_DecodeUTF8(name.data(), name.size(), nullptr));
-    const auto* path = std::get_if<std::filesystem::path>(&data);
-    const Object value(path ? ToPythonBytes({reinterpret_cast<const uint8_t*>(
-                                                 path->native().data()),
-                                             path->native().size()})
-                            : ToPythonBytes(std::get<tsugumi_bytes>(data)));
+    const Object schema(PyUnicode_DecodeUTF8(entry.schema.data(),
+                                             entry.schema.size(), nullptr));
+    const Object data(ToPythonBytes(entry.bytes));
+    const Object value(
+        schema && data ? PyTuple_Pack(2, schema.get(), data.get()) : nullptr);
     if (!key || !value ||
         PyDict_SetItem(ports.get(), key.get(), value.get()) < 0)
       return nullptr;
   }
-  return PyObject_CallFunctionObjArgs(dispatch, params.get(), ports.get(),
-                                      nullptr);
+  return PyObject_CallFunctionObjArgs(dispatch, ports.get(), nullptr);
 }
 
 auto ReadResult(PyObject* value) -> Tsugumi::Card::CardResultT {
@@ -215,9 +278,8 @@ auto ReadResult(PyObject* value) -> Tsugumi::Card::CardResultT {
     Reject(FailureKind::worker_failed, "Invalid result from the Python SDK");
   for (Py_ssize_t i = 0; i < PyList_GET_SIZE(value); ++i) {
     const char* name;
-    unsigned char kind;
     PyObject* data;
-    if (!PyArg_ParseTuple(PyList_GET_ITEM(value, i), "sBO!", &name, &kind,
+    if (!PyArg_ParseTuple(PyList_GET_ITEM(value, i), "sO!", &name,
                           &PyBytes_Type, &data)) {
       PyErr_WriteUnraisable(nullptr);
       Reject(FailureKind::worker_failed,
@@ -226,19 +288,8 @@ auto ReadResult(PyObject* value) -> Tsugumi::Card::CardResultT {
     const auto* bytes =
         reinterpret_cast<const uint8_t*>(PyBytes_AS_STRING(data));
     const size_t size = PyBytes_GET_SIZE(data);
-    if (kind == static_cast<unsigned char>(PortKind::Path)) {
-      WritePath(result, name,
-                std::filesystem::path(std::string_view(
-                    reinterpret_cast<const char*>(bytes), size)),
-                true);
-      continue;
-    }
-    if (kind != static_cast<unsigned char>(PortKind::FlatBuffer))
-      Reject(FailureKind::output_invalid,
-             "Unknown output kind for " + std::string(name));
     auto port = std::make_unique<Tsugumi::Card::CardPortT>();
     port->name = name;
-    port->kind = PortKind::FlatBuffer;
     port->bytes.assign(bytes, bytes + size);
     result.outputs.push_back(std::move(port));
   }

@@ -1,41 +1,34 @@
 #pragma once
 
-#include <variant>
-
 #include "adapter.hh"
 
 namespace tsugumi::abi {
 
-template <class Table>
-auto VerifyValue(tsugumi_bytes bytes, std::string_view name) -> void {
-  const Buffer buffer(bytes);
-  if (!buffer.Verify<Table>())
-    Reject(FailureKind::invalid_request,
-           "Invalid FlatBuffer for " + std::string(name));
-}
-
-// Input owns the verified envelope while Python copies the selected values.
+// Owns the verified envelope while Python copies the selected values.
 class PythonInput {
  public:
-  using Value = std::variant<tsugumi_bytes, std::filesystem::path>;
-  using Port = std::pair<std::string_view, Value>;
+  using Port = std::pair<std::string_view, Input::Port>;
 
   explicit PythonInput(tsugumi_bytes bytes) : input_(bytes) {}
 
+  auto Take(std::string_view name) -> std::optional<Input::Port> {
+    const auto port = input_.ReadPort(name);
+    if (!port)
+      Reject(FailureKind::input_missing, "Missing input " + std::string(name));
+    return port;
+  }
+
   template <class Table>
-  auto ReadPort(std::string_view name) -> void {
-    if (const auto bytes = input_.ReadPortBytes(name)) {
-      VerifyValue<Table>(*bytes, name);
-      ports_.emplace_back(name, *bytes);
-    }
+  auto Read(std::string_view name, Input::Port port, std::string_view schema)
+      -> void {
+    const Buffer buffer(port.bytes);
+    if (!buffer.Verify<Table>())
+      Reject(FailureKind::input_invalid,
+             "Invalid FlatBuffer for " + std::string(name));
+    port.schema = schema;
+    ports_.emplace_back(name, port);
   }
 
-  auto ReadPath(std::string_view name) -> void {
-    if (auto path = input_.ReadPath(name))
-      ports_.emplace_back(name, std::move(*path));
-  }
-
-  auto Params() const -> tsugumi_bytes { return input_.Params(); }
   auto Ports() const -> const std::vector<Port>& { return ports_; }
   auto CheckConsumed() const -> void { input_.CheckConsumed(); }
 
@@ -47,9 +40,15 @@ class PythonInput {
 auto RunPython(const PythonInput& input) -> Tsugumi::Card::CardResultT;
 
 template <class Table>
-auto VerifyOutput(const Tsugumi::Card::CardPortT& port) -> void {
+auto VerifyOutput(Tsugumi::Card::CardPortT& port,
+                  bool (*visit)(const typename Table::NativeTableType&,
+                                std::vector<ArtifactId>&)) -> void {
   const Buffer buffer({port.bytes.data(), port.bytes.size()});
-  if (!buffer.Verify<Table>())
+  const auto* wire = buffer.Verify<Table>();
+  if (!wire) Reject(FailureKind::output_invalid, "Invalid output " + port.name);
+  typename Table::NativeTableType value;
+  wire->UnPackTo(&value);
+  if (!visit(value, port.artifacts))
     Reject(FailureKind::output_invalid, "Invalid output " + port.name);
 }
 

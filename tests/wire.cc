@@ -7,197 +7,145 @@
 
 #include "_inputs_generated.h"
 #include "_outputs_generated.h"
-#include "_params_generated.h"
 #include "tsugumi/protocol/card_generated.h"
 
 namespace {
 
-using namespace Tsugumi::Card;
+using Tsugumi::Card::CardInput;
+using Tsugumi::Card::CardPort;
+using Tsugumi::Card::CardResult;
 using Tsugumi::Data::FailureKind;
-using Tsugumi::Data::PortKind;
 
-flatbuffers::DetachedBuffer input_buffer;
+flatbuffers::DetachedBuffer storage;
 
-template <class Table>
-auto Decode(tsugumi_bytes bytes) -> const Table& {
-  CHECK(bytes.data && bytes.size);
-  flatbuffers::Verifier verifier(bytes.data, bytes.size);
-  CHECK(verifier.VerifyBuffer<Table>());
-  return *flatbuffers::GetRoot<Table>(bytes.data);
-}
-
-template <class Table>
-auto DecodePort(const CardPort& port) -> typename Table::NativeTableType {
-  // The nested test outputs require alignment up to eight bytes.
-  std::vector<uint64_t> storage((port.bytes()->size() + 7) / 8);
-  std::memcpy(storage.data(), port.bytes()->data(), port.bytes()->size());
-  const auto& table = Decode<Table>(
-      {reinterpret_cast<const uint8_t*>(storage.data()), port.bytes()->size()});
-  typename Table::NativeTableType value;
-  table.UnPackTo(&value);
-  return value;
-}
-
-template <class Table>
-auto Encode(const typename Table::NativeTableType& value)
-    -> std::vector<uint8_t> {
+template <class Builder>
+auto Build(Builder build) -> flatbuffers::DetachedBuffer {
   flatbuffers::FlatBufferBuilder builder;
-  builder.Finish(Table::Pack(builder, &value));
-  return {builder.GetBufferPointer(),
-          builder.GetBufferPointer() + builder.GetSize()};
+  builder.Finish(build(builder));
+  return builder.Release();
 }
 
-auto AddPort(CardInputT& input, const char* name, PortKind kind,
-             std::vector<uint8_t> bytes) -> void {
-  auto port = std::make_unique<CardPortT>();
-  port->name = name;
-  port->kind = kind;
-  port->bytes = std::move(bytes);
-  input.inputs.push_back(std::move(port));
-}
-
-auto Failure(tsugumi_bytes result, FailureKind kind) -> const CardFailure& {
-  const auto& decoded = Decode<CardResult>(result);
-  CHECK(decoded.failure() && decoded.failure()->kind() == kind);
-  CHECK(decoded.failure()->message() && decoded.failure()->message()->size());
-  CHECK(!decoded.outputs() || !decoded.outputs()->size());
-  return *decoded.failure();
+auto Grant() -> tsugumi::ArtifactId {
+  std::array<uint8_t, 16> bytes{};
+  bytes[0] = 1;
+  return tsugumi::ArtifactId(flatbuffers::span<const uint8_t, 16>(bytes));
 }
 
 }  // namespace
 
-extern "C" auto make_input(input_case test_case, int mode, int fd)
-    -> tsugumi_bytes {
-  static constexpr uint8_t bad_bytes[] = {1, 2, 3};
-  if (test_case == MALFORMED_ENVELOPE) return {bad_bytes, sizeof(bad_bytes)};
+auto make_input(input_case scenario) -> tsugumi_bytes {
+  if (scenario == MALFORMED_ENVELOPE) return {};
+  const bool text = scenario == VALID_TEXT;
+  const auto id = Grant();
+  auto payload = Build([&](auto& builder) -> flatbuffers::Offset<void> {
+    const auto file = tsugumi::CreateArtifact(builder, &id);
+    if (text)
+      return inputs::arrival::CreateTextDirect(builder, "hello", file).Union();
+    return inputs::arrival::CreateNumber(
+               builder, scenario == MISSING_OUTPUT ? -1 : 7, file)
+        .Union();
+  });
+  auto artifact = Build(
+      [&](auto& builder) { return tsugumi::CreateArtifact(builder, &id); });
+  auto element = Build(
+      [](auto& builder) { return inputs::batch::CreateElement(builder, 4); });
+  auto batch = Build([&](auto& builder) {
+    const auto member = tsugumi::builtin::CreateEnvelope(
+        builder, builder.CreateString(std::string(64, '4')),
+        builder.CreateVector(element.data(), element.size()));
+    const flatbuffers::Offset<tsugumi::builtin::Envelope> items[] = {member};
+    return tsugumi::builtin::CreateCollected(builder,
+                                             builder.CreateVector(items, 1));
+  });
+  storage = Build([&](auto& builder) {
+    std::vector<flatbuffers::Offset<CardPort>> ports;
+    if (scenario != MISSING_INPUT) {
+      const std::string schema(64, scenario == UNKNOWN_SCHEMA ? '3'
+                                   : text                     ? '2'
+                                                              : '1');
+      const auto bytes = builder.CreateVector(
+          payload.data(),
+          scenario == MALFORMED_PORT ? size_t{1} : payload.size());
+      const auto grants =
+          scenario == UNGRANTED_ARTIFACT
+              ? flatbuffers::Offset<
+                    flatbuffers::Vector<const tsugumi::ArtifactId*>>{}
+              : builder.CreateVectorOfStructs(&id, 1);
+      const auto port = Tsugumi::Card::CreateCardPort(
+          builder,
+          builder.CreateString(scenario == UNKNOWN_PORT ? "unknown"
+                                                        : "arrival"),
+          builder.CreateString(schema), bytes, grants);
+      ports.push_back(port);
+      if (scenario == DUPLICATE_PORT) ports.push_back(port);
+    }
+    auto add_port = [&](const char* name, const char* schema,
+                        const auto& value) {
+      const auto port = Tsugumi::Card::CreateCardPort(
+          builder, builder.CreateString(name), builder.CreateString(schema),
+          builder.CreateVector(value.data(), value.size()));
+      ports.push_back(port);
+    };
+    add_port("batch",
+             "1c934d38885fb58ebdf2370bed0862db46f2bfa62677fe6bb801af8e4ce1d8e6",
+             batch);
+    add_port("direct",
+             "7435657903802bed9dbd0ee94f0be71ff432073805511fc15af8acca6ac83bad",
+             artifact);
+    return Tsugumi::Card::CreateCardInput(builder, builder.CreateVector(ports));
+  });
+  return {storage.data(), storage.size()};
+}
 
-  CardInputT input;
-  parameters::ParamsT params;
-  params.mode = mode;
-  params.fd = fd;
-  input.params = Encode<parameters::Params>(params);
-  if (test_case == MALFORMED_PARAMS) input.params = {1, 2, 3};
-  if (test_case != MISSING_INPUT) {
-    inputs::number::NumberT number;
-    number.position = std::make_unique<inputs::number::Position>(40, 2);
-    const auto kind = test_case == UNKNOWN_KIND ? static_cast<PortKind>(255)
-                      : test_case == WRONG_KIND ? PortKind::Path
-                                                : PortKind::FlatBuffer;
-    if (test_case == WRONG_KIND) {
-      AddPort(input, "number", kind, {});
-      input.inputs.back()->path = "/inputs/wrong";
+auto check_result(tsugumi_bytes result, input_case scenario,
+                  const tsugumi_artifact_id* expected, size_t count) -> void {
+  flatbuffers::Verifier verifier(result.data, result.size);
+  CHECK(verifier.VerifyBuffer<CardResult>());
+  const auto* wire = flatbuffers::GetRoot<CardResult>(result.data);
+  if (scenario != VALID_NUMBER && scenario != VALID_TEXT) {
+    CHECK(wire->failure() && !wire->outputs());
+    const auto kind = wire->failure()->kind();
+    if (scenario == UNGRANTED_ARTIFACT) {
+      CHECK(kind != FailureKind::unspecified);
+    } else if (scenario == MISSING_OUTPUT) {
+      CHECK(kind == FailureKind::output_invalid);
+    } else if (scenario == MISSING_INPUT || scenario == UNKNOWN_PORT) {
+      CHECK(kind == FailureKind::input_missing ||
+            kind == FailureKind::input_invalid);
     } else {
-      AddPort(input, "number", kind,
-              test_case == MALFORMED_PORT
-                  ? std::vector<uint8_t>{1, 2, 3}
-                  : Encode<inputs::number::Number>(number));
+      CHECK(kind == FailureKind::input_invalid);
     }
-    if (test_case == DUPLICATE_PORT)
-      AddPort(input, "number", kind, Encode<inputs::number::Number>(number));
-    if (test_case == UNKNOWN_PORT)
-      AddPort(input, "unknown", kind, Encode<inputs::number::Number>(number));
+    return;
   }
-  if (test_case == OPTIONAL_PORTS) {
-    AddPort(input, "file", PortKind::Path, {});
-    input.inputs.back()->path = "/inputs/file";
-    AddPort(input, "directory", PortKind::Path, {});
-    input.inputs.back()->path = "/inputs/directory";
+  if (wire->failure()) {
+    fprintf(stderr, "Unexpected Card failure: %s\n",
+            wire->failure()->message()->c_str());
   }
-  flatbuffers::FlatBufferBuilder builder;
-  builder.Finish(CardInput::Pack(builder, &input));
-  input_buffer = builder.Release();
-  return {input_buffer.data(), input_buffer.size()};
-}
-
-extern "C" auto check_success(tsugumi_bytes result, int optional_ports)
-    -> void {
-  const auto& decoded = Decode<CardResult>(result);
-  CHECK(!decoded.failure() && decoded.outputs());
-  CHECK(decoded.outputs()->size() == (optional_ports ? 3u : 1u));
-  const auto& number = *decoded.outputs()->Get(0);
-  CHECK(number.name()->str() == "number" &&
-        number.kind() == PortKind::FlatBuffer);
-  CHECK(DecodePort<outputs::number::Number>(number).number->value == 42);
-  if (optional_ports) {
-    const auto& file = *decoded.outputs()->Get(1);
-    const auto& directory = *decoded.outputs()->Get(2);
-    CHECK(file.name()->str() == "file" && file.kind() == PortKind::Path);
-    CHECK(directory.name()->str() == "directory" &&
-          directory.kind() == PortKind::Path);
-    CHECK(file.path()->str() == "/inputs/file");
-    CHECK(directory.path()->str() == "/inputs/directory");
-    CHECK(!file.bytes() && !directory.bytes());
-  }
-}
-
-extern "C" auto check_input_failure(tsugumi_bytes result, input_case test_case)
-    -> void {
-  if (test_case == MISSING_INPUT) {
-    CHECK(Failure(result, FailureKind::input_missing).message()->str() ==
-          "Missing input number");
-  } else {
-    Failure(result, FailureKind::invalid_request);
-  }
-}
-
-extern "C" auto check_card_failure(tsugumi_bytes result, int mode) -> void {
-  switch (mode) {
-    case 3: {
-      const auto& failure = Failure(result, FailureKind::cancelled);
-      CHECK(failure.message()->str() == "explicit failure");
-      CHECK(failure.source() && failure.source()->str() == "src/main.cc");
-      CHECK(failure.line() > 0);
-      CHECK(failure.cell() && failure.cell()->str() == "fit");
-      break;
+  CHECK(!wire->failure() && wire->outputs() && wire->outputs()->size() == 1);
+  const auto* port = wire->outputs()->Get(0);
+  CHECK(port->name()->string_view() == "listing");
+  CHECK(port->artifacts() && port->artifacts()->size() == count);
+  const auto* bytes = port->bytes();
+  alignas(FLATBUFFERS_MAX_ALIGNMENT) std::array<uint8_t, 4096> payload{};
+  CHECK(bytes->size() <= payload.size());
+  std::memcpy(payload.data(), bytes->data(), bytes->size());
+  flatbuffers::Verifier value_verifier(payload.data(), bytes->size());
+  CHECK(value_verifier.VerifyBuffer<outputs::Listing>());
+  const auto* listing = flatbuffers::GetRoot<outputs::Listing>(payload.data());
+  CHECK(listing->value() == (scenario == VALID_NUMBER ? 107 : 120));
+  CHECK(listing->files()->size() == 2);
+  const tsugumi::ArtifactId* nested[] = {
+      listing->nested()->file()->id(),
+      listing->files()->Get(0)->id(),
+      listing->files()->Get(1)->id(),
+      listing->choice_as_File()->id(),
+  };
+  const auto has_id = [&](const uint8_t* id) {
+    for (const auto* item : *port->artifacts()) {
+      if (std::memcmp(id, item->bytes()->Data(), 16) == 0) return true;
     }
-    case 4:
-      CHECK(Failure(result, FailureKind::worker_failed).message()->str() ==
-            "standard exception");
-      break;
-    case 5:
-      Failure(result, FailureKind::worker_failed);
-      break;
-    default:
-      Failure(result, FailureKind::output_invalid);
-      break;
-  }
-}
-
-#ifndef CPP_DISPLAY_WIRE
-extern "C" auto check_display(const char* view, tsugumi_bytes bytes,
-                              unsigned index) -> void {
-  struct Sample {
-    std::string_view view;
-    std::string_view config;
-    std::vector<uint8_t> data = {};
+    return false;
   };
-  const std::array samples{
-      Sample{"text", R"({"text":"résumé\n\""})"},
-      Sample{"markdown", R"({"text":"**text**"})"},
-      Sample{"markdown", R"({"text":"2.5"})"},
-      Sample{"table", R"({"columns":["n"],"rows":[["1"]]})"},
-      Sample{"image",
-             R"({"alt":"sample","media_type":"image/png"})",
-             {0, 13, 255}},
-      Sample{"points",
-             R"({"count":1})",
-             {0, 0, 128, 63, 0, 0, 128, 63, 0, 0, 128, 63, 86, 52, 18, 0}},
-      Sample{"line-chart",
-             R"({"series":[{"count":1,"id":"id","label":"line","offset":0}]})",
-             {0, 0, 0, 0, 0, 0, 0, 64, 0, 0, 0, 0, 0, 0, 0, 64}},
-      Sample{"plotly", R"({"data":[]})"},
-      Sample{"vega-lite", R"({"mark":"point"})"},
-      Sample{"custom", {}, {0, 13, 255}},
-      Sample{"text", R"({"text":"outside"})"},
-  };
-  CHECK(index < samples.size());
-  const auto& sample = samples[index];
-  CHECK(view == sample.view);
-  auto payload = std::span(bytes.data, bytes.size);
-  if (sample.view != "custom") {
-    const auto config = ReadDisplayConfig(payload, sample.data.size() != 0);
-    CHECK(config == sample.config);
-  }
-  CHECK(std::ranges::equal(payload, sample.data));
+  for (const auto* id : nested) CHECK(has_id(id->bytes()->Data()));
+  for (size_t i = 0; i < count; ++i) CHECK(has_id(expected[i].bytes));
 }
-#endif

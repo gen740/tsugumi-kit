@@ -1,21 +1,11 @@
 # Card SDK contract
 
-The Card editor and Agent inspect the API generated for the Card's definition
-and current input wiring. The run build uses the same generated types.
+This kit implements the unreleased Card ABI, version 0. Each language has a
+`sdk/<lang>/default.nix` entry taking `{ pkgs }`. It exports its
+`<lang>Card` and `<lang>Api` builders, `views`, and the shared
+`input` and `artifact` functions from `sdk/input`.
 
-## Nix entry
-
-Tsugumi calls `default.nix` with `{ params, inputs }`.
-
-| Argument | Value |
-| --- | --- |
-| `params` | The evaluated `params.nix` attribute set of current values, or `{ }` when the file is absent. |
-| `inputs` | The Nix exports of upstream Cards guaranteed to run before this Card, keyed by Card ID. A Card with no exports contributes an empty set. Through Merge, only Cards common to all incoming branches contribute exports. |
-
-Imports such as `<nixpkgs>` and `<tsugumi-kit/sdk/cpp>` resolve through the
-project's `nixPath` declarations and corresponding `tsugumi.lock` entries.
-Each SDK takes the caller's `pkgs` and exposes a Card builder, an API builder,
-and its bundled `views`.
+## Card definition
 
 ```nix
 { params, inputs }:
@@ -24,7 +14,7 @@ let
   sdk = import <tsugumi-kit/sdk/cpp> { inherit pkgs; };
   common = {
     inherit params;
-    inputs = ./_inputs.fbs;
+    inputs = if builtins.pathExists ./_inputs.fbs then ./_inputs.fbs else null;
     outputs = ./_outputs.fbs;
   };
 in
@@ -35,93 +25,118 @@ in
 }
 ```
 
-Return the worker library as `run` and the codegen-only derivation as `api`.
-A definition may also return `views` and an `exports` attribute set.
-For example, when an upstream Card with ID `mylib` returns `exports.package`,
-add `buildInputs = [ inputs.mylib.package ];` to the run builder call.
-The worker loads `lib/main.so` from `run`. **Build SDK** evaluates and builds
-`(import ./. { inherit params inputs; }).api` in the Card's directory and
-displays the generated code and typed README from `share/tsugumi/api/`.
+In the definition function, `inputs` holds upstream Nix exports keyed by
+Card ID. The builder's `inputs` argument is the generated schema path.
+Tsugumi leaves this file absent when a Card has no connected inputs. Builders
+accept an omitted builder argument or `null` for that case.
 
-All language builders take schema file paths as `inputs` and `outputs`,
-plus an optional evaluated `params` set. Pass the generated `_inputs.fbs`
-and the authored `_outputs.fbs`. For outputs, choose any root table
-name and namespace. Each field of that root table describes one output
-port. The run builder also takes `src` and language-specific options.
+Pass the evaluated `params` attrset. Each value is a bool, signed 64-bit
+integer, double, string, or non-empty homogeneous list of one of those types.
+Use the types to generate declarations and embed values in `run` as a typed
+constant. The check must assert that changing a value with the same type keeps
+the `api.drvPath` stable and changes `run.drvPath`. The library lives at
+`lib/main.so`. Export the single entry point `tsugumi_main`.
+A definition can return Nix exports and can build variants by returning
+`run = [ { label = "…"; run = …; } ];`.
 
-## Parameters
+## Shared Nix and codegen
 
-Keep the current parameter values in an optional, flat `params.nix` file.
+Import `nix/sdk-dependencies.nix { inherit pkgs; }` in each SDK.
+
+| Function or dependency | Contract |
+| --- | --- |
+| `cardInterface { params, inputs, outputs }` | Produces `_inputs.fbs`, `_outputs.fbs`, their includes, ABI schemas under `tsugumi/` and `param-types.json`. The param type strings are `bool`, `long`, `double`, `string` and bracketed lists. |
+| `paramValues params` | Writes the evaluated values to a JSON build input for the language's embedding step. Reference it from the run builder. |
+| `portCodegen` | Provides the Python module `tsugumi_ports`. Call `load_card_schemas(interface, reflection_fbs)` with the pinned FlatBuffers reflection schema. |
+| `abiHeaders` | Installs the C ABI and C++ protocol headers. The `runtime` derivation additionally provides the C++ adapter library. |
+| `publishApi "language" script` | Runs a copy/install script with `$api` pointing to `$out/share/tsugumi/api`. Copy the declarations and a README with Inputs, Outputs and Params sections. |
+| `views.common` | Bundled HTML views including Text, Markdown, Table, Image, LineChart and Points. `views.plotlyViews` adds Plotly. |
+
+`load_card_schemas` returns ordered `inputs`, `outputs` and `params`.
+Each port has `name`, `type` and `required`. An input also has
+`candidates`, ordered `(schema, type)` records. Select a candidate using
+`CardPort.schema` before verifying and decoding the payload. An unknown
+schema produces `input_invalid`. Represent multiple candidates as a
+language-level sum type. The bytes are the selected table's FlatBuffer.
+A Collect port decodes as `tsugumi.builtin.Collected` and carries opaque
+`Envelope` items. `collected_members` provides the reflected candidate
+schema IDs and types for those items. For the two shared ABI roots whose
+declarations are supplied by the ABI, codegen knows their fixed core IDs.
+
+Pack each output with the declared table as its root. A missing `(required)`
+output produces `output_invalid`. An omitted optional field leaves that port
+out of `CardResult.outputs`. The worker stamps output schema IDs.
+
+## Artifacts
+
+Use `include "tsugumi/artifact.fbs";` in user schemas and expose a native
+Artifact type wherever the schema names `tsugumi.Artifact`. Provide
+`dir()` returning an Artifact and its writable directory, `upload(path)`
+returning the Artifact after copying the file or directory, and `open()`
+returning the granted read-only directory. Copy a file into the writable
+directory using its basename. Call `artifact_create` and `artifact_open`
+during a Card call.
+
+For every output, visit each nested table, vector and active union member.
+List each distinct Artifact ID in `CardPort.artifacts`, including IDs
+forwarded from granted inputs. The host grants IDs from input sidecars and
+seals directories after the call.
+
+An Input Card's definition returns the result of the shared helper as
+`run`. Its `values` attribute set maps output port names to flatc JSON
+table values. A nested `sdk.artifact ./data.csv` marks a file or folder for
+copying into the immutable build output.
 
 ```nix
-{
-  seed = 7;
-  thresholds = [ 0.5 1.0 ];
-  cxxflags = [ "-O3" ];
-}
+run = sdk.input {
+  outputs = ./_outputs.fbs;
+  values.example = { label = params.label; file = sdk.artifact ./data.csv; };
+};
 ```
 
-Use literal booleans, integers, floats, strings, and non-empty homogeneous
-lists of those types. The literal determines the type, so `10` is an integer
-and `10.0` is a float. The Card editor saves value changes in `params.nix`.
-Pass the evaluated `params` value to both builders. When calling a builder
-outside Tsugumi, use `params = import ./params.nix;` or omit `params` for a
-Card without parameters. Reference build options directly in `default.nix`,
-for example `cxxflags = params.cxxflags;` in the run builder call.
+The build produces `share/tsugumi/input/ports/<port>`,
+`ports/<port>.artifacts` with one lowercase hex ID per line, and
+`artifacts/<id>/` under that same Input root. IDs are the first 16 bytes of
+SHA-256 over the UTF-8 port name, one NUL byte and the source store path.
+The build computes this byte sequence directly because Nix evaluation
+strings cannot represent NUL.
 
-Every parameter is encoded in `CardInput.params` as a `parameters.Params`
-FlatBuffer. Fields are sorted by name and numbered from zero. Booleans map to
-`bool`, integers to `long`, floats to `double`, strings to `string`, and lists
-to vectors of their scalar type. The builders derive the schema from names
-and types alone. A value change affects a build only when the Card uses that
-value in its derivation, as with `cxxflags` above.
+## Display and effects
 
-## Inputs may be absent
+Return `views = [ { name; type = "html" | "dawn"; blob; } ]` at the
+definition's top level. Use a self-contained HTML file for HTML and a Wasm
+binary for Dawn. TODO(open): Dawn host and pinned WebGPU imports.
 
-Tsugumi generates `_inputs.fbs` in the Card definition from the wiring
-and upstream output types. Commit it with the definition. Its
-`inputs.Inputs` root has one field per connected port in declared order,
-with each type's declarations under `inputs.<port>`. With no wires, the
-root table is empty. A Draft port has an empty provisional table.
+`display.send(view, bytes)` emits chunks with a 16-byte little-endian header
+of four unsigned 32-bit integers. In order, write magic `0x4D475354`,
+a sequence per view per process, the zero-based chunk index, and the chunk
+count. Each payload is at most `TSUGUMI_MESSAGE_MAX - 16` bytes. Send an
+empty payload as one header and serialize chunks for each view. The bundled
+HTML views reassemble the frames received via their MessagePort before
+rendering the data.
 
-A CardInput may omit an input. A Card declares whether it needs an input
-in its own code. The SDK reports
-`CardFailure.input_missing` with a message identifying the port when the Card
-requests a needed value and it is absent. Optional inputs use the language's
-absence value. The table gives the conventions for this revision's SDK ports.
+`display.recv(view, timeout)` returns a message, timeout, or cancellation.
+The timeout is in milliseconds and a negative value waits without a deadline.
+Copy received bytes before the next receive on that thread. Send and receive
+are process-lifetime effects and can run on Card threads between calls.
+The other effects are scoped to the active call. Keep the effects table order
+in `abi/card_abi.h`.
 
-| SDK | Needed | Optional |
-| --- | --- | --- |
-| C++ | `T` | `std::optional<T>` |
-| Rust | `T` via `require_input(name, option)?` | `Option<T>` |
-| Python | `input.require(name)` returns `T` | `input.get(name)` or a generated attribute returns `T \| None` |
-| Go | `T` via `RequireInput[T](input, name)` | `*T` via a generated accessor or `OptionalInput[T](input, name)` |
-| C# | `T` via `input.Get<T>(name)` | `T?` via a generated property or `input.Find<T>(name)` |
-| Java | `T` via `input.get(name, Type.class)` | `Optional<T>` via a generated accessor or `input.find(name, Type.class)` |
-| Ruby | `input.fetch(:port)` returns `T` | `input[:port]` returns `T \| nil` |
-| R | `input[["port"]]` or `input$port` | `optional_input(input, "port")`, absent as `NULL` |
-| Julia | `input[:port]` or `input.port` yields `T` | `get(input, :port, nothing)` yields `Union{T, Nothing}` |
-| JavaScript | `input.need(name)` returns `T` | `input.ports[name]` returns `T \| undefined` |
+## Check every SDK
 
-A Path port is declared as `string (tsugumi: "path")`. Expose it as the
-language's path type, or a string where the language uses strings for paths.
-Read and write the path in `CardPort.path` with kind `Path` and empty `bytes`.
-An input path is staged and absolute. Return a new regular file or directory
-under the call's working directory, or return an input path unchanged to
-forward it. A FlatBuffer port carries its payload in `CardPort.bytes`.
+Use `nix/contract-check.nix { inherit pkgs; }` with the language's `name`,
+fixture `card`, `api` and shared `runtime`. Implement the fixture behavior
+in that language following `tests/card/src/main.cc` or
+`tests/python/src/main.py`. It covers both Merge cases, Collect with a
+member, a direct Artifact, nested Artifact listing in a table, vector and
+union, forwarding, grant refusal, required and optional outputs, malformed
+inputs, send framing, and receive statuses. It also exercises send and
+receive after the entry point returns. The two fixture schema files and
+params are in `tests/contract/`. Use the input and API checks alongside the
+language check and enable the language in `nix/pending-sdk-checks.nix`.
 
-A mixed-type Merge uses `tsugumi.merge.Merged`. Expose its distinct member
-types in the generated API and decode the nested FlatBuffer in the selected
-box's `bytes` field inside the SDK. A same-type Merge forwards its input type
-and bytes unchanged. Verify and decode SDK payloads in the SDK.
-
-## Generator and checks
-
-All generators use the shared [port reflection module](../sdk/codegen/tsugumi_ports.py)
-to read the wiring-generated input catalog, authored output catalog, and
-generated parameter catalog. The Nix checks use `_inputs.fbs` fixtures and
-call Card definitions with evaluated parameter values, upstream exports
-keyed by Card ID, and the project's nixPath names. The ABI checks then
-exercise `tsugumi_main` through the vendored ABI. Each SDK check compares
-the `run` and `api` derivation paths across values of the same type. The
-`sdkApi` check builds `api` and verifies the typed README.
+```sh
+"$SP/heavy.sh" nix build --no-link -L .#checks.aarch64-darwin.cppAbi
+"$SP/heavy.sh" nix build --no-link -L .#checks.aarch64-darwin.pythonAbi
+"$SP/heavy.sh" nix build --no-link -L .#checks.aarch64-darwin.inputCard
+```

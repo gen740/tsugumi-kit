@@ -49,6 +49,38 @@
     in
     {
       checks = {
+        viewReassembly =
+          pkgs.runCommand "tsugumi-view-reassembly-check"
+            {
+              nativeBuildInputs = [ pkgs.nodejs ];
+            }
+            ''
+              node ${../tests/view-reassembly.mjs} ${../sdk/views/data.js}
+              touch "$out"
+            '';
+        inputCard = pkgs.callPackage ./input-check.nix { inherit kit; };
+        k1Templates =
+          let
+            fixture = import ../tests/card-eval.nix { inherit pkgs; };
+            filter = fixture.call ../templates/filter-counts/filter { };
+            temperature = ../templates/temperature-conversion/definitions;
+            python = ../templates/python-write-text/definitions;
+            convert = fixture.call (temperature + "/convert") { };
+            write = fixture.call (python + "/write") { };
+            celsius = (fixture.call (temperature + "/settings") { }).run;
+            text = (fixture.call (python + "/settings") { }).run;
+          in
+          pkgs.runCommand "tsugumi-k1-templates" { } ''
+            test -s "${filter.run}/lib/main.so"
+            test -s "${convert.run}/lib/main.so"
+            test -s "${write.run}/lib/main.so"
+            test -s "${celsius}/share/tsugumi/input/ports/celsius"
+            test -s "${text}/share/tsugumi/input/ports/text"
+            for view in ${lib.escapeShellArgs (map (view: toString view.blob) kit.python.views)}; do
+              test -s "$view"
+            done
+            touch "$out"
+          '';
         cppAbi = pkgs.callPackage ./cpp-check.nix { inherit kit; };
         cppAbiProjectPkgs =
           assert projectKit.cppRuntime.drvPath != kit.cppRuntime.drvPath;
@@ -72,14 +104,16 @@
       }
       // lib.optionalAttrs (enabled "java") {
         javaAbi = pkgs.callPackage ./java-check.nix { inherit kit; };
-        javaWriteTextTemplate = checkTextTemplate "java-write-text" ../templates/java-write-text/write [
-          "main.so"
-          "card.jar"
-        ];
+        javaWriteTextTemplate =
+          checkTextTemplate "java-write-text" ../templates/java-write-text/definitions/write
+            [
+              "main.so"
+              "card.jar"
+            ];
       }
       // lib.optionalAttrs (enabled "go") {
         goNormalizeTextTemplate =
-          checkTextTemplate "go-normalize-text" ../templates/go-normalize-text/normalize
+          checkTextTemplate "go-normalize-text" ../templates/go-normalize-text/definitions/normalize
             [
               "main.so"
               "go-card.so"
@@ -87,7 +121,7 @@
       }
       // lib.optionalAttrs (enabled "rust") {
         rustNumberLinesTemplate =
-          checkTextTemplate "rust-number-lines" ../templates/rust-number-lines/number
+          checkTextTemplate "rust-number-lines" ../templates/rust-number-lines/definitions/number
             [ "main.so" ];
       };
     };

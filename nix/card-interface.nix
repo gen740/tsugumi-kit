@@ -1,6 +1,6 @@
 { pkgs }:
 {
-  inputs,
+  inputs ? null,
   outputs,
   params ? { },
 }:
@@ -45,27 +45,40 @@ let
       else
         paramType name value
     ) params;
-  # Only field names and FlatBuffers types enter the derivation.
-  paramsFile = pkgs.writeText "_params.fbs" ''
-    namespace parameters;
-    table Params {
-    ${lib.concatStringsSep "\n" (
-      lib.imap0 (id: name: "  ${name}:${fields.${name}} (id: ${toString id});") (
-        builtins.attrNames fields
-      )
-    )}
-    }
-    root_type Params;
-  '';
-  outputDir = builtins.dirOf outputs;
-  outputSources = lib.fileset.toSource {
-    root = outputDir;
-    fileset = lib.fileset.fileFilter (file: file.hasExt "fbs") outputDir;
-  };
+  paramTypes = pkgs.writeText "tsugumi-param-types.json" (builtins.toJSON fields);
+  schemaPath =
+    path:
+    let
+      root = builtins.dirOf path;
+      sources =
+        if !builtins.isPath path then
+          null
+        else
+          lib.fileset.toSource {
+            inherit root;
+            fileset = lib.fileset.fileFilter (
+              file:
+              file.hasExt "fbs"
+              && !(builtins.elem file.name [
+                "_inputs.fbs"
+                "_outputs.fbs"
+              ])
+            ) root;
+          };
+      # Keep both catalog roots out of the fileset so that an Input Card
+      # consumes only its own output catalog.
+    in
+    pkgs.runCommand "tsugumi-schema-source" { } ''
+      mkdir -p "$out"
+      ${lib.optionalString (sources != null) ''cp -R "${sources}/." "$out/"''}
+      cp ${lib.escapeShellArg "${path}"} "$out/${baseNameOf path}"
+    '';
 in
 pkgs.runCommand "tsugumi-card-interface" { nativeBuildInputs = [ pkgs.python3 ]; } ''
   python3 ${../sdk/codegen/card_interface.py} "$out" \
-    ${lib.escapeShellArg "${inputs}"} \
-    ${lib.escapeShellArg "${outputSources}/${baseNameOf outputs}"} \
-    ${paramsFile}
+    ${
+      if inputs == null then "-" else lib.escapeShellArg "${schemaPath inputs}/${baseNameOf inputs}"
+    } \
+    ${lib.escapeShellArg "${schemaPath outputs}/${baseNameOf outputs}"} \
+    ${paramTypes} ${../abi}
 ''

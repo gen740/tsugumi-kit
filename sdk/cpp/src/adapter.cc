@@ -4,6 +4,8 @@
 #include <cstring>
 #include <exception>
 #include <filesystem>
+#include <limits>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -20,7 +22,8 @@ using Tsugumi::Card::CardResultT;
 flatbuffers::DetachedBuffer result_buffer;
 
 struct DisplayEffect {
-  decltype(tsugumi_effects::send) callback = nullptr;
+  decltype(tsugumi_effects::send) send = nullptr;
+  decltype(tsugumi_effects::recv) recv = nullptr;
   void* host = nullptr;
 };
 
@@ -33,9 +36,9 @@ const tsugumi_call* active_call = nullptr;
 class CallEffects {
  public:
   explicit CallEffects(const tsugumi_call& call) {
-    if (call.effects && call.effects->send) {
+    if (call.effects) {
       const std::lock_guard lock(display_mutex);
-      display_effect = {call.effects->send, call.host};
+      display_effect = {call.effects->send, call.effects->recv, call.host};
     }
     const std::lock_guard lock(effects_mutex);
     active_call = &call;
@@ -91,18 +94,47 @@ auto Run(CardBody body, tsugumi_bytes input) -> CardResultT {
 
 }  // namespace
 
+auto GetDisplayEffect() -> DisplayEffect {
+  const std::lock_guard lock(display_mutex);
+  return display_effect;
+}
+
 auto SendDisplay(const char* view, tsugumi_bytes bytes) -> int {
-  DisplayEffect effect;
+  constexpr auto kHeader = 4 * sizeof(uint32_t);
+  constexpr auto kPayload = TSUGUMI_MESSAGE_MAX - kHeader;
+  constexpr uint32_t kMagic = 0x4d475354;
+  struct View {
+    std::mutex mutex;
+    uint32_t next_sequence = 0;
+  };
+  static std::mutex views_mutex;
+  static std::map<std::string, View, std::less<>> views;
+
+  const auto effect = GetDisplayEffect();
+  if (!effect.send) return -1;
+  const size_t count = bytes.size ? 1 + (bytes.size - 1) / kPayload : 1;
+  if (count > std::numeric_limits<uint32_t>::max()) return -1;
+  View* state;
   {
-    const std::lock_guard lock(display_mutex);
-    effect = display_effect;
+    const std::lock_guard lock(views_mutex);
+    state = &views.try_emplace(view).first->second;
   }
-  if (!effect.callback) return 1;
-  try {
-    return effect.callback(effect.host, view, bytes.data, bytes.size);
-  } catch (...) {
-    return 1;
+  const std::lock_guard lock(state->mutex);
+  const auto sequence = state->next_sequence++;
+  std::vector<uint8_t> chunk(kHeader + std::min(bytes.size, kPayload));
+  for (size_t index = 0; index < count; ++index) {
+    const size_t offset = index * kPayload;
+    const size_t size = std::min(bytes.size - offset, kPayload);
+    flatbuffers::WriteScalar(chunk.data(), kMagic);
+    flatbuffers::WriteScalar(chunk.data() + 4, sequence);
+    flatbuffers::WriteScalar(chunk.data() + 8, static_cast<uint32_t>(index));
+    flatbuffers::WriteScalar(chunk.data() + 12, static_cast<uint32_t>(count));
+    if (size) std::memcpy(chunk.data() + kHeader, bytes.data + offset, size);
+    const int status =
+        effect.send(effect.host, view, chunk.data(), kHeader + size);
+    if (status != 0) return status;
   }
+  return 0;
 }
 
 auto Invoke(const tsugumi_call* call, tsugumi_bytes* result,
@@ -146,89 +178,48 @@ auto Reject(FailureKind kind, const std::string& message) -> void {
 
 Input::Input(tsugumi_bytes bytes)
     : buffer_(bytes), input_(buffer_.Verify<Tsugumi::Card::CardInput>()) {
-  if (!input_) Reject(FailureKind::invalid_request, "Invalid CardInput");
+  if (!input_) Reject(FailureKind::input_invalid, "Invalid CardInput");
   if (!input_->inputs()) return;
   for (const auto* port : *input_->inputs()) {
-    switch (port->kind()) {
-      case PortKind::FlatBuffer:
-        if (port->path())
-          Reject(FailureKind::invalid_request, "FlatBuffer input has a path");
-        break;
-      case PortKind::Path: {
-        const auto* path = port->path();
-        if (!path || path->string_view().find('\0') != std::string_view::npos ||
-            !std::filesystem::path(path->string_view()).is_absolute() ||
-            (port->bytes() && port->bytes()->size() != 0)) {
-          Reject(FailureKind::invalid_request,
-                 "Invalid Path input " + port->name()->str());
-        }
-        break;
-      }
-      default:
-        Reject(FailureKind::invalid_request, "Unknown input port kind");
-    }
     const auto name = port->name()->string_view();
     if (!ports_.emplace(name, port).second) {
-      Reject(FailureKind::invalid_request,
+      Reject(FailureKind::input_invalid,
              "Duplicate input " + std::string(name));
     }
   }
 }
 
-auto Input::TakePort(std::string_view name, PortKind kind)
-    -> const Tsugumi::Card::CardPort* {
-  const auto port = ports_.extract(name);
-  if (port.empty()) return nullptr;
-  if (port.mapped()->kind() != kind) {
-    Reject(FailureKind::invalid_request,
-           "Wrong kind for input " + std::string(name));
-  }
-  return port.mapped();
-}
-
-auto Input::ReadPath(std::string_view name)
-    -> std::optional<std::filesystem::path> {
-  const auto* port = TakePort(name, PortKind::Path);
-  return port
-             ? std::optional{std::filesystem::path(port->path()->string_view())}
-             : std::nullopt;
-}
-
-auto Input::ReadPortBytes(std::string_view name) -> std::optional<tsugumi_bytes> {
-  const auto* port = TakePort(name, PortKind::FlatBuffer);
-  if (!port) return std::nullopt;
+auto Input::ReadPort(std::string_view name) -> std::optional<Port> {
+  const auto node = ports_.extract(name);
+  if (node.empty()) return std::nullopt;
+  const auto* port = node.mapped();
   const auto* bytes = port->bytes();
-  return bytes ? tsugumi_bytes{bytes->data(), bytes->size()} : tsugumi_bytes{};
+  if (!port->schema() || !bytes)
+    Reject(FailureKind::input_invalid,
+           "Missing schema or bytes for " + std::string(name));
+  return Port{port->schema()->string_view(), {bytes->data(), bytes->size()}};
 }
 
-auto WritePath(Tsugumi::Card::CardResultT& result, std::string_view name,
-               const std::optional<std::filesystem::path>& path, bool required)
-    -> void {
-  if (!path) {
-    if (required)
-      Reject(FailureKind::output_invalid,
-             "Missing output " + std::string(name));
-    return;
+auto CheckSchema(const Input::Port& port, std::string_view schema,
+                 std::string_view name) -> void {
+  if (port.schema != schema) {
+    Reject(FailureKind::input_invalid,
+           "Unknown schema for " + std::string(name));
   }
-  auto port = std::make_unique<Tsugumi::Card::CardPortT>();
-  port->name = name;
-  port->kind = PortKind::Path;
-  port->path = path->native();
-  if (port->path.empty() || port->path.find('\0') != std::string::npos)
-    Reject(FailureKind::output_invalid,
-           "Invalid Path output " + std::string(name));
-  result.outputs.push_back(std::move(port));
-}
-
-auto Input::Params() const -> tsugumi_bytes {
-  const auto* params = input_->params();
-  return params ? tsugumi_bytes{params->data(), params->size()}
-                : tsugumi_bytes{};
 }
 
 auto Input::CheckConsumed() const -> void {
   if (!ports_.empty()) {
-    Reject(FailureKind::invalid_request, "Unknown input port");
+    Reject(FailureKind::input_invalid, "Unknown input port");
+  }
+}
+
+auto AddArtifact(std::vector<ArtifactId>& artifacts, const ArtifactId& id)
+    -> void {
+  if (std::ranges::none_of(artifacts, [&](const auto& existing) {
+        return std::ranges::equal(*existing.bytes(), *id.bytes());
+      })) {
+    artifacts.push_back(id);
   }
 }
 
@@ -255,3 +246,75 @@ auto remaining_ms() -> int64_t {
 }
 
 }  // namespace card
+
+namespace card::display {
+
+auto recv(std::string_view view, int64_t timeout_ms) -> Received {
+  if (view.find('\0') != std::string_view::npos)
+    throw std::invalid_argument("View names cannot contain a NUL byte");
+  const auto effect = tsugumi::abi::GetDisplayEffect();
+  tsugumi_bytes bytes{};
+  const int status = effect.recv
+                         ? effect.recv(effect.host, std::string(view).c_str(),
+                                       &bytes, timeout_ms)
+                         : -1;
+  switch (status) {
+    case 0: {
+      Received result{ReceiveStatus::kMessage, {}};
+      if (bytes.size) result.bytes.assign(bytes.data, bytes.data + bytes.size);
+      return result;
+    }
+    case 1:
+      return {ReceiveStatus::kTimeout, {}};
+    case 2:
+      return {ReceiveStatus::kCancelled, {}};
+    default:
+      throw std::runtime_error("The host rejected the display receive");
+  }
+}
+
+}  // namespace card::display
+
+namespace tsugumi {
+
+auto ArtifactT::dir() -> std::pair<ArtifactT, std::filesystem::path> {
+  const std::lock_guard lock(abi::effects_mutex);
+  const auto* call = abi::active_call;
+  tsugumi_artifact_id id{};
+  tsugumi_bytes path{};
+  if (!call || !call->effects || !call->effects->artifact_create ||
+      call->effects->artifact_create(call->host, &id, &path) != 0)
+    throw std::runtime_error("The host could not create an Artifact");
+  ArtifactT artifact;
+  artifact.id = std::make_unique<ArtifactId>(
+      flatbuffers::span<const uint8_t, 16>(id.bytes));
+  return {std::move(artifact),
+          std::filesystem::path(std::string_view(
+              reinterpret_cast<const char*>(path.data), path.size))};
+}
+
+auto ArtifactT::upload(const std::filesystem::path& source) -> ArtifactT {
+  auto [artifact, path] = dir();
+  if (std::filesystem::is_directory(source)) {
+    std::filesystem::copy(source, path,
+                          std::filesystem::copy_options::recursive);
+  } else {
+    std::filesystem::copy_file(source, path / source.filename());
+  }
+  return artifact;
+}
+
+auto ArtifactT::open() const -> std::filesystem::path {
+  const std::lock_guard lock(abi::effects_mutex);
+  const auto* call = abi::active_call;
+  tsugumi_artifact_id capability{};
+  tsugumi_bytes path{};
+  if (id) std::ranges::copy(*id->bytes(), capability.bytes);
+  if (!id || !call || !call->effects || !call->effects->artifact_open ||
+      call->effects->artifact_open(call->host, &capability, &path) != 0)
+    throw std::runtime_error("The host could not open the Artifact");
+  return std::filesystem::path(
+      std::string_view(reinterpret_cast<const char*>(path.data), path.size));
+}
+
+}  // namespace tsugumi

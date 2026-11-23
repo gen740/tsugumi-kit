@@ -1,162 +1,23 @@
-{
-  pkgs,
-  lib,
-  stdenv,
-  runCommandCC,
-  flatbuffers,
-  zlib,
-  # The kit's root entry, `import ./. { inherit pkgs; }`.
-  kit,
-}:
+{ pkgs, kit }:
 let
   sdk = kit.cpp;
-  runtime = kit.cppRuntime;
-  fixtureEval = import ../tests/card-eval.nix { inherit pkgs; };
-  upstreamExports.mylib.package = zlib;
-  params = import ../tests/cpp/interface/params.nix;
-  tests = lib.fileset.toSource {
-    root = ../tests;
-    fileset = lib.fileset.unions [
-      ../tests/fake_host.c
-      ../tests/legacy.c
-      ../tests/wire.cc
-      ../tests/wire.h
-      ../tests/cpp/cases.h
-      ../tests/cpp/fake_host.c
-      ../tests/cpp/wire.cc
-      ../tests/cpp/template.cc
-    ];
+  common = {
+    inputs = ../tests/contract/_inputs.fbs;
+    outputs = ../tests/contract/_outputs.fbs;
+    params = import ../tests/contract/params.nix;
   };
-  definition =
-    fixtureEval.callWithParamCheck ../tests/card
-      {
-        inherit params;
-        inputs = upstreamExports;
-      }
-      {
-        mode = 1;
-        labels = [ "changed" ];
-      };
-  changedExport = fixtureEval.call ../tests/card {
-    inherit params;
-    inputs.mylib.package = flatbuffers;
+  variant = common // {
+    params = common.params // {
+      offset = 200;
+    };
   };
-  card = definition.run;
-  withoutTools = sdk.cppCard {
-    inherit params;
-    inputs = ../tests/cpp/interface/_inputs.fbs;
-    outputs = ../tests/cpp/interface/_outputs.fbs;
-    src = ../tests/card/src;
-    buildInputs = [ zlib ];
-    inherit (params) cxxflags;
-  };
-  filterDir = ../templates/filter-counts/filter;
-  filter = fixtureEval.call filterDir { };
-  filterWired = sdk.cppCard (
-    fixtureEval.wiredTemplateArgs filterDir ../tests/templates/filter-counts/_inputs.fbs
-    // {
-      src = filterDir + "/src";
-    }
-  );
-  convertDir = ../templates/temperature-conversion/convert;
-  convert = fixtureEval.call convertDir { };
-  convertUnwiredArgs = fixtureEval.wiredTemplateArgs convertDir ../tests/templates/_inputs.fbs;
-  convertUnwired = sdk.cppCard (convertUnwiredArgs // { src = convertDir + "/src"; });
-  inherit (stdenv.hostPlatform) isDarwin;
+  build = args: sdk.cppCard (args // { src = ../tests/card/src; });
 in
-assert definition.views == sdk.views;
-assert card.drvPath != changedExport.run.drvPath;
-assert definition.api.drvPath == changedExport.api.drvPath;
-assert !(card ? views);
-assert
-  map (view: view.name) definition.views == [
-    "text"
-    "markdown"
-    "table"
-    "image"
-    "line-chart"
-    "points"
-  ];
-assert lib.all (view: view.type == "html" && view ? blob) definition.views;
-assert lib.all
-  (
-    languageSdk:
-    lib.filter (view: view.name == "line-chart" || view.name == "points") languageSdk.views
-    == lib.filter (view: view.name == "line-chart" || view.name == "points") sdk.views
-  )
-  (
-    with kit;
-    [
-      python
-      go
-      rust
-      csharp
-      julia
-      r
-      ruby
-    ]
-  );
-assert filter.views == sdk.views && convert.views == sdk.views;
-runCommandCC "tsugumi-cpp-abi-check"
-  {
-    buildInputs = [ flatbuffers ];
-    passthru.apis = [
-      definition.api
-      filter.api
-      convert.api
-      (sdk.cppApi convertUnwiredArgs)
-    ];
-  }
-  ''
-    card=${card}/lib/main.so
-    tests=${tests}
-    include=${runtime}/include
-    for view in ${lib.escapeShellArgs (map (view: "${view.blob}") definition.views)}; do
-      test -s "$view"
-    done
-
-    $CC -std=c11 -D_DEFAULT_SOURCE -Wall -Wextra -Werror -I"$include" -c "$tests/cpp/fake_host.c"
-    $CC -std=c11 -Wall -Wextra -Werror -fPIC -shared "$tests/legacy.c" -o legacy.so
-    $CXX -std=c++2c -Wall -Wextra -Werror -I"${card.generated}/include" -I"$include" \
-      "$tests/cpp/wire.cc" fake_host.o -pthread ${lib.optionalString (!isDarwin) "-ldl"} -o fake_host
-    test -L "${card}/bin/sort"
-    test ! -e "${card}/bin/sh"
-    test ! -e "${withoutTools}/bin"
-    env -i ./fake_host --tools "$card" "${card}/bin"
-    env -i ./fake_host --tools "${withoutTools}/lib/main.so" ""
-    ./fake_host "$card" "$PWD/legacy.so"
-
-    test -s "${filter.run}/lib/main.so"
-    $CXX -std=c++2c -Wall -Wextra -Werror -I"${filterWired.generated}/include" -I"$include" \
-      -DFILTER "$tests/cpp/template.cc" ${lib.optionalString (!isDarwin) "-ldl"} -o filter-host
-    ./filter-host "${filterWired}/lib/main.so"
-    $CXX -std=c++2c -Wall -Wextra -Werror -I"${convert.run.generated}/include" -I"$include" \
-      "$tests/cpp/template.cc" ${lib.optionalString (!isDarwin) "-ldl"} -o convert-host
-    ./convert-host "${convert.run}/lib/main.so"
-    ./convert-host "${convertUnwired}/lib/main.so" --unwired
-
-
-    ${
-      if isDarwin then
-        ''
-          test "$(nm -gUj "$card")" = _tsugumi_main
-          otool -L "$card" > deps
-        ''
-      else
-        ''
-          test "$(nm -D --defined-only -j "$card")" = tsugumi_main
-          readelf -d "$card" > deps
-        ''
-    }
-    if grep -Ei 'flatbuffers|nlohmann|libtsugumi' deps; then
-      echo "Unexpected SDK shared-library dependency" >&2
-      exit 1
-    fi
-    strings -a "$card" > card.strings
-    nm "$card" | c++filt > card.symbols
-    if grep -Ei 'BFBS|reflection_generated|flatbuffers.*reflection|reflection::' card.strings card.symbols; then
-      echo "Unexpected reflection data in main.so" >&2
-      exit 1
-    fi
-    touch "$out"
-  ''
+assert (sdk.cppApi common).drvPath == (sdk.cppApi variant).drvPath;
+assert (build common).drvPath != (build variant).drvPath;
+import ./contract-check.nix { inherit pkgs; } {
+  name = "cpp";
+  card = build common;
+  runtime = kit.cppRuntime;
+  api = sdk.cppApi common;
+}

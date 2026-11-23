@@ -1,14 +1,15 @@
-attribute "tsugumi";
-
-namespace outputs.number;
-table Value { value:long; }
-table Number { number:Value (required); }
-
+include "tsugumi/artifact.fbs";
 namespace outputs;
-table Outputs {
-  number:outputs.number.Number;
-  file:string (tsugumi: "path");
-  directory:string (tsugumi: "path");
+table Child { file:tsugumi.Artifact (required); }
+union Choice { File:tsugumi.Artifact }
+table Listing {
+  nested:Child (required);
+  files:[tsugumi.Artifact] (required);
+  choice:Choice (required);
+  value:long;
 }
-
+table Outputs {
+  listing:Listing (required);
+  optional_value:Child;
+}
 root_type Outputs;

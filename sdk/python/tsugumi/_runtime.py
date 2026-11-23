@@ -10,7 +10,6 @@ from pathlib import Path, PurePosixPath
 import flatbuffers
 from Tsugumi.Card.CardFailure import CardFailureT
 from Tsugumi.Data.FailureKind import FailureKind
-from Tsugumi.Data.PortKind import PortKind
 
 from . import Failure
 
@@ -70,12 +69,12 @@ def _load_card():
     # Cache failures as well, so module-level code is attempted once.
     try:
         os.environ["MPLCONFIGDIR"] = str(Path.home() / ".matplotlib")
-        from card import Input, Output, ParamsT, _inputs, _outputs, _union_checks
+        from card import Input, Output, _inputs, _outputs, _union_checks
 
         run = importlib.import_module("main").run
         if not callable(run):
             raise TypeError("main.run must be callable")
-        return (run, Input, Output, ParamsT, _inputs, _outputs, _union_checks), None
+        return (run, Input, Output, _inputs, _outputs, _union_checks), None
     except BaseException as error:
         return None, _failure(error)
 
@@ -105,78 +104,37 @@ def _check_unions(value, cls, checks):
             _check_unions(item, child, checks)
 
 
-def _unpack_port(data, cls, cases):
-    if cls is None:
-        return os.fsdecode(data)
-    item = cls.InitFromPackedBuf(data)
-    if not cases:
-        return item
-    case = cases.get(item.valueType)
-    if case is None or not isinstance(item.value, case[0]) or item.value.bytes is None:
-        raise ValueError("Invalid boxed Merge value")
-    _, member, nested = case
-    # The native verifier checks nested_flatbuffer fields before Python decodes them.
-    return _unpack_port(bytes(item.value.bytes), member, nested)
-
-
-def _pack_port(item, cls, cases, checks):
-    if cases:
-        encoded = _pack_merge(item, cls, cases, checks)
-        if encoded is None:
-            raise TypeError("Expected a member of the Merge union")
-        return encoded
-    if not isinstance(item, cls):
-        raise TypeError(f"Expected {cls.__name__}")
-    _check_unions(item, cls, checks)
-    return _pack(item)
-
-
-def _pack_merge(item, cls, cases, checks):
-    for tag, (box, member, nested) in cases.items():
-        if nested:
-            payload = _pack_merge(item, member, nested, checks)
-        elif isinstance(item, member):
-            payload = _pack_port(item, member, nested, checks)
-        else:
-            continue
-        if payload is not None:
-            return _pack(cls(valueType=tag, value=box(bytes=payload)))
-    return None
-
-
 def _outputs_to_ports(value, output_type, outputs, union_checks):
     if not isinstance(value, output_type):
         raise Failure("output_invalid", "run must return a card.Output")
-    for name, member, cls, cases, required in outputs:
+    for name, member, cls, required in outputs:
         item = getattr(value, member)
         if item is None:
             if required:
                 raise Failure("output_invalid", f"Missing output {name}")
             continue
         try:
-            if cls is None:
-                yield name, PortKind.Path, os.fsencode(item)
-            else:
-                yield name, PortKind.FlatBuffer, _pack_port(item, cls, cases, union_checks)
+            if not isinstance(item, cls):
+                raise TypeError(f"Expected {cls.__name__}")
+            _check_unions(item, cls, union_checks)
+            yield name, _pack(item)
         except Exception as error:
             raise Failure("output_invalid", f"Invalid output {name}: {error}") from error
 
 
-def invoke(params, ports):
+def invoke(ports):
     card, failure = _load_card()
     if failure is not None:
         return failure
-    run, Input, Output, Params, inputs, outputs, union_checks = card
+    run, Input, Output, inputs, outputs, union_checks = card
     values = {}
-    for name, member, cls, cases, _ in inputs:
-        if name not in ports:
-            continue
+    for name, member, types in inputs:
         try:
-            values[member] = _unpack_port(ports[name], cls, cases)
+            schema, data = ports[name]
+            values[member] = types[schema].InitFromPackedBuf(data)
         except Exception as error:
-            return _failure(Failure("invalid_request", f"Invalid input {name}: {error}"))
+            return _failure(Failure("input_invalid", f"Invalid input {name}: {error}"))
     try:
-        input = Input(params=Params.InitFromPackedBuf(params) if params else Params(), **values)
-        return list(_outputs_to_ports(run(input), Output, outputs, union_checks))
+        return list(_outputs_to_ports(run(Input(**values)), Output, outputs, union_checks))
     except BaseException as error:
         return _failure(error)

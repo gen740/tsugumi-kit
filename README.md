@@ -61,7 +61,7 @@ let
   sdk = import <tsugumi-kit/sdk/cpp> { inherit pkgs; };
   common = {
     inherit params;
-    inputs = ./_inputs.fbs;
+    inputs = if builtins.pathExists ./_inputs.fbs then ./_inputs.fbs else null;
     outputs = ./_outputs.fbs;
   };
 in
@@ -89,11 +89,11 @@ HTML views. The Python SDK also bundles `plotly`.
 Declare `views = sdk.views ++ [ ... ];` alongside `run` in your Card's
 `default.nix`. A view entry has a `name`, a `type` of `"html"` or
 `"dawn"`, and a `blob` pointing to a single self-contained HTML file or
-Wasm binary, respectively. The ABI's `send` effect delivers opaque bytes
-to a view by name during or between calls. The core does not check the
+Wasm binary, respectively. The ABI's display effects exchange opaque bytes
+with a named view during or between calls. The core does not check the
 name; the UI matches it against the Card's declared views and shows an
 error for an unknown name. Display messages are live
-and do not enter history. See the [view protocol](docs/cpp-sdk.md#display-a-value).
+and do not enter history. See the [view protocol](docs/sdk-contract.md#display-and-effects).
 
 ## Status
 

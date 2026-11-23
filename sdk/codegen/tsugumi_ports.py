@@ -11,31 +11,24 @@ from card_interface import schema_tokens
 
 
 @dataclass(frozen=True)
-class MergeMember:
-    tag: str
-    value: int
-    box_type: str
+class Candidate:
+    schema: str
     type: str
-    union_type: str
-    merge: "tuple[MergeMember, ...]" = ()
 
 
 @dataclass(frozen=True)
 class Port:
     name: str
     type: str
-    kind: str
     required: bool
-    merge: tuple[MergeMember, ...] = ()
+    candidates: tuple[Candidate, ...] = ()
+    collected_members: tuple[Candidate, ...] = ()
 
 
 @dataclass(frozen=True)
 class Param:
     name: str
     type: str
-    required: bool
-    # The field's metadata in flatc's reflection.fbs JSON format.
-    field: dict
 
 
 @dataclass(frozen=True)
@@ -43,7 +36,6 @@ class CardSchemas:
     inputs: tuple[Port, ...]
     outputs: tuple[Port, ...]
     params: tuple[Param, ...]
-    params_type: str
 
 
 def reflect_schema(schema, reflection_fbs, *, flatc="flatc"):
@@ -53,7 +45,7 @@ def reflect_schema(schema, reflection_fbs, *, flatc="flatc"):
     with TemporaryDirectory() as directory:
         subprocess.run(
             [flatc, "-b", "--schema", "--bfbs-builtins", "-o", directory,
-             str(schema)],
+             "-I", str(schema.parent), str(schema)],
             check=True,
         )
         bfbs = Path(directory) / schema.with_suffix(".bfbs").name
@@ -102,56 +94,6 @@ def fields(table):
     )
 
 
-def merge_members(schema, root, *, nested=False):
-    # Catalogs place each port's closure under a separate namespace.
-    name = root["name"]
-    suffix = "nested.Merged" if nested else "tsugumi.merge.Merged"
-    if name != suffix and not name.endswith("." + suffix):
-        return ()
-    root_fields = fields(root)
-    if (len(root_fields) != 1 or root_fields[0]["name"] != "value"
-            or root_fields[0]["type"].get("base_type") != "Union"):
-        raise ValueError(f"{name}: expected the core Merge union in value")
-    union = schema["enums"][root_fields[0]["type"]["index"]]
-    objects = schema["objects"]
-    by_name = {obj["name"]: obj for obj in objects}
-    members = []
-    for variant in sorted(union["values"], key=lambda entry: entry.get("value", 0)):
-        value = variant.get("value", 0)
-        if value == 0:
-            continue
-        type_ = variant["union_type"]
-        if type_.get("base_type") != "Obj":
-            raise ValueError(f"{name}: expected a table for Merge member {variant['name']}")
-        box = objects[type_["index"]]
-        box_fields = fields(box)
-        if (len(box_fields) != 1 or box_fields[0]["name"] != "bytes"
-                or field_type(schema, box_fields[0]) != "[ubyte]"):
-            raise ValueError(f"{box['name']}: expected a Merge box with bytes:[ubyte]")
-        target = attributes(box_fields[0]).get("nested_flatbuffer")
-        if target is None:
-            raise ValueError(f"{box['name']}: missing nested_flatbuffer")
-        namespace = box["name"].split(".")[:-1]
-        # Resolve nested_flatbuffer the same way as flatc, from the box's
-        # namespace toward the global namespace.
-        for depth in range(len(namespace), -1, -1):
-            qualified = ".".join([*namespace[:depth], target])
-            if qualified in by_name:
-                break
-        else:
-            raise ValueError(f"{box['name']}: unknown nested_flatbuffer type {target}")
-        child = by_name[qualified]
-        if child.get("is_struct", False):
-            raise ValueError(f"{box['name']}: nested_flatbuffer must be a table")
-        members.append(MergeMember(
-            variant["name"], value, box["name"], qualified, union["name"],
-            merge_members(schema, child, nested=True),
-        ))
-    if not members:
-        raise ValueError(f"{name}: empty Merge union")
-    return tuple(members)
-
-
 def root_table(schema, path):
     table = schema.get("root_table")
     if table is None:
@@ -159,42 +101,94 @@ def root_table(schema, path):
     return table
 
 
-def load_ports(schema, path):
+# These shared roots cannot carry a per-candidate attribute. Their fixed ids
+# are taken from core schema_id for the ABI schemas in abi/.
+ABI_SCHEMA_IDS = {
+    "tsugumi.Artifact": "7435657903802bed9dbd0ee94f0be71ff432073805511fc15af8acca6ac83bad",
+    "tsugumi.builtin.Collected": "1c934d38885fb58ebdf2370bed0862db46f2bfa62677fe6bb801af8e4ce1d8e6",
+}
+
+
+def schema_id(node, where):
+    value = attributes(node).get("tsugumi_schema", ABI_SCHEMA_IDS.get(node["name"], ""))
+    if not re.fullmatch("[0-9a-f]{64}", value):
+        raise ValueError(f"{where}: expected a tsugumi_schema attribute")
+    return value
+
+
+def load_ports(schema, path, *, inputs=False):
     result = []
+    objects = schema["objects"]
     for field in fields(root_table(schema, path)):
+        if field.get("deprecated"):
+            continue
         name = field["name"]
+        where = f"{path}: port {name}"
         type_ = field["type"]
-        required = field.get("required", False)
-        marker = attributes(field).get("tsugumi")
-        if marker == "path" and type_.get("base_type") == "String":
-            result.append(Port(name, "string", "Path", required))
-        elif marker is None and type_.get("base_type") == "Obj":
-            obj = schema["objects"][type_["index"]]
-            if obj.get("is_struct", False):
-                raise ValueError(f"{path}: port {name} requires a table type")
-            result.append(Port(name, obj["name"], "FlatBuffer", required, merge_members(schema, obj)))
+        base = type_.get("base_type")
+        if base == "Union" and inputs:
+            union = schema["enums"][type_["index"]]
+            candidates = []
+            for variant in union["values"]:
+                if variant.get("value", 0) == 0:
+                    continue
+                member = variant["union_type"]
+                if member.get("base_type") != "Obj":
+                    raise ValueError(f"{where}: expected table candidates")
+                obj = objects[member["index"]]
+                if obj.get("is_struct"):
+                    raise ValueError(f"{where}: expected table candidates")
+                candidates.append(Candidate(schema_id(obj, where), obj["name"]))
+            if len(candidates) < 2 or len({v.schema for v in candidates}) != len(candidates):
+                raise ValueError(f"{where}: expected distinct Merge candidates")
+            result.append(Port(name, union["name"], True, tuple(candidates)))
+        elif base == "Obj" and not objects[type_["index"]].get("is_struct"):
+            obj = objects[type_["index"]]
+            type_name = obj["name"]
+            candidates = ()
+            collected_members = ()
+            if inputs:
+                if type_name == "tsugumi.builtin.Collected":
+                    schema_node = field if "tsugumi_schema" in attributes(field) else obj
+                    candidates = (Candidate(schema_id(schema_node, where), type_name),)
+                    prefix = f"inputs.{name}."
+                    collected_members = tuple(
+                        Candidate(schema_id(member, where), member["name"])
+                        for member in objects
+                        if member["name"].startswith(prefix) and "tsugumi_schema" in attributes(member)
+                    )
+                else:
+                    candidates = (Candidate(schema_id(field if "tsugumi_schema" in attributes(field) else obj, where), type_name),)
+            result.append(Port(name, type_name, field.get("required", False), candidates,
+                               collected_members))
         else:
-            raise ValueError(f"{path}: port {name} requires a table or string (tsugumi: \"path\")")
+            raise ValueError(f"{where}: expected a table port")
     return tuple(result)
 
 
 def load_card_schemas(schemas, reflection_fbs, *, flatc="flatc"):
     """Return typed ports and params, in declaration (field ID) order."""
-    inputs, outputs, params = (Path(schemas) / f"_{side}.fbs"
-                               for side in ("inputs", "outputs", "params"))
-    input_schema, output_schema, param_schema = (
-        reflect_schema(path, reflection_fbs, flatc=flatc)
-        for path in (inputs, outputs, params)
-    )
-    param_root = root_table(param_schema, params)
+    directory = Path(schemas)
+    inputs, outputs = (directory / f"_{side}.fbs" for side in ("inputs", "outputs"))
+    params = json.loads((directory / "param-types.json").read_text())
     return CardSchemas(
-        load_ports(input_schema, inputs),
-        load_ports(output_schema, outputs),
-        tuple(Param(field["name"], field_type(param_schema, field),
-                    field.get("required", False), field)
-              for field in fields(param_root)),
-        param_root["name"],
+        load_ports(reflect_schema(inputs, reflection_fbs, flatc=flatc), inputs, inputs=True),
+        load_ports(reflect_schema(outputs, reflection_fbs, flatc=flatc), outputs),
+        tuple(Param(name, type_) for name, type_ in params.items()),
     )
+
+
+def param_members(names, reserved):
+    """Map arbitrary param keys to distinct portable identifiers."""
+    used = set(reserved)
+    for name in names:
+        member = re.sub(r"[^A-Za-z0-9_]", "_", name)
+        if not member[0].isalpha() or "__" in member:
+            member = "param_" + re.sub(r"_+", "_", member).strip("_")
+        while member in used:
+            member += "_"
+        used.add(member)
+        yield member
 
 
 def write_api_readme(path, inputs, outputs, params):

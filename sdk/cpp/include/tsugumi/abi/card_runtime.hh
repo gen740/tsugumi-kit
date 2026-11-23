@@ -11,6 +11,7 @@
 #include <string_view>
 #include <vector>
 
+#include "tsugumi/protocol/artifact_generated.h"
 #include "tsugumi/protocol/card_enums_generated.h"
 
 namespace tsugumi {
@@ -71,6 +72,8 @@ auto GetInput(std::string_view name, const std::optional<U>& value) -> T {
 }  // namespace tsugumi
 
 namespace card {
+using Artifact = tsugumi::ArtifactT;
+
 namespace display {
 
 struct Markdown {
@@ -116,6 +119,14 @@ inline auto text_bytes(std::string_view text) -> std::span<const uint8_t> {
   return {reinterpret_cast<const uint8_t*>(text.data()), text.size()};
 }
 
+enum class ReceiveStatus { kMessage, kTimeout, kCancelled };
+
+struct Received {
+  ReceiveStatus status;
+  std::vector<uint8_t> bytes;
+};
+
+auto recv(std::string_view view, int64_t timeout_ms = -1) -> Received;
 auto send(std::string_view view, std::span<const uint8_t> bytes) -> int;
 auto send(std::string_view text) -> int;
 auto send(Markdown markdown) -> int;

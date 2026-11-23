@@ -1,5 +1,6 @@
 {
   lib,
+  abiHeaders,
   stdenv,
   runCommand,
   runCommandCC,
@@ -9,11 +10,12 @@
   portCodegen,
   cardInterface,
   publishApi,
+  paramValues,
 }:
 let
   generate =
     {
-      inputs,
+      inputs ? null,
       outputs,
       params ? { },
     }:
@@ -37,7 +39,7 @@ in
   cppCard =
     {
       src,
-      inputs,
+      inputs ? null,
       outputs,
       params ? { },
       buildInputs ? [ ],
@@ -51,10 +53,13 @@ in
     runCommandCC "tsugumi-cpp-card"
       {
         passthru = { inherit generated; };
+        nativeBuildInputs = [ (python3.withPackages (_: [ portCodegen ])) ];
         buildInputs = [ flatbuffers ] ++ buildInputs;
       }
       ''
         mkdir -p "$out/lib"
+        python3 ${../sdk/cpp/card_cpp.py} --params "${cardInterface { inherit inputs outputs params; }}" \
+          "${paramValues params}" "$TMPDIR/card_params.hh"
         ${
           if stdenv.hostPlatform.isDarwin then
             ''
@@ -78,7 +83,7 @@ in
         ${import ./prepare-tools.nix { inherit lib; } tools}
         $CXX -std=c++2c -O2 -DNDEBUG -fPIC -fvisibility=hidden -fvisibility-inlines-hidden \
           -Wall -Wextra -Werror -Wformat=2 -Wimplicit-fallthrough \
-          -shared "''${toolPathObject[@]}" "''${link[@]}" -I"${generated}/include" -I"${runtime}/include" \
+          -DTSUGUMI_EMBED_PARAMS -I"$TMPDIR" -shared "''${toolPathObject[@]}" "''${link[@]}" -I"${generated}/include" -I"${runtime}/include" \
           -I"${../sdk/cpp/src}" ${lib.escapeShellArgs sourceFlags} \
           "''${sources[@]}" "${generated}/src/card_adapter.cc" \
           "${runtime}/lib/libtsugumi_abi.a" ${lib.escapeShellArgs cxxflags} -pthread -o "$out/lib/main.so"
@@ -90,5 +95,7 @@ in
     in
     publishApi "cpp" ''
       cp "${generated}/README.md" "${generated}/include/"*.h "${generated}/include/card.hh" "$api/"
+      cp -R --no-preserve=mode "${abiHeaders}/include/tsugumi" "$api/"
+      install -Dm644 ${../sdk/cpp/include/tsugumi/abi/card_runtime.hh} "$api/tsugumi/abi/card_runtime.hh"
     '';
 }

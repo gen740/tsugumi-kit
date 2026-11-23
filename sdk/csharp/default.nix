@@ -7,6 +7,7 @@ import ./build.nix {
   inherit pkgs;
   cppRuntime = deps.runtime;
 }
+// (import ../input { inherit pkgs; })
 // {
   views = deps.views.common;
 }

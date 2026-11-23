@@ -177,3 +177,8 @@ def _plotly_encoder():
     # Plotly's encoder also handles NumPy arrays, dates and non-finite values.
     from plotly.utils import PlotlyJSONEncoder
     return PlotlyJSONEncoder
+
+
+def recv(view: str, timeout: int = -1) -> tuple[str, bytes | None]:
+    """Return (message, bytes), (timeout, None), or (cancelled, None)."""
+    return _host.recv(view, timeout)

@@ -1,118 +1,65 @@
-# Python SDK for the Card ABI
+# Python SDK
 
-A Python Card puts its entry function in `src/main.py`. The SDK embeds
-CPython in the Card's `lib/main.so`.
-
-```nix
-{ params, inputs }:
-let
-  pkgs = import <nixpkgs> { };
-  sdk = import <tsugumi-kit/sdk/python> { inherit pkgs; };
-  common = {
-    inherit params;
-    inputs = ./_inputs.fbs;
-    outputs = ./_outputs.fbs;
-  };
-in
-{
-  run = sdk.pythonCard (common // { src = ./src; });
-  api = sdk.pythonApi common;
-  views = sdk.views;
-}
-```
-
-`pythonApi` publishes `card.pyi`, the FlatBuffers object stubs, and a typed
-README under `share/tsugumi/api/`. Use **Build SDK** in the Card editor to
-inspect the API for the current wiring.
+Import `<tsugumi-kit/sdk/python> { inherit pkgs; }` in the Card definition.
+Call `sdk.pythonCard` with the evaluated `params`, schema paths `inputs`
+and `outputs`, and a `src` directory containing `main.py`. Use those same
+schema paths and params with `sdk.pythonApi` for the generated type stubs.
+Pass optional Python dependencies with `packages = ps: [ ps.numpy ];`.
+See the shared [Card SDK contract](sdk-contract.md) for the definition.
 
 ```python
-from pathlib import Path
-
-import tsugumi
-from card import Input, Output
+from card import Input, Output, params
+from results.Number import NumberT
 
 
 def run(input: Input) -> Output:
-    text = input.require("text").value
-    path = Path("message.txt")
-    path.write_bytes((text or b"") + b"\n")
-    tsugumi.send(str(path))
-    return Output(file=path)
+    sample = input.require("sample")
+    return Output(result=NumberT(value=sample.value + params.offset))
 ```
 
-The [Python starter](../templates/python-write-text/) uses this entry with a
-FlatBuffer `text` input and a Path `file` output.
+The SDK uses FlatBuffers object types for schema tables. For a Merge with
+multiple candidates, narrow the generated union with `isinstance`.
+A Collect port decodes to a `CollectedT` whose items contain schema IDs,
+payload bytes and Artifact IDs. Output properties default to `None`.
+Populate every `(required)` output. The generated `params` is a frozen
+`Params` instance with typed scalar fields and tuples for list values.
+Python uses the pinned flatc generator, which supports single union fields
+and vectors of tables. For a vector of union values, put the union in a
+table and use a vector of that table.
 
-## Inputs and outputs
-
-Use `input.require("text")` to get the generated type `T`. If the value is
-absent, the SDK returns `input_missing` and names the port, including when the
-port is disconnected. Use `input.get("text")` or the generated attribute
-`input.text` for `T | None`. Disconnected inputs are absent from the generated
-attributes, and `get()` returns `None` for their names. Methods use the wire
-name. Generated attributes append underscores where needed to avoid
-keywords and collisions.
-
-Path inputs are filesystem strings. Outputs accept strings and
-`os.PathLike[str]` objects such as `pathlib.Path`. Return the input string
-unchanged to forward an input. Create new files or directories under the
-call's working directory and finish writing before returning their paths.
-
-FlatBuffer ports use flatc's generated object types, for example
-`outputs.result.Number.NumberT`. Ordinary FlatBuffers string accessors
-return bytes. For an ordinary union, set its tag and value to the matching
-generated variant. A mixed Merge appears as a Python union such as
-`TemperatureT | ReadingT`. Use `isinstance` to select an input variant and
-return a member object on an output of that union. The SDK verifies and
-handles the nested buffers. Optional outputs default to `None`, and an
-omitted required output produces `output_invalid`.
-
-## Interpreter and tools
-
-Use `python` to select a nixpkgs interpreter and `packages` to select packages
-from it, for example `packages = ps: [ ps.matplotlib ];`. Declare executables
-with `tools = [ pkgs.coreutils ];` to use them through `subprocess.run`.
-[Runtime tools](../README.md#runtime-tools)
-
-## Views and failures
-
-Use `tsugumi.send(value)` for text, numbers, `Markdown`, `Scalar`, `Table`,
-`Image`, `LineChart`, `Points`, and `Plotly`. Declare `views = sdk.views;`
-alongside `run` in your Card's `default.nix`.
+## Artifacts
 
 ```python
-tsugumi.send(tsugumi.LineChart([
-    tsugumi.LineSeries("squared", "Squared", [0, 1, 2], [0, 1, 4]),
-]))
-tsugumi.send(tsugumi.Points([1, 0], [0, 1], [0, 0], colors=[0xff4040, 0x40aa40]))
+from card import Artifact
+
+artifact, directory = Artifact.dir()
+(directory / "report.txt").write_text("complete\n")
+result = Output(report=artifact)
 ```
 
-Each line series takes equal-length finite x/y sequences. Point coordinates
-are x/y/z sequences of the same length. Omit colors to use the default, or
-provide one packed `0xRRGGBB` integer per point. The point view skips non-finite
-positions.
+Use `Artifact.upload(path)` to copy a file or directory into a new
+Artifact. On a granted input, `artifact.open()` returns its read-only
+`pathlib.Path`. To forward the same ID, return the Artifact in an output.
+The SDK lists IDs from nested tables, vectors and active union members
+when packing the output.
 
-Append custom views with `views = sdk.views ++ [ ... ];` and publish their
-payloads with `tsugumi.send(view, bytes)`. The named view defines the bytes'
-format. Argument and encoding errors raise exceptions before calling the host.
-The SDK raises `RuntimeError` if the host cannot accept the message.
-See the [view protocol](cpp-sdk.md#display-a-value).
+## Display
 
-Call `tsugumi.send(tsugumi.Plotly(fig))` with a Plotly figure, or pass a
-figure dictionary to `tsugumi.Plotly`. Add `packages = ps: [ ps.plotly ];` to
-construct figures with Plotly in Python. A JSON-compatible dictionary works
-without that Python dependency. The HTML file embeds Plotly.js.
+Return `views = sdk.views;` to declare the bundled HTML views.
+Use `tsugumi.display.send(value)` for a bundled view, or
+`tsugumi.display.send(view, bytes)` for custom data. The SDK also exposes
+the bundled value classes from `tsugumi`, including `LineChart`,
+`LineSeries`, `Points` and `Plotly`.
 
-The SDK sets `MPLCONFIGDIR` under `HOME` before importing the Card.
-With Matplotlib installed, use `tsugumi.send(tsugumi.mpl.figure(fig))`
-after importing `tsugumi.mpl`. The adapter uses IPAexGothic as a fallback for
-Japanese glyphs when rendering the figure. Card threads can send live updates
-between calls. Between calls `tsugumi.cancelled()` returns true and
-`tsugumi.remaining_ms()` returns zero.
+```python
+from tsugumi import display
 
-Raise `tsugumi.Failure("validation_failed", message)` to control the failure
-kind. Unhandled Python exceptions produce a `worker_failed` result. The
-SDK reports the source line when it can identify a frame in the Card source.
+display.send("Processing complete")
+status, data = display.recv("controls", 500)
+```
 
-Build `checks.<system>.pythonAbi` to run the Python Card with the shared
-fake host.
+The returned status is `"message"`, `"timeout"` or `"cancelled"`.
+Data is `bytes` for a message and `None` for the other statuses.
+Display effects remain available to Python threads after `run` returns.
+Use `tsugumi.cancelled()` and `tsugumi.remaining_ms()` inside the call.
+Raise `tsugumi.Failure("output_invalid", message)` to return a typed failure.

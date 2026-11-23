@@ -7,6 +7,7 @@ import ../../nix/ruby-card.nix {
   inherit pkgs;
   inherit (deps) runtime;
 }
+// (import ../input { inherit pkgs; })
 // {
   views = deps.views.common;
 }

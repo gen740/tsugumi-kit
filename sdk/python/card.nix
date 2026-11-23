@@ -9,12 +9,13 @@
   portCodegen,
   cardInterface,
   publishApi,
+  paramValues,
   runtime,
 }:
 let
   generate =
     {
-      inputs,
+      inputs ? null,
       outputs,
       params ? { },
     }:
@@ -29,16 +30,15 @@ let
         ];
       }
       ''
-        abi=${../../abi}
         PYTHONPATH="${../cpp}''${PYTHONPATH:+:$PYTHONPATH}" \
           python3 ${./generate.py} ${lib.escapeShellArg "${interface}"} "$out" \
           ${flatbuffers.src}/reflection/reflection.fbs
-        flatc --python --gen-object-api -o "$out/wire" "$abi/card_enums.fbs" "$abi/card.fbs"
+
       '';
   pythonCard =
     {
       src,
-      inputs,
+      inputs ? null,
       outputs,
       params ? { },
       python ? python3,
@@ -53,6 +53,7 @@ let
     in
     runCommandCC "tsugumi-python-card"
       {
+        nativeBuildInputs = [ (python3.withPackages (_: [ portCodegen ])) ];
         buildInputs = [
           flatbuffers
           python
@@ -64,6 +65,9 @@ let
         mkdir -p "$out/lib/python/tsugumi" "$out/lib/python-wire"
         cp -R --no-preserve=mode "${bindings}/python/." "$out/lib/python/"
         cp -R "${./tsugumi}/." "$out/lib/python/tsugumi/"
+        PYTHONPATH="${../cpp}''${PYTHONPATH:+:$PYTHONPATH}" \
+          python3 ${./generate.py} --params "${cardInterface { inherit inputs outputs params; }}" \
+            "${paramValues params}" "$out/lib/python/card_params.py"
         if [ -d "${pythonEnv}/${python.sitePackages}/matplotlib" ]; then
           ln -s ${ipaexGothic}/share/fonts/truetype/ipaexg.ttf "$out/lib/python/tsugumi/"
         fi

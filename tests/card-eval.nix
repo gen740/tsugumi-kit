@@ -44,7 +44,7 @@ rec {
       changed = call definition (args // { params = args.params // changes; });
     in
     assert pkgs.lib.assertMsg (
-      original.run.drvPath == changed.run.drvPath && original.api.drvPath == changed.api.drvPath
-    ) "${toString definition}: a parameter value changed the run or api derivation";
+      original.run.drvPath != changed.run.drvPath && original.api.drvPath == changed.api.drvPath
+    ) "${toString definition}: parameter values must affect run while preserving api";
     original;
 }
