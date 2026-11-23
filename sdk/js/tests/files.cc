@@ -32,9 +32,15 @@ auto ThreadCount() -> int {
 #endif
 
 // Registered before the Card loads, so it runs after the Card's exit
-// handler and libnode's static destructors.
+// handler and libnode's static destructors. On Linux, pthread_join returns
+// when the kernel clears the thread ID, slightly before the thread leaves
+// /proc/self/task, so give joined threads a moment to be reaped.
 auto CheckStoppedAtExit() -> void {
-  const int threads = ThreadCount();
+  int threads = ThreadCount();
+  for (int i = 0; threads != 1 && i < 200; ++i) {
+    usleep(10'000);
+    threads = ThreadCount();
+  }
   if (threads == 1) return;
   std::fprintf(stderr, "Node.js left %d threads running at exit\n",
                threads - 1);
