@@ -3,7 +3,7 @@
     { pkgs, kit, ... }:
     let
       note =
-        (import ../tests/card-eval.nix { inherit pkgs; }).call ../tests/templates/csharp-write-note
+        (import ../tests/card-eval.nix { inherit pkgs; }).call ../templates/csharp-write-note/note
           { };
     in
     {

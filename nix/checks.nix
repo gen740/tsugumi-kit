@@ -35,7 +35,7 @@
         let
           fixtureEval = import ../tests/card-eval.nix { inherit pkgs; };
           definition = fixtureEval.call definitionDir {
-            inputs = fixtureEval.inputs ../tests/templates/text-to-path;
+            inputs = fixtureEval.inputs ../tests/templates/text-required;
           };
         in
         assert builtins.elem "text" (map (view: view.name) definition.views);
@@ -74,14 +74,14 @@
       }
       // lib.optionalAttrs (enabled "java") {
         javaAbi = pkgs.callPackage ./java-check.nix { inherit kit; };
-        javaWriteTextTemplate = checkTextTemplate "java-write-text" ../tests/templates/java-write-text [
+        javaWriteTextTemplate = checkTextTemplate "java-write-text" ../templates/java-write-text/write [
           "main.so"
           "card.jar"
         ];
       }
       // lib.optionalAttrs (enabled "go") {
         goNormalizeTextTemplate =
-          checkTextTemplate "go-normalize-text" ../tests/templates/go-normalize-text
+          checkTextTemplate "go-normalize-text" ../templates/go-normalize-text/normalize
             [
               "main.so"
               "go-card.so"
@@ -89,7 +89,7 @@
       }
       // lib.optionalAttrs (enabled "rust") {
         rustNumberLinesTemplate =
-          checkTextTemplate "rust-number-lines" ../tests/templates/rust-number-lines
+          checkTextTemplate "rust-number-lines" ../templates/rust-number-lines/number
             [ "main.so" ];
       };
     };

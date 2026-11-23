@@ -17,4 +17,6 @@ upcoming Card ABI integration in Tsugumi.
 | [Write a note with C#](csharp-write-note/) | A C# Card that writes a parameter to a Path output. |
 | [Write a note with JavaScript](js-write-note/) | A Node.js Card that writes a parameter to a text File and displays its byte count. |
 
-See the [template guide](../docs/templates.md) for the format and Git import fields.
+Project templates carry `tsugumi.json` and `tsugumi.lock` with the nixpkgs
+and SDK source pins. Card-only templates use the destination project's
+`nixPath`. See the [template guide](../docs/templates.md) for the format and Git import fields.

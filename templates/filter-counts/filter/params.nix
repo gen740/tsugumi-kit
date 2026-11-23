@@ -1,0 +1,3 @@
+{
+  run.minimum = 10;
+}

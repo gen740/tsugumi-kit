@@ -23,11 +23,11 @@ let
     inherit (common) inputs outputs params;
     src = fixture + "/src";
   };
-  note = fixtureEval.call ../tests/templates/js-write-note { };
+  note = fixtureEval.call ../templates/js-write-note/note { };
   noteInterface = (import ./card-interface.nix { inherit pkgs; }) {
     inputs = { };
     outputs = ../templates/js-write-note/note/_outputs.fbs;
-    params = ../tests/templates/js-write-note/params.nix;
+    params = ../templates/js-write-note/note/params.nix;
   };
   tests = lib.fileset.toSource {
     root = ../tests;

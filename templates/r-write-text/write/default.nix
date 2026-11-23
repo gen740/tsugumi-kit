@@ -1,16 +1,15 @@
-{
-  pkgs,
-  params,
-  inputs,
-  schemas,
-}:
+{ params, inputs }:
 let
-  sdk = inputs.tsugumi.rSdk;
+  pkgs = import <nixpkgs> { };
+  sdk = import <tsugumi-kit/sdk/r> { inherit pkgs; };
+  common = {
+    inherit inputs;
+    outputs = ./_outputs.fbs;
+    params = ./params.nix;
+  };
 in
 {
-  run = sdk.rCard {
-    inherit schemas;
-    src = ./src;
-  };
+  run = sdk.rCard (common // { src = ./src; });
+  api = sdk.rApi common;
   views = sdk.views;
 }

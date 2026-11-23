@@ -17,7 +17,7 @@ let
   };
   definition = fixtureEval.call ./card { inherit (common) inputs; };
   card = definition.run;
-  starter = fixtureEval.call ../templates/r-write-text {
+  starter = fixtureEval.call ../../templates/r-write-text/write {
     inputs = fixtureEval.inputs ../templates/text-to-path;
   };
   inherit (stdenv.hostPlatform) isDarwin;

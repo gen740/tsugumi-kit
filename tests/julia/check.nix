@@ -26,7 +26,7 @@ let
   };
   definition = fixtureEval.call ./card { inherit (common) inputs; };
   card = definition.run;
-  starter = fixtureEval.call ../templates/julia-write-text {
+  starter = fixtureEval.call ../../templates/julia-write-text/write {
     inputs = fixtureEval.inputs ../templates/text-to-path;
   };
 in

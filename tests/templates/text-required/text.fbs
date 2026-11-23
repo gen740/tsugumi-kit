@@ -1,0 +1,6 @@
+attribute "tsugumi";
+namespace inputs.text;
+table Text { value:string (id: 0, required); }
+namespace inputs;
+table Inputs { text:inputs.text.Text (id: 0); }
+root_type Inputs;

@@ -40,13 +40,13 @@ let
     buildInputs = [ zlib ];
     inherit (params.build) cxxflags;
   };
-  filter = fixtureEval.call ../tests/templates/filter-counts {
+  filter = fixtureEval.call ../templates/filter-counts/filter {
     inputs = fixtureEval.inputs ../tests/templates/filter-counts;
   };
-  convert = fixtureEval.call ../tests/templates/temperature-conversion {
+  convert = fixtureEval.call ../templates/temperature-conversion/convert {
     inputs = fixtureEval.inputs ../tests/templates/temperature-conversion;
   };
-  convertUnwired = fixtureEval.call ../tests/templates/temperature-conversion { };
+  convertUnwired = fixtureEval.call ../templates/temperature-conversion/convert { };
   inherit (stdenv.hostPlatform) isDarwin;
 in
 assert definition.views == sdk.views;

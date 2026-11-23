@@ -1,12 +1,3 @@
 {
-  "type": "code",
-  "params": [
-    {
-      "name": "text",
-      "type": "string",
-      "data": {
-        "string": "Hello from C#!"
-      }
-    }
-  ]
+  "type": "code"
 }

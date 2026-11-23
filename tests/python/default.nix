@@ -23,7 +23,7 @@ let
       params = { inherit withTools; };
     };
   card = (definition false).run;
-  starter = fixtureEval.call ../templates/python-write-text {
+  starter = fixtureEval.call ../../templates/python-write-text/write {
     inputs = fixtureEval.inputs ../templates/text-to-path;
   };
   withTools = (definition true).run;

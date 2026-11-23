@@ -7,6 +7,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -76,7 +77,7 @@ auto run(const Card::Inputs& input) -> Card::Output {
     const auto counts = row.substr(comma + 1);
     const auto channel_number = ParseNumber(channel, line_number);
     const auto count = ParseNumber(counts, line_number);
-    if (count >= input.params.minimum) {
+    if (std::cmp_greater_equal(count, input.params.minimum)) {
       filtered << row << '\n';
       if (preview.size() < kPreviewRows) {
         preview.push_back({std::string(channel), std::string(counts)});

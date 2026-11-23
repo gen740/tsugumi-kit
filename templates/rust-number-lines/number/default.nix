@@ -1,17 +1,21 @@
-{
-  pkgs,
-  params,
-  inputs,
-  schemas,
-}:
+{ params, inputs }:
 let
-  sdk = inputs.tsugumi.rustSdk;
+  pkgs = import <nixpkgs> { };
+  sdk = import <tsugumi-kit/sdk/rust> { inherit pkgs; };
+  common = {
+    inherit inputs;
+    outputs = ./_outputs.fbs;
+    params = ./params.nix;
+  };
 in
 {
-  run = sdk.rustCard {
-    inherit schemas;
-    src = ./src;
-    sourcePrefix = "src";
-  };
+  run = sdk.rustCard (
+    common
+    // {
+      src = ./src;
+      sourcePrefix = "src";
+    }
+  );
+  api = sdk.rustApi common;
   views = sdk.views;
 }

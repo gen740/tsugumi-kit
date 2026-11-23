@@ -36,7 +36,7 @@ let
       hash = "sha256-5kqVDjqNFrsQddobC5KlZFUALvji0gKYs/Bbur3Mf8w=";
     }
   );
-  starter = fixtureEval.call ../templates/ruby-write-text {
+  starter = fixtureEval.call ../../templates/ruby-write-text/write {
     inputs = fixtureEval.inputs ../templates/text-to-path;
   };
   inherit (stdenv.hostPlatform) isDarwin;

@@ -1,12 +1,3 @@
 {
-  "type": "input",
-  "params": [
-    {
-      "name": "value",
-      "type": "string",
-      "data": {
-        "string": "Hello from Java!"
-      }
-    }
-  ]
+  "type": "input"
 }
