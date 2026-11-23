@@ -1,0 +1,4 @@
+include "tsugumi/artifact.fbs";
+
+table Outputs { file:tsugumi.Artifact (required); }
+root_type Outputs;

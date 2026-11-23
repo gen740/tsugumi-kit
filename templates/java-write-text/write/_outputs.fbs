@@ -1,4 +1,0 @@
-attribute "tsugumi";
-
-table Outputs { file:string (required, tsugumi: "path"); }
-root_type Outputs;

@@ -5,17 +5,17 @@ upcoming Card ABI integration in Tsugumi.
 
 | Template | What you can copy |
 | --- | --- |
-| [Filter channel counts](filter-counts/) | A C++ Card that filters a CSV File, forwards the original and shows a live table preview. |
+| [Filter channel counts](filter-counts/) | A C++ Card that filters a CSV Artifact, forwards the original and shows a live table preview. |
 | [Convert a temperature](temperature-conversion/) | An Input Card wired to a C++ Card, with a layout fragment for the pair. |
-| [Normalize text with Go](go-normalize-text/) | An Input Card wired to a Go Card that collapses whitespace and returns a text file on a Path port. |
-| [Number lines with Rust](rust-number-lines/) | An Input Card wired to a Rust Card that numbers the lines and returns a text file on a Path port. |
-| [Write text with Python](python-write-text/) | An Input Card wired to a Python Card that writes text to a Path output. |
-| [Write text with Julia](julia-write-text/) | A Julia Card that writes a FlatBuffer string to a Path output. |
-| [Write text with R](r-write-text/) | An R Card that writes a FlatBuffer string to a Path output. |
-| [Write text with Ruby](ruby-write-text/) | A Ruby Card that writes a FlatBuffer string to a Path output. |
-| [Write text with Java](java-write-text/) | An Input Card wired to a Java Card that displays the text and returns it on a Path port. |
-| [Write a note with C#](csharp-write-note/) | A C# Card that writes a parameter to a Path output. |
-| [Write a note with JavaScript](js-write-note/) | A Node.js Card that writes a parameter to a text File and displays its byte count. |
+| [Normalize text with Go](go-normalize-text/) | An Input Card wired to a Go Card that collapses whitespace and returns a one-file Artifact. |
+| [Number lines with Rust](rust-number-lines/) | An Input Card wired to a Rust Card that numbers the lines and returns a one-file Artifact. |
+| [Write text with Python](python-write-text/) | An Input Card wired to a Python Card that returns a text Artifact. |
+| [Write text with Julia](julia-write-text/) | A Julia Card that returns an Artifact from a FlatBuffer string. |
+| [Write text with R](r-write-text/) | An R Card that returns an Artifact from a FlatBuffer string. |
+| [Write text with Ruby](ruby-write-text/) | A Ruby Card that returns an Artifact from a FlatBuffer string. |
+| [Write text with Java](java-write-text/) | An Input Card wired to a Java Card that displays the text and returns a one-file Artifact. |
+| [Write a note with C#](csharp-write-note/) | A C# Card that writes a parameter to an Artifact. |
+| [Write a note with JavaScript](js-write-note/) | A Node.js Card that writes a parameter to a text Artifact and displays its byte count. |
 
 Project templates carry `tsugumi.json` and `tsugumi.lock` with the nixpkgs
 and SDK source pins. Card-only templates use the destination project's

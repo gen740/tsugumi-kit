@@ -1,4 +1,4 @@
-attribute "tsugumi";
+include "tsugumi/artifact.fbs";
 
-table Outputs { file:string (required, tsugumi: "path"); }
+table Outputs { file:tsugumi.Artifact (required); }
 root_type Outputs;

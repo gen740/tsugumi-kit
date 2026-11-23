@@ -11,17 +11,15 @@ filter-counts/
   README.md
   filter/
     _card.json
-    _inputs.fbs
     _outputs.fbs
     params.nix
     default.nix
     src/card.cc
 ```
 
-Include Tsugumi's generated `_inputs.fbs` in every Code Card definition.
-It describes the template's internal connections and has an empty
-`inputs.Inputs` table for a Card without incoming wires. Tsugumi regenerates
-it from the project's wiring and upstream output types.
+For a wired project template, keep the generated `_inputs.fbs` in the
+destination Card definition. Tsugumi regenerates it from the project's
+wiring and upstream output types. The file is absent for unwired Cards.
 
 A Card declares its views alongside `run` and `exports` in `default.nix`.
 Set `views = sdk.views;` for the bundled views, or append your own entries
@@ -33,20 +31,20 @@ Both C++ templates include the bundled HTML views. The CSV filter uses
 executables, pass `tools = [ pkgs.coreutils ];` inside the builder call and
 import `pkgs` with `import <nixpkgs> { }` inside `default.nix`.
 
-[Display a value](cpp-sdk.md#display-a-value) · [Runtime tools](../README.md#runtime-tools)
+[Display a value](cpp-sdk.md#display) · [Runtime tools](../README.md#runtime-tools)
 
 The Go and Rust starters use the bundled `text` view from their SDK.
-Each takes a string from `settings`, writes a text file in the Card's working
-directory and returns its path on a Path port.
+Each takes a string from `settings` and returns a one-file Artifact.
 
 A template may include a `layout.bin` fragment (the FlatBuffers layout a project keeps, `protocol/layout_document.fbs` in Tsugumi) with positions for its Cards. A graph's **connections** specify which output port feeds which input port. Layout coordinates only tell the UI where to draw the Cards. In the temperature example, both definition directories, the internal wire and the layout travel together.
 
 On copy, the core allocates fresh Card IDs and remaps references in the copied graph and layout. Copying the temperature pair twice should produce two independent pairs, each with its own internal wire. Connect ports at the boundary of each copy to the rest of your project.
 
 Project templates carry `tsugumi.json` and `tsugumi.lock`. The declaration
-names nixpkgs and tsugumi-kit. The lock's `nixPath` object maps each name to
-a locked URL with its revision and `narHash`. A project created from the
-template keeps both files. Copied Cards use the destination project's
+names nixpkgs and tsugumi-kit. The lock's `entries` list records each name,
+its declared URL, the resolved revision and the `narHash`. Project templates
+keep their Card definitions under `definitions/<id>/`. A project created
+from the template keeps the declaration and lock files. Copied Cards use the destination project's
 `nixPath`. See the
 [temperature project](../templates/temperature-conversion/tsugumi.json), its
 [lock](../templates/temperature-conversion/tsugumi.lock), and its

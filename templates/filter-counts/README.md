@@ -2,7 +2,7 @@
 
 One C++ Card keeps detector channels whose count meets a threshold. **Targets the unreleased Card ABI.** This template will not build in released Tsugumi until the Card ABI PR lands.
 
-Connect an upstream **Path** output containing a CSV file to `filter.counts`. The example accepts a narrow CSV format: the header `channel,counts`, then two unquoted unsigned 64-bit decimal integers per line, with LF or CRLF endings. A malformed row fails the call and reports its line number.
+Connect an upstream `tsugumi.Artifact` output containing one CSV file to `filter.counts`. The example accepts a narrow CSV format: the header `channel,counts`, then two unquoted unsigned 64-bit decimal integers per line, with LF or CRLF endings. A malformed row fails the call and reports its line number.
 
 ```csv
 channel,counts
@@ -11,7 +11,7 @@ channel,counts
 3,17
 ```
 
-With the default `minimum` of 10, `filter.filtered` is a new CSV file containing the header and rows `2,10` and `3,17`. The Card shows a live table and line chart of the first ten matching rows and forwards the original path unchanged on `filter.original`. If no rows match, the new file contains just the header.
+With the default `minimum` of 10, `filter.filtered` is a new CSV file containing the header and rows `2,10` and `3,17`. The Card shows a live table and line chart of the first ten matching rows and forwards the original Artifact on `filter.original`. If no rows match, the new file contains just the header.
 
 The Card's `default.nix` declares the C++ SDK's bundled HTML views with `views = sdk.views`, including the `table` and `line-chart` views used for the preview.
 

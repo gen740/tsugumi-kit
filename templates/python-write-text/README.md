@@ -1,7 +1,7 @@
 # Write text with Python
 
 An Input Card supplies text to a Python Card that writes it to `message.txt`,
-displays the filename, and returns the file on a Path port.
+displays the filename, and returns a one-file Artifact.
 **Targets the unreleased Card ABI.**
 
 ```text

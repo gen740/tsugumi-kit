@@ -1,7 +1,7 @@
 # Write text with Java
 
 An Input Card supplies text to a Java Card. The Java Card displays the text,
-writes it to `message.txt` as UTF-8, and returns it on the Path port `file`.
+writes it to `message.txt` as UTF-8, and returns it on the Artifact output `file`.
 **Targets the Card ABI.**
 
 ```text
@@ -12,4 +12,4 @@ settings.text → write.text
 Change `settings.value` to try a different message.
 
 Use `templates/java-write-text` as the Git import subdirectory.
-[Template guide](../../docs/templates.md) · [Java source](write/src/card/Main.java)
+[Template guide](../../docs/templates.md) · [Java source](definitions/write/src/card/Main.java)

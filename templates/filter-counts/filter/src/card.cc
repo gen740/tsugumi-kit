@@ -42,8 +42,19 @@ auto ParseNumber(std::string_view field, std::size_t line_number)
 }  // namespace
 
 auto run(const Card::Inputs& input) -> Card::Output {
-  const auto counts_path = input.get<std::filesystem::path>("counts");
-  std::ifstream source(counts_path);
+  const auto original = input.get<card::Artifact>("counts");
+  const auto directory = original.open();
+  auto file = std::filesystem::directory_iterator(directory);
+  if (file == std::filesystem::directory_iterator() ||
+      !file->is_regular_file()) {
+    throw tsugumi::Failure(FailureKind::input_invalid,
+                           "Expected one CSV file in the counts Artifact");
+  }
+  std::ifstream source(file->path());
+  if (++file != std::filesystem::directory_iterator()) {
+    throw tsugumi::Failure(FailureKind::input_invalid,
+                           "Expected one CSV file in the counts Artifact");
+  }
   if (!source) {
     throw tsugumi::Failure(FailureKind::invalid_request, "Cannot open counts");
   }
@@ -53,7 +64,8 @@ auto run(const Card::Inputs& input) -> Card::Output {
                            "Expected the header channel,counts");
   }
 
-  const auto path = std::filesystem::current_path() / "filtered.csv";
+  auto [filtered_artifact, output_directory] = card::Artifact::dir();
+  const auto path = output_directory / "filtered.csv";
   std::ofstream filtered(path);
   filtered << line << '\n';
   const std::vector<std::string> columns{"channel", "counts"};
@@ -77,7 +89,7 @@ auto run(const Card::Inputs& input) -> Card::Output {
     const auto counts = row.substr(comma + 1);
     const auto channel_number = ParseNumber(channel, line_number);
     const auto count = ParseNumber(counts, line_number);
-    if (std::cmp_greater_equal(count, input.params.minimum)) {
+    if (std::cmp_greater_equal(count, Card::params.minimum)) {
       filtered << row << '\n';
       if (preview.size() < kPreviewRows) {
         preview.push_back({std::string(channel), std::string(counts)});
@@ -97,7 +109,7 @@ auto run(const Card::Inputs& input) -> Card::Output {
       {"counts", "Counts by channel", preview_channels, preview_counts}};
   card::display::send(card::display::LineChart{series});
   Card::Output output;
-  output.filtered = path;
-  output.original = counts_path;
+  output.filtered = std::move(filtered_artifact);
+  output.original = original;
   return output;
 }

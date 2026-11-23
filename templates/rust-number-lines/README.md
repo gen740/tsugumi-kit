@@ -13,7 +13,7 @@ Card accepts LF and CRLF input, writes LF line endings and displays the
 output filename live. Change `settings.value` to try another input.
 
 Use `templates/rust-number-lines` as the Git import subdirectory.
-[Template guide](../../docs/templates.md) · [Rust source](number/src/src/lib.rs)
+[Template guide](../../docs/templates.md) · [Rust source](definitions/number/src/src/lib.rs)
 
 The Card build publishes its typed API under `share/tsugumi/api/`.
 [Rust SDK guide](../../docs/rust-sdk.md)

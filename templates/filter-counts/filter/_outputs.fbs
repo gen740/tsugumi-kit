@@ -1,8 +1,8 @@
-attribute "tsugumi";
+include "tsugumi/artifact.fbs";
 namespace counts;
 
 table Outputs {
-  filtered:string (required, tsugumi: "path");
-  original:string (required, tsugumi: "path");
+  filtered:tsugumi.Artifact (required);
+  original:tsugumi.Artifact (required);
 }
 root_type Outputs;
