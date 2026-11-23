@@ -13,15 +13,17 @@ let
   common = {
     inputs = fixtureEval.inputs (./ports);
     outputs = ./interface/_outputs.fbs;
-    params = ./interface/params.nix;
+    params = import ./interface/params.nix;
   };
   interface = (import ../../nix/card-interface.nix { inherit pkgs; }) common;
   definition =
     withTools:
-    fixtureEval.call ./card.nix {
+    fixtureEval.callWithParamCheck ./card.nix {
       inherit (common) inputs;
-      params = { inherit withTools; };
-    };
+      params = common.params // {
+        inherit withTools;
+      };
+    } { mode = 1; };
   card = (definition false).run;
   starter = fixtureEval.call ../../templates/python-write-text/write {
     inputs = fixtureEval.inputs ../templates/text-to-path;
@@ -37,6 +39,8 @@ let
   };
   inherit (stdenv.hostPlatform) isDarwin;
 in
+assert card.drvPath != withTools.drvPath;
+assert (definition false).api.drvPath == (definition true).api.drvPath;
 assert (definition false).views == sdk.views && starter.views == sdk.views;
 assert !(card ? views);
 assert

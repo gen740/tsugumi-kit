@@ -3,9 +3,8 @@ let
   pkgs = import <nixpkgs> { };
   sdk = import <tsugumi-kit/sdk/r> { inherit pkgs; };
   common = {
-    inherit inputs;
+    inherit inputs params;
     outputs = ../interface/_outputs.fbs;
-    params = ../interface/params.nix;
   };
   runtime = (import <tsugumi-kit> { inherit pkgs; }).cppRuntime;
   # The fixture's native extension calls the SDK's registered C effects.

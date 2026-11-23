@@ -1,5 +1,5 @@
 { pkgs }:
-{
+rec {
   inputs =
     directory:
     pkgs.lib.mapAttrs'
@@ -28,8 +28,11 @@
 
   call =
     definition:
+    let
+      paramsFile = definition + "/params.nix";
+    in
     {
-      params ? { },
+      params ? (if builtins.pathExists paramsFile then import paramsFile else { }),
       inputs ? { },
     }:
     builtins.scopedImport {
@@ -52,4 +55,15 @@
         else
           builtins.import path;
     } definition { inherit params inputs; };
+
+  callWithParamCheck =
+    definition: args: changes:
+    let
+      original = call definition args;
+      changed = call definition (args // { params = args.params // changes; });
+    in
+    assert pkgs.lib.assertMsg (
+      original.run.drvPath == changed.run.drvPath && original.api.drvPath == changed.api.drvPath
+    ) "${toString definition}: a parameter value changed the run or api derivation";
+    original;
 }

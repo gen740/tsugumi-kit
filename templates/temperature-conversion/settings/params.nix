@@ -1,3 +1,3 @@
 {
-  run.value = 20.0;
+  value = 20.0;
 }

@@ -21,14 +21,14 @@ export default async function run({ params }, { cancelled, display }) {
 
 The [note template](../templates/js-write-note/) includes the matching Card
 definition. Declare input ports in `_card.json`, output types in `_outputs.fbs`, and
-parameter defaults in `params.nix`. Select the SDK in `default.nix`.
+current parameter values in `params.nix`. Select the SDK in `default.nix`.
 
 ```nix
 { params, inputs }:
 let
   pkgs = import <nixpkgs> { };
   sdk = import <tsugumi-kit/sdk/js> { inherit pkgs; };
-  common = { inherit inputs; outputs = ./_outputs.fbs; params = ./params.nix; };
+  common = { inherit inputs params; outputs = ./_outputs.fbs; };
 in
 {
   run = sdk.jsCard (common // { src = ./src; });

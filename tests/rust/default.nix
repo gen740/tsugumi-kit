@@ -11,15 +11,17 @@ let
   common = {
     inputs = fixtureEval.inputs (./ports);
     outputs = ./interface/_outputs.fbs;
-    params = ./interface/params.nix;
+    params = import ./interface/params.nix;
   };
   interface = (import ../../nix/card-interface.nix { inherit pkgs; }) common;
   sharedInterface = (import ../../nix/card-interface.nix { inherit pkgs; }) {
     inputs = { inherit (common.inputs) number file directory; };
     outputs = ../contract/_outputs.fbs;
-    params = ../contract/params.nix;
+    params = import ../contract/params.nix;
   };
-  definition = fixtureEval.call ./definition.nix { inherit (common) inputs; };
+  definition = fixtureEval.callWithParamCheck ./definition.nix { inherit (common) inputs params; } {
+    mode = 1;
+  };
   card = definition.run;
   headers = pkgs.callPackage ../../nix/abi-headers.nix { };
   inherit (stdenv.hostPlatform) isDarwin;

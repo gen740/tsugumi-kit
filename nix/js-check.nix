@@ -13,11 +13,13 @@ let
   common = {
     inputs = fixtureEval.inputs (fixture + "/ports");
     outputs = fixture + "/interface/_outputs.fbs";
-    params = fixture + "/interface/params.nix";
+    params = import (fixture + "/interface/params.nix");
   };
   interface = (import ../tests/../nix/card-interface.nix { inherit pkgs; }) common;
   sdk = kit.js;
-  definition = fixtureEval.call fixture { inherit (common) inputs; };
+  definition = fixtureEval.callWithParamCheck fixture { inherit (common) inputs params; } {
+    mode = 1;
+  };
   card = definition.run;
   withoutTools = sdk.jsCard {
     inherit (common) inputs outputs params;
@@ -27,7 +29,7 @@ let
   noteInterface = (import ./card-interface.nix { inherit pkgs; }) {
     inputs = { };
     outputs = ../templates/js-write-note/note/_outputs.fbs;
-    params = ../templates/js-write-note/note/params.nix;
+    params = import ../templates/js-write-note/note/params.nix;
   };
   tests = lib.fileset.toSource {
     root = ../tests;

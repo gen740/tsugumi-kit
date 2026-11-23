@@ -38,8 +38,10 @@ A template may include a `layout.bin` fragment (the FlatBuffers layout a project
 On copy, the core allocates fresh Card IDs and remaps references in the copied graph and layout. Copying the temperature pair twice should produce two independent pairs, each with its own internal wire. Connect ports at the boundary of each copy to the rest of your project.
 
 Project templates carry `tsugumi.json` and `tsugumi.lock`. The declaration
-names nixpkgs and tsugumi-kit and the lock records their exact source
-revisions. A project created from the template keeps both files. See the
+names nixpkgs and tsugumi-kit. The lock's `nixPath` object maps each name to
+a locked URL with its revision and `narHash`. A project created from the
+template keeps both files. Copied Cards use the destination project's
+`nixPath`. See the
 [temperature project](../templates/temperature-conversion/tsugumi.json), its
 [lock](../templates/temperature-conversion/tsugumi.lock), and its
 [layout](../templates/temperature-conversion/layout.bin).

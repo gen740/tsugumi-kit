@@ -24,9 +24,11 @@ let
   common = {
     inputs = fixtureEval.inputs (./ports);
     outputs = ./interface/_outputs.fbs;
-    params = ./interface/params.nix;
+    params = import ./interface/params.nix;
   };
-  definition = fixtureEval.call ./card { inherit (common) inputs; };
+  definition = fixtureEval.callWithParamCheck ./card { inherit (common) inputs params; } {
+    mode = 1;
+  };
   card = definition.run;
   lockedCard = rubyCard (
     common

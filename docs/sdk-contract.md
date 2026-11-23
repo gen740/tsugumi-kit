@@ -9,7 +9,7 @@ Tsugumi calls `default.nix` with `{ params, inputs }`.
 
 | Argument | Value |
 | --- | --- |
-| `params` | Effective values of the `build` parameters from `params.nix`. |
+| `params` | The evaluated `params.nix` attribute set of current values, or `{ }` when the file is absent. |
 | `inputs` | An attribute per connected input port. Its `type` is the store path of a one-port FlatBuffers catalog. A normal upstream also supplies `exports`, including through Branch, Fork and Collect. Merge and Draft supply `type` alone. |
 
 Imports such as `<nixpkgs>` and `<tsugumi-kit/sdk/cpp>` resolve through the
@@ -22,7 +22,7 @@ and its bundled `views`.
 let
   pkgs = import <nixpkgs> { };
   sdk = import <tsugumi-kit/sdk/cpp> { inherit pkgs; };
-  common = { inherit inputs; outputs = ./_outputs.fbs; params = ./params.nix; };
+  common = { inherit inputs params; outputs = ./_outputs.fbs; };
 in
 {
   run = sdk.cppCard (common // { src = ./src; });
@@ -33,8 +33,9 @@ in
 
 Return the worker library as `run` and the codegen-only derivation as `api`.
 A definition may also return `views` and upstream `exports`. The worker
-loads `lib/main.so` from `run`. **Build SDK** builds `card.api` and displays
-the generated code and its typed README from `share/tsugumi/api/`.
+loads `lib/main.so` from `run`. **Build SDK** evaluates and builds
+`(import ./. { inherit params inputs; }).api` in the Card's directory and
+displays the generated code and typed README from `share/tsugumi/api/`.
 
 All language builders take `inputs`, `outputs`, and optionally `params`.
 `outputs` points to the authored FlatBuffers file. Choose any root table
@@ -43,26 +44,30 @@ port. The run builder also takes `src` and language-specific options.
 
 ## Parameters
 
-Declare defaults in an optional `params.nix` file.
+Keep the current parameter values in an optional, flat `params.nix` file.
 
 ```nix
 {
-  run = { seed = 7; thresholds = [ 0.5 1.0 ]; };
-  build = { cxxflags = [ "-O3" ]; };
+  seed = 7;
+  thresholds = [ 0.5 1.0 ];
+  cxxflags = [ "-O3" ];
 }
 ```
 
 Use literal booleans, integers, floats, strings, and non-empty homogeneous
-lists of those types. Each name belongs to a single group. The `params`
-argument to `default.nix` contains the effective build values, so the run
-call can use `cxxflags = params.cxxflags;`. The common builder argument
-`params = ./params.nix;` instead points to the declaration file. Omit it
-for a Card without parameters. Save user overrides in `_card.json`.
+lists of those types. The literal determines the type, so `10` is an integer
+and `10.0` is a float. The Card editor saves value changes in `params.nix`.
+Pass the evaluated `params` value to both builders. When calling a builder
+outside Tsugumi, use `params = import ./params.nix;` or omit `params` for a
+Card without parameters. Reference build options directly in `default.nix`,
+for example `cxxflags = params.cxxflags;` in the run builder call.
 
-Run parameters are encoded as the `parameters.Params` FlatBuffer. Fields
-are sorted by name and numbered from zero. Booleans map to `bool`, integers
-to `long`, floats to `double`, strings to `string`, and lists to vectors of
-their scalar type.
+Every parameter is encoded in `CardInput.params` as a `parameters.Params`
+FlatBuffer. Fields are sorted by name and numbered from zero. Booleans map to
+`bool`, integers to `long`, floats to `double`, strings to `string`, and lists
+to vectors of their scalar type. The builders derive the schema from names
+and types alone. A value change affects a build only when the Card uses that
+value in its derivation, as with `cxxflags` above.
 
 ## Inputs may be absent
 
@@ -103,6 +108,8 @@ and bytes unchanged. Verify and decode SDK payloads in the SDK.
 
 All generators use the shared [port reflection module](../sdk/codegen/tsugumi_ports.py)
 to read the assembled input catalog, authored output catalog, and generated
-parameter catalog. The Nix checks call Card definitions with per-port files
-and the project's nixPath names, then exercise `tsugumi_main` through the
-vendored ABI. The `sdkApi` check builds `api` and verifies the typed README.
+parameter catalog. The Nix checks call Card definitions with evaluated
+parameter values, per-port files, and the project's nixPath names, then
+exercise `tsugumi_main` through the vendored ABI. Each SDK check compares
+the `run` and `api` derivation paths across values of the same type. The
+`sdkApi` check builds `api` and verifies the typed README.

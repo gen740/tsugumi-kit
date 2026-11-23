@@ -22,7 +22,7 @@ let
     {
       inputs,
       outputs,
-      params ? null,
+      params ? { },
     }:
     let
       interface = cardInterface { inherit inputs outputs params; };
@@ -47,7 +47,7 @@ let
       src,
       inputs,
       outputs,
-      params ? null,
+      params ? { },
       name ? "tsugumi-r-card",
       entry ? "main.R",
       packages ? (_: [ ]),

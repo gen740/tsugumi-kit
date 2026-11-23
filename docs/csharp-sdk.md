@@ -9,7 +9,7 @@ Import the C# SDK in your Card's `default.nix` and pass the C# sources as `src`.
 let
   pkgs = import <nixpkgs> { };
   sdk = import <tsugumi-kit/sdk/csharp> { inherit pkgs; };
-  common = { inherit inputs; outputs = ./_outputs.fbs; params = ./params.nix; };
+  common = { inherit inputs params; outputs = ./_outputs.fbs; };
 in
 {
   run = sdk.csharpCard (common // { src = ./src; });

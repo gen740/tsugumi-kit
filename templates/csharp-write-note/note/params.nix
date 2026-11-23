@@ -1,3 +1,3 @@
 {
-  run.text = "Hello from C#!";
+  text = "Hello from C#!";
 }

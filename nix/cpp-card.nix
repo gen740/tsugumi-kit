@@ -15,7 +15,7 @@ let
     {
       inputs,
       outputs,
-      params ? null,
+      params ? { },
     }:
     let
       interface = cardInterface { inherit inputs outputs params; };
@@ -39,7 +39,7 @@ in
       src,
       inputs,
       outputs,
-      params ? null,
+      params ? { },
       buildInputs ? [ ],
       cxxflags ? [ ],
       tools ? [ ],

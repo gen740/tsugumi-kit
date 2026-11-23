@@ -1,3 +1,3 @@
 {
-  run.text = "Hello from Tsugumi";
+  text = "Hello from Tsugumi";
 }

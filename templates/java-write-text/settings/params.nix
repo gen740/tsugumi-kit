@@ -1,3 +1,3 @@
 {
-  run.value = "Hello from Java!";
+  value = "Hello from Java!";
 }

@@ -11,7 +11,7 @@ let
     {
       inputs,
       outputs,
-      params ? null,
+      params ? { },
     }:
     let
       interface = cardInterface { inherit inputs outputs params; };
@@ -32,7 +32,7 @@ let
       src,
       inputs,
       outputs,
-      params ? null,
+      params ? { },
       name ? "tsugumi-csharp-card",
       dotnet ? pkgs.dotnet-sdk_10,
       lock ? null,

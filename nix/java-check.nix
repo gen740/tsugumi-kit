@@ -11,10 +11,12 @@ let
   common = {
     inputs = fixtureEval.inputs (../tests/java/ports);
     outputs = ../tests/java/interface/_outputs.fbs;
-    params = ../tests/java/interface/params.nix;
+    params = import ../tests/java/interface/params.nix;
   };
   interface = (import ../tests/../nix/card-interface.nix { inherit pkgs; }) common;
-  definition = fixtureEval.call ../tests/java/card { inherit (common) inputs; };
+  definition = fixtureEval.callWithParamCheck ../tests/java/card { inherit (common) inputs params; } {
+    mode = 1;
+  };
   card = definition.run;
   host = lib.fileset.toSource {
     root = ../tests;

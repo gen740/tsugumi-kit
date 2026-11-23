@@ -1,3 +1,3 @@
 {
-  run.value = "alpha\nbeta";
+  value = "alpha\nbeta";
 }

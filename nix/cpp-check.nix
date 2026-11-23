@@ -27,18 +27,17 @@ let
       ../tests/cpp/template.cc
     ];
   };
-  definition = fixtureEval.call ../tests/card {
-    inherit inputs;
-    params = params.build;
+  definition = fixtureEval.callWithParamCheck ../tests/card { inherit inputs params; } {
+    mode = 1;
+    labels = [ "changed" ];
   };
   card = definition.run;
   withoutTools = sdk.cppCard {
-    inherit inputs;
+    inherit inputs params;
     outputs = ../tests/cpp/interface/_outputs.fbs;
-    params = ../tests/cpp/interface/params.nix;
     src = ../tests/card/src;
     buildInputs = [ zlib ];
-    inherit (params.build) cxxflags;
+    inherit (params) cxxflags;
   };
   filter = fixtureEval.call ../templates/filter-counts/filter {
     inputs = fixtureEval.inputs ../tests/templates/filter-counts;

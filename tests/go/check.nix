@@ -14,16 +14,18 @@ let
   common = {
     inputs = fixtureEval.inputs (./ports);
     outputs = ./interface/_outputs.fbs;
-    params = ./interface/params.nix;
+    params = import ./interface/params.nix;
   };
   interface = (import ../../nix/card-interface.nix { inherit pkgs; }) common;
-  definition = fixtureEval.call ./default.nix { inherit (common) inputs; };
+  definition = fixtureEval.callWithParamCheck ./default.nix { inherit (common) inputs params; } {
+    mode = 1;
+  };
   card = definition.run;
   outputOnlyDefinition = fixtureEval.call ./output-only { };
   outputCommon = {
     inputs = { };
     outputs = ./output-only/_outputs.fbs;
-    params = ./output-only/params.nix;
+    params = import ./output-only/params.nix;
   };
   outputInterface = (import ../../nix/card-interface.nix { inherit pkgs; }) outputCommon;
   developmentSdk = outputOnlyDefinition.run.sdk;

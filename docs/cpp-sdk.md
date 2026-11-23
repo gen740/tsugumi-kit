@@ -25,9 +25,9 @@ For an input of 20, the next Card receives 68 on the output port. The value also
 
 | Card definition file | What to put there |
 | --- | --- |
-| `_card.json` | The Card type, input port names and parameter overrides. Connected producers supply the input types. |
+| `_card.json` | The Card type and input port names. Connected producers supply the input types. |
 | `_outputs.fbs` | A FlatBuffers catalog with a root table. Each field names an output port and its FlatBuffer table or Path type. Mark required ports with `(required)`. |
-| `params.nix` | Optional parameter declarations and default values. |
+| `params.nix` | Optional flat set of current parameter values. |
 | `src/*.cc` | The Card implementation, including `run`. |
 | `default.nix` | Import the C++ SDK and expose `run`, `api`, and `views`. The run derivation contains `lib/main.so`. |
 
@@ -56,14 +56,14 @@ to see the API for the current wiring. [Card SDK contract](sdk-contract.md)
 - The C++ generator renames reserved identifiers in its headers. Use the original
   port name in `input.get`.
 
-Pass the wiring, authored output catalog, and optional parameter declarations to the SDK.
+Pass the wiring, authored output catalog, and evaluated parameters to the SDK.
 
 ```nix
 { params, inputs }:
 let
   pkgs = import <nixpkgs> { };
   sdk = import <tsugumi-kit/sdk/cpp> { inherit pkgs; };
-  common = { inherit inputs; outputs = ./_outputs.fbs; params = ./params.nix; };
+  common = { inherit inputs params; outputs = ./_outputs.fbs; };
 in
 {
   run = sdk.cppCard (common // { src = ./src; });
