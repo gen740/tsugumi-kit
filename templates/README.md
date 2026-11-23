@@ -10,9 +10,9 @@ upcoming Card ABI integration in Tsugumi.
 | [Normalize text with Go](go-normalize-text/) | An Input Card wired to a Go Card that collapses whitespace and returns a one-file Artifact. |
 | [Number lines with Rust](rust-number-lines/) | An Input Card wired to a Rust Card that numbers the lines and returns a one-file Artifact. |
 | [Write text with Python](python-write-text/) | An Input Card wired to a Python Card that returns a text Artifact. |
-| [Write text with Julia](julia-write-text/) | A Julia Card that returns an Artifact from a FlatBuffer string. |
-| [Write text with R](r-write-text/) | An R Card that returns an Artifact from a FlatBuffer string. |
-| [Write text with Ruby](ruby-write-text/) | A Ruby Card that returns an Artifact from a FlatBuffer string. |
+| [Write text with Julia](julia-write-text/) | An Input Card wired to a Julia Card that writes text into an Artifact. |
+| [Write text with R](r-write-text/) | An Input Card wired to an R Card that writes text into an Artifact. |
+| [Write text with Ruby](ruby-write-text/) | An Input Card wired to a Ruby Card that writes text into an Artifact. |
 | [Write text with Java](java-write-text/) | An Input Card wired to a Java Card that displays the text and returns a one-file Artifact. |
 | [Write a note with C#](csharp-write-note/) | A C# Card that writes a parameter to an Artifact. |
 | [Write a note with JavaScript](js-write-note/) | A Node.js Card that writes a parameter to a text Artifact and displays its byte count. |

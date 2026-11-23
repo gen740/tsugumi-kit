@@ -1,6 +1,6 @@
 # Write text with Julia
 
-Connect a FlatBuffer table with a `value:string` field to `text`. The Card
+Edit the text in `definitions/settings/params.nix`. The write Card
 writes the text to `note.txt` and returns it on the Artifact output `file`.
 
 Use `templates/julia-write-text` as the Git import subdirectory.

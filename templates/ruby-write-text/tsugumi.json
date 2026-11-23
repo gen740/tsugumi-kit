@@ -1,0 +1,34 @@
+{
+  "canvas": {
+    "cards": [
+      {
+        "id": "settings"
+      },
+      {
+        "id": "write"
+      }
+    ],
+    "connections": [
+      {
+        "from": {
+          "card": "settings",
+          "port": "text"
+        },
+        "to": {
+          "card": "write",
+          "port": "text"
+        }
+      }
+    ]
+  },
+  "nixPath": [
+    {
+      "name": "nixpkgs",
+      "url": "github:NixOS/nixpkgs/nixos-unstable"
+    },
+    {
+      "name": "tsugumi-kit",
+      "url": "github:gen740/tsugumi-kit/main"
+    }
+  ]
+}

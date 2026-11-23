@@ -101,6 +101,9 @@
       }
       // lib.optionalAttrs (enabled "js") {
         jsAbi = pkgs.callPackage ./js-check.nix { inherit kit; };
+        jsWriteNoteTemplate =
+          checkTextTemplate "js-write-note" ../templates/js-write-note/definitions/note
+            [ "main.so" ];
       }
       // lib.optionalAttrs (enabled "java") {
         javaAbi = pkgs.callPackage ./java-check.nix { inherit kit; };
