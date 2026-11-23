@@ -98,6 +98,8 @@ Artifact. Call `artifact.Open()` to get the granted read-only directory.
 Use the `tsugumi.Artifact` type for generated fields and forward an input
 Artifact by returning the value. The SDK lists IDs from nested tables,
 vectors and unions in each output.
+The pinned FlatBuffers backend supports vectors of tables that contain a union.
+Its code generator rejects fields declared directly as a vector of unions.
 
 Go package initialization runs once when the payload
 loads and its state persists for the worker's lifetime. A panic in `init()`
