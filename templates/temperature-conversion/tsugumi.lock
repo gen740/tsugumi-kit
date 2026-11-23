@@ -1,6 +1,16 @@
 {
-  "nixPath": {
-    "nixpkgs": "github:NixOS/nixpkgs/1c89083e451e891152365b799595cf7790a43325?narHash=sha256-Y1CiZ4SoBUjLQyQM/pY+rS2dXD3CHLPstF0lmOc73D4=",
-    "tsugumi-kit": "github:gen740/tsugumi-kit/52faf55501cd965d5099733c9b4b048da669c052?narHash=sha256-2ca5dSQUm46kpdDR7qSeWVmk1RzPQHJ2EJRcTubfJGA="
-  }
+  "entries": [
+    {
+      "name": "nixpkgs",
+      "url": "github:NixOS/nixpkgs/nixos-unstable",
+      "rev": "1c89083e451e891152365b799595cf7790a43325",
+      "narHash": "sha256-Y1CiZ4SoBUjLQyQM/pY+rS2dXD3CHLPstF0lmOc73D4="
+    },
+    {
+      "name": "tsugumi-kit",
+      "url": "github:gen740/tsugumi-kit/main",
+      "rev": "d07584b66ade214cb75704b706666eae98c312a4",
+      "narHash": "sha256-ipx0Zzcw/3symMPKRZ+hI2M8c9NGyuNU85qdfEiJv4Q="
+    }
+  ]
 }
