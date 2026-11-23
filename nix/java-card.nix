@@ -8,6 +8,7 @@
   python3,
   runtime,
   portCodegen,
+  paramValues,
   cardInterface,
   publishApi,
 }:
@@ -31,7 +32,7 @@ let
       '';
   generate =
     {
-      inputs,
+      inputs ? null,
       outputs,
       params ? { },
     }:
@@ -53,7 +54,7 @@ let
   javaCard =
     {
       src,
-      inputs,
+      inputs ? null,
       outputs,
       params ? { },
       jars ? [ ],
@@ -62,6 +63,7 @@ let
     }:
     let
       generated = generate { inherit inputs outputs params; };
+      interface = cardInterface { inherit inputs outputs params; };
       classPath = lib.concatStringsSep ":" (
         [ "${flatbuffersJava}/flatbuffers-java.jar" ] ++ map toString jars
       );
@@ -71,7 +73,7 @@ let
         nativeBuildInputs = [
           flatbuffers
           jdk
-          python3
+          (python3.withPackages (_: [ portCodegen ]))
         ];
         buildInputs = [ flatbuffers ];
         TSUGUMI_JAVA_CLASSPATH = classPath;
@@ -80,19 +82,21 @@ let
       }
       ''
         src=${lib.escapeShellArg "${src}"}
-        mkdir -p classes wire "$out/lib"
+        mkdir -p classes wire embedded "$out/lib"
         python3 ${../sdk/java/entry.py} "$src" "$TSUGUMI_JAVA_MAIN_CLASS" CardEntry.java
-        flatc --java --java-package-prefix tsugumi.wire -o wire \
-          ${../abi}/{card_enums,card}.fbs
+        flatc --java --gen-all --java-package-prefix tsugumi.wire -o wire \
+          ${../abi}/card.fbs
+        python3 ${../sdk/java/generate.py} embed "${interface}" \
+          ${flatbuffers.src}/reflection/reflection.fbs "${paramValues params}" embedded/Parameters.java
         # Use a NUL-delimited list so source paths may contain whitespace.
         find "$src" -type f -name '*.java' ! -name '._*' -print0 |
           LC_ALL=C sort -z > card-sources
         test -s card-sources || { echo "javaCard: no .java sources in src" >&2; exit 1; }
-        find ${../sdk/java/src} ${generated}/java wire -type f -name '*.java' -print0 > sdk-sources
+        find ${../sdk/java/src} ${generated}/java wire -type f -name '*.java' ! -name 'Parameters.java' -print0 > sdk-sources
         mapfile -d "" -t sources < sdk-sources
         mapfile -d "" -t card_sources < card-sources
         javac -encoding UTF-8 -proc:none -classpath "$TSUGUMI_JAVA_CLASSPATH" -d classes \
-          "''${sources[@]}" "''${card_sources[@]}" CardEntry.java
+          "''${sources[@]}" "''${card_sources[@]}" CardEntry.java embedded/Parameters.java
         jar --create --date=1980-01-01T00:00:02Z --file "$out/lib/card.jar" -C classes .
 
         ${
@@ -125,6 +129,7 @@ let
       cp "${generated}/README.md" "$api/"
       cp -r --no-preserve=mode "${generated}/java/." "$api/"
       rm "$api/tsugumi/"{Entry,UnionChecks}.java
+      cp ${../sdk/java/src/tsugumi}/{Artifacts,Effects,Display,Failure}.java "$api/tsugumi/"
     '';
 in
 {

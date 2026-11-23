@@ -9,23 +9,24 @@ static fields stay live for the worker's lifetime.
 
 Implement a public static `run(Card.Input)` method that returns `Card.Output`.
 The default entry class is `card.Main`. This example needs a `text` input
-wired from a Text table with a string field `value`. It returns a Path on `file`.
+wired from a Text table with a string field `value`. It returns an Artifact on `file`.
 
 ```java
 package card;
 
 import java.io.IOException;
 import java.nio.file.Files;
-import java.nio.file.Path;
+import tsugumi.Artifacts;
 import tsugumi.Card;
 import tsugumi.Display;
 
 public final class Main {
     public static Card.Output run(Card.Input input) throws IOException {
-        String text = input.get("text", inputs.text.TextT.class).getValue();
-        Path file = Files.writeString(Path.of("message.txt"), text);
+        String text = input.text().getValue();
+        var created = Artifacts.dir();
+        Files.writeString(created.path().resolve("message.txt"), text);
         Display.send(new Display.Text(text));
-        return new Card.Output(file);
+        return new Card.Output(created.artifact());
     }
 }
 ```
@@ -40,7 +41,7 @@ let
   sdk = import <tsugumi-kit/sdk/java> { inherit pkgs; };
   common = {
     inherit params;
-    inputs = ./_inputs.fbs;
+    inputs = if builtins.pathExists ./_inputs.fbs then ./_inputs.fbs else null;
     outputs = ./_outputs.fbs;
   };
 in
@@ -66,35 +67,27 @@ the API for the current wiring. [Card SDK contract](sdk-contract.md)
 
 ## Typed ports and parameters
 
-The builder generates `tsugumi.Card.Input` and the `tsugumi.Card.Output`
-record. `input.params()` is a `parameters.ParamsT`. Use the generated
-FlatBuffers object API for FlatBuffer ports. For example, a port of type
-`outputs.total.Number` takes an `outputs.total.NumberT`. Set its fields
-with the generated setters and pass it to the output record constructor.
-Constructor arguments follow the schema's output port order. Pass `null`
-to omit an optional output. Required outputs must have a value.
+The SDK generates typed accessors such as `input.text()` for connected
+ports. It selects the table by the envelope's schema ID and verifies its
+payload before invoking the Card. A mixed Merge uses a sealed interface
+with a record variant for each candidate. Use pattern matching on those
+variants. A Collect port exposes the fixed `tsugumi.builtin.CollectedT`
+table of opaque envelope items.
 
-Every input can be absent. Use `input.get("port", Type.class)` for a needed
-value of type `T`. If it is absent, the call fails with `input_missing` and
-names the port. Use `input.find("port", Type.class)` for an `Optional<T>`.
-Both lookups accept the name of a disconnected port when `Type` is
-available independently of that connection. Generated accessors for connected
-ports, such as `input.text()`, also return `Optional<T>`. The builder appends
-underscores to reserved identifiers and conflicting accessor names. Name-based
-lookups take the original port name.
+The `Card.Output` record takes FlatBuffers object types, such as
+`outputs.total.NumberT`, in output port order. A missing `(required)`
+output produces `output_invalid`. Pass `null` to omit an optional output.
 
-A Path port uses `java.nio.file.Path` for a file or directory. Input paths
-are absolute. Create new outputs under the working directory and finish
-writing before returning the paths. Return an input path unchanged to forward
-it. You can look up a Path by name with `Path.class` even if it is disconnected. See the
-[worker filesystem contract](cpp-sdk.md#files-directories-and-worker-lifetime).
+`Card.params()` returns the typed build-time parameter record. Parameter
+values affect the run derivation and preserve the API when their types are
+unchanged. The SDK also exports `sdk.input` and `sdk.artifact` for Input
+Cards.
 
-A mixed-type Merge exposes the selected member's generated object type.
-The API README lists the possible types for each Merge port. Use Java pattern
-matching on its `Object` value, for example
-`input.arrival().orElse(null) instanceof inputs.arrival.tsugumi.merge.t0.TemperatureT t`.
-The SDK verifies the nested FlatBuffer and unpacks the selected member. Pass
-one of the listed member objects for a Merge output so the SDK can box it.
+`Artifacts.dir()` returns a writable directory and its `ArtifactT`.
+`Artifacts.upload(path)` copies a file or directory into a new Artifact.
+Call `artifact.open()` for the granted read-only directory. Return the
+same object to forward an Artifact. The SDK lists IDs from nested tables,
+vectors and unions in each output.
 
 ## Display a value
 
@@ -127,7 +120,10 @@ Use `Display.send(String view, byte[] bytes)` for a custom view. Add its
 `{ name; type; blob; }` entry with `views = sdk.views ++ [ ... ];`.
 The view defines its payload format. Argument and encoding errors throw before
 the SDK calls the host. The SDK throws `IllegalStateException` if the host
-cannot accept the message. Card threads may send between invocations.
+cannot accept the message. The SDK frames and splits sends at the ABI message
+limit. `Display.recv(view, timeoutMs)` returns a message, timeout or
+cancellation. A negative timeout waits without a deadline. Card threads may
+send and receive between invocations.
 Messages are live and do not enter history. See the
 [view protocol](cpp-sdk.md#display-a-value).
 

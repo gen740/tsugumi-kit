@@ -7,22 +7,37 @@
 
 namespace tsugumi::abi {
 
-using Verify = auto (*)(const Buffer&) -> bool;
-
 template <class Table>
 auto VerifyJavaTable(const Buffer& buffer) -> bool {
   return buffer.Verify<Table>() != nullptr;
 }
 
-struct JavaPort {
+template <class Table,
+          bool (*Visit)(const typename Table::NativeTableType&,
+                        std::vector<ArtifactId>&)>
+auto CollectJavaArtifacts(const Buffer& buffer,
+                          std::vector<ArtifactId>& ids) -> bool {
+  const auto* table = buffer.Verify<Table>();
+  if (!table) return false;
+  typename Table::NativeTableType value;
+  table->UnPackTo(&value);
+  return Visit(value, ids);
+}
+
+struct JavaInput {
   std::string_view name;
-  PortKind kind;
-  bool required;
-  Verify verify;
+  std::string_view schema;
+  bool (*verify)(const Buffer&);
 };
 
-auto RunJava(tsugumi_bytes bytes, Verify params, bool allow_empty_params,
-             std::span<const JavaPort> inputs,
-             std::span<const JavaPort> outputs) -> Tsugumi::Card::CardResultT;
+struct JavaOutput {
+  std::string_view name;
+  bool required;
+  bool (*collect)(const Buffer&, std::vector<ArtifactId>&);
+};
+
+auto RunJava(tsugumi_bytes bytes, std::span<const JavaInput> inputs,
+             std::span<const JavaOutput> outputs)
+    -> Tsugumi::Card::CardResultT;
 
 }  // namespace tsugumi::abi

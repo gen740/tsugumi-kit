@@ -1,8 +1,7 @@
 # Write text with Java
 
 An Input Card supplies text to a Java Card. The Java Card displays the text,
-writes it to `message.txt` as UTF-8, and returns it on the Artifact output `file`.
-**Targets the Card ABI.**
+writes it to `message.txt` as UTF-8 in a new Artifact and returns it on the `file` port.
 
 ```text
 settings.text → write.text

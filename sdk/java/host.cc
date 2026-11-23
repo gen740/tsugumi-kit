@@ -4,6 +4,7 @@
 #include <jni.h>
 
 #include <algorithm>
+#include <array>
 #include <cstdlib>
 #include <limits>
 #include <string>
@@ -43,6 +44,89 @@ auto Send(JNIEnv* env, jclass, jbyteArray view, jbyteArray payload) noexcept
     }
   } catch (...) {
     ThrowEffectError(env, "Cannot send the view message");
+  }
+}
+
+auto ReadString(JNIEnv* env, jbyteArray data) -> std::string {
+  const auto size = env->GetArrayLength(data);
+  std::string result(size, '\0');
+  if (size) {
+    env->GetByteArrayRegion(data, 0, size,
+                            reinterpret_cast<jbyte*>(result.data()));
+  }
+  return result;
+}
+
+auto CopyBytes(JNIEnv* env, const void* data, size_t size) -> jbyteArray {
+  if (size > static_cast<size_t>(std::numeric_limits<jsize>::max())) {
+    ThrowEffectError(env, "Effect result exceeds the Java array limit");
+    return nullptr;
+  }
+  const auto length = static_cast<jsize>(size);
+  auto result = env->NewByteArray(length);
+  if (result && length) {
+    env->SetByteArrayRegion(result, 0, length,
+                            static_cast<const jbyte*>(data));
+  }
+  return result;
+}
+
+auto Recv(JNIEnv* env, jclass, jbyteArray view, jlong timeout,
+          jintArray status) noexcept -> jbyteArray {
+  try {
+    const auto name = ReadString(env, view);
+    if (env->ExceptionCheck()) return nullptr;
+    const auto received = card::display::recv(name, timeout);
+    const jint code = static_cast<jint>(received.status);
+    env->SetIntArrayRegion(status, 0, 1, &code);
+    if (env->ExceptionCheck()) return nullptr;
+    return CopyBytes(env, received.bytes.data(), received.bytes.size());
+  } catch (...) {
+    ThrowEffectError(env, "The host could not receive a view message");
+    return nullptr;
+  }
+}
+
+auto ArtifactDir(JNIEnv* env, jclass, jbyteArray id) noexcept -> jbyteArray {
+  try {
+    const auto [artifact, path] = card::Artifact::dir();
+    env->SetByteArrayRegion(
+        id, 0, 16, reinterpret_cast<const jbyte*>(artifact.id->bytes()->Data()));
+    if (env->ExceptionCheck()) return nullptr;
+    const auto& native = path.native();
+    return CopyBytes(env, native.data(), native.size());
+  } catch (...) {
+    ThrowEffectError(env, "The host could not create an Artifact");
+    return nullptr;
+  }
+}
+
+auto ArtifactUpload(JNIEnv* env, jclass, jbyteArray source) noexcept -> jbyteArray {
+  try {
+    const auto path = ReadString(env, source);
+    if (env->ExceptionCheck()) return nullptr;
+    const auto artifact = card::Artifact::upload(path);
+    return CopyBytes(env, artifact.id->bytes()->Data(), 16);
+  } catch (...) {
+    ThrowEffectError(env, "Could not upload the Artifact");
+    return nullptr;
+  }
+}
+
+auto ArtifactOpen(JNIEnv* env, jclass, jbyteArray id) noexcept -> jbyteArray {
+  try {
+    std::array<uint8_t, 16> bytes{};
+    env->GetByteArrayRegion(id, 0, bytes.size(),
+                            reinterpret_cast<jbyte*>(bytes.data()));
+    if (env->ExceptionCheck()) return nullptr;
+    card::Artifact artifact;
+    artifact.id = std::make_unique<ArtifactId>(
+        flatbuffers::span<const uint8_t, 16>(bytes));
+    const auto path = artifact.open();
+    return CopyBytes(env, path.native().data(), path.native().size());
+  } catch (...) {
+    ThrowEffectError(env, "The host could not open the Artifact");
+    return nullptr;
   }
 }
 
@@ -194,6 +278,14 @@ class Jvm {
     const JNINativeMethod methods[] = {
         {const_cast<char*>("send"), const_cast<char*>("([B[B)V"),
          reinterpret_cast<void*>(&Send)},
+        {const_cast<char*>("recv"), const_cast<char*>("([BJ[I)[B"),
+         reinterpret_cast<void*>(&Recv)},
+        {const_cast<char*>("artifactDir"), const_cast<char*>("([B)[B"),
+         reinterpret_cast<void*>(&ArtifactDir)},
+        {const_cast<char*>("artifactUpload"), const_cast<char*>("([B)[B"),
+         reinterpret_cast<void*>(&ArtifactUpload)},
+        {const_cast<char*>("artifactOpen"), const_cast<char*>("([B)[B"),
+         reinterpret_cast<void*>(&ArtifactOpen)},
         {const_cast<char*>("cancelled"), const_cast<char*>("()Z"),
          reinterpret_cast<void*>(&Cancelled)},
         {const_cast<char*>("remainingMs"), const_cast<char*>("()J"),
@@ -215,65 +307,63 @@ class Jvm {
   const char* error_ = nullptr;
 };
 
-// Input ports are absent unless connected, so only required outputs can be
-// missing. The Java Card decides which inputs it needs.
-auto CheckPorts(const auto* ports, std::span<const JavaPort> catalog,
-                FailureKind invalid) -> void {
+auto CheckInputs(tsugumi_bytes bytes, std::span<const JavaInput> catalog)
+    -> void {
+  Input input(bytes);
   std::unordered_set<std::string_view> seen;
-  if (ports) {
-    for (const auto* port : *ports) {
-      const auto name = port->name()->string_view();
-      const auto expected = std::ranges::find(catalog, name, &JavaPort::name);
-      if (expected == catalog.end() || port->kind() != expected->kind ||
-          !seen.insert(name).second) {
-        Reject(invalid, "Unexpected port " + std::string(name));
-      }
-      const auto* data = port->bytes();
-      if (expected->kind == PortKind::Path) {
-        if (!port->path() || port->path()->size() == 0 ||
-            (data && data->size())) {
-          Reject(invalid, "Invalid Path for " + std::string(name));
-        }
-      } else if (port->path() || !data ||
-                 !expected->verify(Buffer({data->data(), data->size()}))) {
-        Reject(invalid, "Invalid FlatBuffer for " + std::string(name));
-      }
+  for (const auto& candidate : catalog) {
+    if (!seen.insert(candidate.name).second) continue;
+    const auto port = input.ReadPort(candidate.name);
+    if (!port)
+      Reject(FailureKind::input_missing,
+             "Missing input " + std::string(candidate.name));
+    const auto match = std::ranges::find_if(catalog, [&](const auto& option) {
+      return option.name == candidate.name && option.schema == port->schema;
+    });
+    if (match == catalog.end() || !match->verify(Buffer(port->bytes))) {
+      Reject(FailureKind::input_invalid,
+             "Invalid schema or FlatBuffer for " + std::string(candidate.name));
+    }
+  }
+  input.CheckConsumed();
+}
+
+auto CheckOutputs(CardResultT& result, std::span<const JavaOutput> catalog)
+    -> void {
+  std::unordered_set<std::string_view> seen;
+  for (auto& port : result.outputs) {
+    const auto expected = std::ranges::find(catalog, port->name, &JavaOutput::name);
+    if (expected == catalog.end() || !seen.insert(port->name).second) {
+      Reject(FailureKind::output_invalid, "Unexpected output " + port->name);
+    }
+    port->artifacts.clear();
+    if (!expected->collect(Buffer({port->bytes.data(), port->bytes.size()}),
+                           port->artifacts)) {
+      Reject(FailureKind::output_invalid, "Invalid output " + port->name);
     }
   }
   for (const auto& port : catalog) {
     if (port.required && !seen.contains(port.name)) {
-      Reject(invalid, "Missing port " + std::string(port.name));
+      Reject(FailureKind::output_invalid,
+             "Missing output " + std::string(port.name));
     }
   }
 }
 
 }  // namespace
 
-auto RunJava(tsugumi_bytes bytes, Verify params, bool allow_empty_params,
-             std::span<const JavaPort> inputs,
-             std::span<const JavaPort> outputs) -> CardResultT {
-  const Buffer input_buffer(bytes);
-  const auto* input = input_buffer.Verify<CardInput>();
-  if (!input) Reject(FailureKind::invalid_request, "Invalid CardInput");
-  const auto* param_bytes = input->params();
-  const auto size = param_bytes ? param_bytes->size() : 0;
-  if (!(allow_empty_params && size == 0) &&
-      !params(Buffer({param_bytes ? param_bytes->data() : nullptr, size}))) {
-    Reject(FailureKind::invalid_request, "Invalid FlatBuffer for params");
-  }
-  CheckPorts(input->inputs(), inputs, FailureKind::invalid_request);
-
+auto RunJava(tsugumi_bytes bytes, std::span<const JavaInput> inputs,
+             std::span<const JavaOutput> outputs) -> CardResultT {
+  CheckInputs(bytes, inputs);
   // JNI supports one JVM per process. Keep its classes and state warm.
   static const Jvm jvm;
   const auto result_bytes = jvm.Invoke(bytes);
   const Buffer result_buffer({result_bytes.data(), result_bytes.size()});
   const auto* result = result_buffer.Verify<CardResult>();
   if (!result) Reject(FailureKind::worker_failed, "Invalid Java CardResult");
-  if (!result->failure()) {
-    CheckPorts(result->outputs(), outputs, FailureKind::output_invalid);
-  }
   CardResultT value;
   result->UnPackTo(&value);
+  if (!value.failure) CheckOutputs(value, outputs);
   return value;
 }
 

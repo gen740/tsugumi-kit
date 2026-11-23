@@ -27,6 +27,19 @@ public final class Display {
         }
     }
 
+    public enum ReceiveStatus { MESSAGE, TIMEOUT, CANCELLED }
+    public record Received(ReceiveStatus status, byte[] bytes) {}
+
+    /** Wait for a message, timeout or cancellation, including between calls. */
+    public static Received recv(String view, long timeoutMs) {
+        if (view.indexOf(0) >= 0) {
+            throw new IllegalArgumentException("View names cannot contain a NUL byte");
+        }
+        var status = new int[1];
+        byte[] bytes = Effects.recv(view.getBytes(UTF_8), timeoutMs, status);
+        return new Received(ReceiveStatus.values()[status[0]], bytes);
+    }
+
     /** Send the given payload to a view, including from a background thread. */
     public static void send(String view, byte[] bytes) {
         if (view.indexOf(0) >= 0) {
