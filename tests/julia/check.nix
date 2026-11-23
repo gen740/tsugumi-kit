@@ -19,18 +19,18 @@ let
   };
   runtime = kit.cppRuntime;
   fixtureEval = import ../card-eval.nix { inherit pkgs; };
-  common = {
-    inputs = fixtureEval.inputs (./ports);
-    outputs = ./interface/_outputs.fbs;
-    params = import ./interface/params.nix;
-  };
-  definition = fixtureEval.callWithParamCheck ./card { inherit (common) inputs params; } {
+  definition = fixtureEval.callWithParamCheck ./card { params = import ./interface/params.nix; } {
     mode = 1;
   };
   card = definition.run;
-  starter = fixtureEval.call ../../templates/julia-write-text/write {
-    inputs = fixtureEval.inputs ../templates/text-to-path;
-  };
+  starterDir = ../../templates/julia-write-text/write;
+  starter = fixtureEval.call starterDir { };
+  starterWired = kit.julia.juliaCard (
+    fixtureEval.wiredTemplateArgs starterDir ../templates/text-to-path/_inputs.fbs
+    // {
+      src = starterDir + "/src";
+    }
+  );
 in
 assert definition.views == kit.julia.views;
 runCommandCC "tsugumi-julia-abi-check"
@@ -68,10 +68,11 @@ runCommandCC "tsugumi-julia-abi-check"
     (cd "$HOME" && ../fake_host "$card" "$OLDPWD/legacy.so")
     test -d "$HOME/.julia"
 
-    $CXX -std=c++2c -Wall -Wextra -Werror -isystem "${starter.run.generated}/include" \
+    test -s "${starter.run}/lib/main.so"
+    $CXX -std=c++2c -Wall -Wextra -Werror -isystem "${starterWired.generated}/include" \
       -I"$include" -I"$shared" ${./text_template.cc} \
       ${lib.optionalString (!isDarwin) "-ldl"} -o text-host
-    (cd "$HOME" && ../text-host "${starter.run}/lib/main.so")
+    (cd "$HOME" && ../text-host "${starterWired}/lib/main.so")
 
     ${
       if isDarwin then

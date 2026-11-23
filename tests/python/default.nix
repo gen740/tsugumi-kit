@@ -11,7 +11,7 @@ let
   runtime = kit.cppRuntime;
   fixtureEval = import ../card-eval.nix { inherit pkgs; };
   common = {
-    inputs = fixtureEval.inputs (./ports);
+    inputs = ./interface/_inputs.fbs;
     outputs = ./interface/_outputs.fbs;
     params = import ./interface/params.nix;
   };
@@ -19,15 +19,12 @@ let
   definition =
     withTools:
     fixtureEval.callWithParamCheck ./card.nix {
-      inherit (common) inputs;
       params = common.params // {
         inherit withTools;
       };
     } { mode = 1; };
   card = (definition false).run;
-  starter = fixtureEval.call ../../templates/python-write-text/write {
-    inputs = fixtureEval.inputs ../templates/text-to-path;
-  };
+  starter = fixtureEval.call ../../templates/python-write-text/write { };
   withTools = (definition true).run;
   host = lib.fileset.toSource {
     root = ../.;

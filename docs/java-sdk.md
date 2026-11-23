@@ -38,7 +38,11 @@ Put the source in `src/card/Main.java` under the Card definition. Use the
 let
   pkgs = import <nixpkgs> { };
   sdk = import <tsugumi-kit/sdk/java> { inherit pkgs; };
-  common = { inherit inputs; outputs = ./_outputs.fbs; };
+  common = {
+    inherit params;
+    inputs = ./_inputs.fbs;
+    outputs = ./_outputs.fbs;
+  };
 in
 {
   run = sdk.javaCard (common // { src = ./src; });

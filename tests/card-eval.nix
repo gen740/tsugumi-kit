@@ -1,30 +1,11 @@
 { pkgs }:
 rec {
-  inputs =
-    directory:
-    pkgs.lib.mapAttrs'
-      (
-        file: _:
-        let
-          name = pkgs.lib.removeSuffix ".fbs" file;
-        in
-        pkgs.lib.nameValuePair name (
-          {
-            type = pkgs.writeText file (builtins.readFile (directory + "/${file}"));
-          }
-          // pkgs.lib.optionalAttrs (
-            !(builtins.elem name [
-              "arrival"
-              "draft"
-            ])
-          ) { exports = { }; }
-        )
-      )
-      (
-        pkgs.lib.filterAttrs (file: kind: kind == "regular" && pkgs.lib.hasSuffix ".fbs" file) (
-          builtins.readDir directory
-        )
-      );
+  # An ABI test can model rewiring a template by supplying the resulting catalog.
+  wiredTemplateArgs = definition: inputs: {
+    inherit inputs;
+    outputs = definition + "/_outputs.fbs";
+    params = import (definition + "/params.nix");
+  };
 
   call =
     definition:

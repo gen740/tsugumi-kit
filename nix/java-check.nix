@@ -9,12 +9,12 @@
 let
   fixtureEval = import ../tests/card-eval.nix { inherit pkgs; };
   common = {
-    inputs = fixtureEval.inputs (../tests/java/ports);
+    inputs = ../tests/java/interface/_inputs.fbs;
     outputs = ../tests/java/interface/_outputs.fbs;
     params = import ../tests/java/interface/params.nix;
   };
   interface = (import ../tests/../nix/card-interface.nix { inherit pkgs; }) common;
-  definition = fixtureEval.callWithParamCheck ../tests/java/card { inherit (common) inputs params; } {
+  definition = fixtureEval.callWithParamCheck ../tests/java/card { inherit (common) params; } {
     mode = 1;
   };
   card = definition.run;

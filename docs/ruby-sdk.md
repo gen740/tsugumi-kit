@@ -9,7 +9,11 @@ Card's `default.nix`.
 let
   pkgs = import <nixpkgs> { };
   sdk = import <tsugumi-kit/sdk/ruby> { inherit pkgs; };
-  common = { inherit inputs; outputs = ./_outputs.fbs; };
+  common = {
+    inherit params;
+    inputs = ./_inputs.fbs;
+    outputs = ./_outputs.fbs;
+  };
 in
 {
   run = sdk.rubyCard (common // { src = ./src; });

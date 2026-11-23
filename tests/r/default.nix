@@ -10,18 +10,18 @@
 let
   runtime = kit.cppRuntime;
   fixtureEval = import ../card-eval.nix { inherit pkgs; };
-  common = {
-    inputs = fixtureEval.inputs (./ports);
-    outputs = ./interface/_outputs.fbs;
-    params = import ./interface/params.nix;
-  };
-  definition = fixtureEval.callWithParamCheck ./card { inherit (common) inputs params; } {
+  definition = fixtureEval.callWithParamCheck ./card { params = import ./interface/params.nix; } {
     mode = 1;
   };
   card = definition.run;
-  starter = fixtureEval.call ../../templates/r-write-text/write {
-    inputs = fixtureEval.inputs ../templates/text-to-path;
-  };
+  starterDir = ../../templates/r-write-text/write;
+  starter = fixtureEval.call starterDir { };
+  starterWired = kit.r.rCard (
+    fixtureEval.wiredTemplateArgs starterDir ../templates/text-to-path/_inputs.fbs
+    // {
+      src = starterDir + "/src";
+    }
+  );
   inherit (stdenv.hostPlatform) isDarwin;
 in
 assert definition.views == kit.r.views;
@@ -47,7 +47,8 @@ runCommandCC "tsugumi-r-abi-check"
     $CC -std=c11 -Wall -Wextra -Werror -fPIC -shared "${../legacy.c}" -o legacy.so
     $CXX -std=c++2c -Wall -Wextra -Werror -I. -isystem "${card.generated}/include" -I"$include" \
       ${./wire.cc} host.o -pthread ${lib.optionalString (!isDarwin) "-ldl"} -o fake-host
-    $CXX -std=c++2c -Wall -Wextra -Werror -I. -isystem "${starter.run.generated}/include" \
+    test -s "${starter.run}/lib/main.so"
+    $CXX -std=c++2c -Wall -Wextra -Werror -I. -isystem "${starterWired.generated}/include" \
       -I"$include" ${../julia/text_template.cc} ${lib.optionalString (!isDarwin) "-ldl"} -o text-host
 
     mkdir home
@@ -59,7 +60,7 @@ runCommandCC "tsugumi-r-abi-check"
     printf 'directory\n' > directory/child
     touch scratch/clear-me
     ../fake-host "$card" "$OLDPWD/legacy.so"
-    ../text-host "${starter.run}/lib/main.so"
+    ../text-host "${starterWired}/lib/main.so"
     popd
 
     ${

@@ -7,7 +7,11 @@ The Go builder takes the Card's source and the current wiring schemas.
 let
   pkgs = import <nixpkgs> { };
   sdk = import <tsugumi-kit/sdk/go> { inherit pkgs; };
-  common = { inherit inputs; outputs = ./_outputs.fbs; };
+  common = {
+    inherit params;
+    inputs = ./_inputs.fbs;
+    outputs = ./_outputs.fbs;
+  };
 in
 {
   run = sdk.goCard (common // { src = ./src; });

@@ -11,13 +11,13 @@ let
   fixture = ../sdk/js/tests;
   fixtureEval = import ../tests/card-eval.nix { inherit pkgs; };
   common = {
-    inputs = fixtureEval.inputs (fixture + "/ports");
+    inputs = ../sdk/js/tests/interface/_inputs.fbs;
     outputs = fixture + "/interface/_outputs.fbs";
     params = import (fixture + "/interface/params.nix");
   };
   interface = (import ../tests/../nix/card-interface.nix { inherit pkgs; }) common;
   sdk = kit.js;
-  definition = fixtureEval.callWithParamCheck fixture { inherit (common) inputs params; } {
+  definition = fixtureEval.callWithParamCheck fixture { inherit (common) params; } {
     mode = 1;
   };
   card = definition.run;
@@ -27,7 +27,7 @@ let
   };
   note = fixtureEval.call ../templates/js-write-note/note { };
   noteInterface = (import ./card-interface.nix { inherit pkgs; }) {
-    inputs = { };
+    inputs = ../templates/js-write-note/note/_inputs.fbs;
     outputs = ../templates/js-write-note/note/_outputs.fbs;
     params = import ../templates/js-write-note/note/params.nix;
   };
@@ -72,6 +72,7 @@ runCommandCC "tsugumi-js-abi-check"
 
     library=${card}/lib/main.so
     include=${kit.cppRuntime}/include
+    cmp ${common.inputs} "${interface}/_inputs.fbs"
     for schema in _inputs _outputs _params; do
       flatc --cpp --gen-object-api --scoped-enums -o . "${interface}/$schema.fbs"
     done

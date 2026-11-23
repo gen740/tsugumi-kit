@@ -3,7 +3,8 @@ let
   pkgs = import <nixpkgs> { };
   sdk = import <tsugumi-kit/sdk/cpp> { inherit pkgs; };
   common = {
-    inherit inputs params;
+    inherit params;
+    inputs = ../cpp/interface/_inputs.fbs;
     outputs = ../cpp/interface/_outputs.fbs;
   };
 in
@@ -12,7 +13,7 @@ in
     common
     // {
       src = ./src;
-      buildInputs = [ pkgs.zlib ];
+      buildInputs = [ inputs.mylib.package ];
       tools = [
         pkgs.coreutils
         (pkgs.writeShellScriptBin "tsugumi-test-tool" "exit 42")

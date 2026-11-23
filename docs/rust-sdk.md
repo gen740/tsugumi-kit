@@ -7,7 +7,11 @@ The Rust builder takes the Card's Cargo package and the current wiring schemas.
 let
   pkgs = import <nixpkgs> { };
   sdk = import <tsugumi-kit/sdk/rust> { inherit pkgs; };
-  common = { inherit inputs; outputs = ./_outputs.fbs; };
+  common = {
+    inherit params;
+    inputs = ./_inputs.fbs;
+    outputs = ./_outputs.fbs;
+  };
 in
 {
   run = sdk.rustCard (common // { src = ./src; sourcePrefix = "src"; });

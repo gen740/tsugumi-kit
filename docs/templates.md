@@ -11,11 +11,17 @@ filter-counts/
   README.md
   filter/
     _card.json
+    _inputs.fbs
     _outputs.fbs
     params.nix
     default.nix
     src/card.cc
 ```
+
+Include Tsugumi's generated `_inputs.fbs` in every Code Card definition.
+It describes the template's internal connections and has an empty
+`inputs.Inputs` table for a Card without incoming wires. Tsugumi regenerates
+it from the project's wiring and upstream output types.
 
 A Card declares its views alongside `run` and `exports` in `default.nix`.
 Set `views = sdk.views;` for the bundled views, or append your own entries

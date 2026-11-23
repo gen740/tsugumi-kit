@@ -22,11 +22,11 @@ let
   };
   fixtureEval = import ../card-eval.nix { inherit pkgs; };
   common = {
-    inputs = fixtureEval.inputs (./ports);
+    inputs = ./interface/_inputs.fbs;
     outputs = ./interface/_outputs.fbs;
     params = import ./interface/params.nix;
   };
-  definition = fixtureEval.callWithParamCheck ./card { inherit (common) inputs params; } {
+  definition = fixtureEval.callWithParamCheck ./card { inherit (common) params; } {
     mode = 1;
   };
   card = definition.run;
@@ -38,9 +38,14 @@ let
       hash = "sha256-5kqVDjqNFrsQddobC5KlZFUALvji0gKYs/Bbur3Mf8w=";
     }
   );
-  starter = fixtureEval.call ../../templates/ruby-write-text/write {
-    inputs = fixtureEval.inputs ../templates/text-to-path;
-  };
+  starterDir = ../../templates/ruby-write-text/write;
+  starter = fixtureEval.call starterDir { };
+  starterWired = kit.ruby.rubyCard (
+    fixtureEval.wiredTemplateArgs starterDir ../templates/text-to-path/_inputs.fbs
+    // {
+      src = starterDir + "/src";
+    }
+  );
   inherit (stdenv.hostPlatform) isDarwin;
 in
 assert definition.views == kit.ruby.views;
@@ -86,9 +91,10 @@ runCommandCC "tsugumi-ruby-abi-check"
     TSUGUMI_TEST_LOCKED=0 ./fake_host "$card" "$PWD/legacy.so"
     TSUGUMI_TEST_LOCKED=1 ./fake_host "${lockedCard}/lib/main.so" "$PWD/legacy.so"
 
-    $CXX -std=c++2c -Wall -Wextra -Werror -I"${starter.run.generated}/include" -I"$include" -I"$tests" \
+    test -s "${starter.run}/lib/main.so"
+    $CXX -std=c++2c -Wall -Wextra -Werror -I"${starterWired.generated}/include" -I"$include" -I"$tests" \
       ${./starter.cc} ${lib.optionalString (!isDarwin) "-ldl"} -o starter-host
-    ./starter-host "${starter.run}/lib/main.so"
+    ./starter-host "${starterWired}/lib/main.so"
 
     for card in "$card" "${lockedCard}/lib/main.so"; do
       ${

@@ -17,33 +17,6 @@ def schema_tokens(source):
             if not token.group().startswith(("//", "/*"))]
 
 
-def input_port(name, file):
-    text = Path(file).read_text(encoding="utf-8")
-    tokens = schema_tokens(text)
-    words = [token.group() for token in tokens]
-    prefix = ["attribute", '"tsugumi"', ";"]
-    suffix = ["}", "root_type", "Inputs", ";"]
-    wrapper = ["namespace", "inputs", ";", "table", "Inputs", "{"]
-    start = next((i for i in range(len(words) - len(wrapper), -1, -1)
-                  if words[i:i + len(wrapper)] == wrapper), None)
-    if words[:len(prefix)] != prefix or words[-len(suffix):] != suffix or start is None:
-        raise ValueError(f"{file}: expected an inputs.Inputs catalog for {name}")
-    field = tokens[start + len(wrapper):-len(suffix)]
-    field_words = [token.group() for token in field]
-    if (field_words[:2] != [name, ":"] or field_words[-1:] != [";"]
-            or field_words.count(";") != 1):
-        raise ValueError(f"{file}: expected a single field named {name}")
-    index = next((i + 2 for i in range(len(field_words) - 2)
-                  if field_words[i:i + 3] == ["id", ":", "0"]), None)
-    if index is None:
-        raise ValueError(f"{file}: expected field ID 0 for {name}")
-    id_token = field[index]
-    closure = text[tokens[len(prefix) - 1].end():tokens[start].start()].strip()
-    before = text[field[0].start():id_token.start()]
-    after = text[id_token.end():field[-1].end()]
-    return closure, before, after
-
-
 def copy_outputs(source, directory):
     """Copy the authored root and its relative include closure unchanged."""
     root = source.parent
@@ -68,19 +41,10 @@ def copy_outputs(source, directory):
         shutil.copyfile(file, target)
 
 
-def main(out, outputs, params, *ports):
+def main(out, inputs, outputs, params):
     out = Path(out)
     out.mkdir()
-    closures, fields = [], []
-    for index, (name, file) in enumerate(zip(ports[::2], ports[1::2], strict=True)):
-        closure, before, after = input_port(name, file)
-        if closure:
-            closures.append(closure)
-        fields.append(f"  {before}{index}{after}")
-    (out / "_inputs.fbs").write_text("\n".join([
-        'attribute "tsugumi";', *closures, "namespace inputs;", "table Inputs {",
-        *fields, "}", "root_type Inputs;", "",
-    ]), encoding="utf-8")
+    shutil.copyfile(inputs, out / "_inputs.fbs")
     copy_outputs(Path(outputs), out)
     shutil.copyfile(params, out / "_params.fbs")
 

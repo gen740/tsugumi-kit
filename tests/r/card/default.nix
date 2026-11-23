@@ -3,7 +3,8 @@ let
   pkgs = import <nixpkgs> { };
   sdk = import <tsugumi-kit/sdk/r> { inherit pkgs; };
   common = {
-    inherit inputs params;
+    inherit params;
+    inputs = ../interface/_inputs.fbs;
     outputs = ../interface/_outputs.fbs;
   };
   runtime = (import <tsugumi-kit> { inherit pkgs; }).cppRuntime;

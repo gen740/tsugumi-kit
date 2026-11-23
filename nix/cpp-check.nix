@@ -12,7 +12,7 @@ let
   sdk = kit.cpp;
   runtime = kit.cppRuntime;
   fixtureEval = import ../tests/card-eval.nix { inherit pkgs; };
-  inputs = fixtureEval.inputs ../tests/cpp/ports;
+  upstreamExports.mylib.package = zlib;
   params = import ../tests/cpp/interface/params.nix;
   tests = lib.fileset.toSource {
     root = ../tests;
@@ -27,28 +27,46 @@ let
       ../tests/cpp/template.cc
     ];
   };
-  definition = fixtureEval.callWithParamCheck ../tests/card { inherit inputs params; } {
-    mode = 1;
-    labels = [ "changed" ];
+  definition =
+    fixtureEval.callWithParamCheck ../tests/card
+      {
+        inherit params;
+        inputs = upstreamExports;
+      }
+      {
+        mode = 1;
+        labels = [ "changed" ];
+      };
+  changedExport = fixtureEval.call ../tests/card {
+    inherit params;
+    inputs.mylib.package = flatbuffers;
   };
   card = definition.run;
   withoutTools = sdk.cppCard {
-    inherit inputs params;
+    inherit params;
+    inputs = ../tests/cpp/interface/_inputs.fbs;
     outputs = ../tests/cpp/interface/_outputs.fbs;
     src = ../tests/card/src;
     buildInputs = [ zlib ];
     inherit (params) cxxflags;
   };
-  filter = fixtureEval.call ../templates/filter-counts/filter {
-    inputs = fixtureEval.inputs ../tests/templates/filter-counts;
-  };
-  convert = fixtureEval.call ../templates/temperature-conversion/convert {
-    inputs = fixtureEval.inputs ../tests/templates/temperature-conversion;
-  };
-  convertUnwired = fixtureEval.call ../templates/temperature-conversion/convert { };
+  filterDir = ../templates/filter-counts/filter;
+  filter = fixtureEval.call filterDir { };
+  filterWired = sdk.cppCard (
+    fixtureEval.wiredTemplateArgs filterDir ../tests/templates/filter-counts/_inputs.fbs
+    // {
+      src = filterDir + "/src";
+    }
+  );
+  convertDir = ../templates/temperature-conversion/convert;
+  convert = fixtureEval.call convertDir { };
+  convertUnwiredArgs = fixtureEval.wiredTemplateArgs convertDir ../tests/templates/_inputs.fbs;
+  convertUnwired = sdk.cppCard (convertUnwiredArgs // { src = convertDir + "/src"; });
   inherit (stdenv.hostPlatform) isDarwin;
 in
 assert definition.views == sdk.views;
+assert card.drvPath != changedExport.run.drvPath;
+assert definition.api.drvPath == changedExport.api.drvPath;
 assert !(card ? views);
 assert
   map (view: view.name) definition.views == [
@@ -86,7 +104,7 @@ runCommandCC "tsugumi-cpp-abi-check"
       definition.api
       filter.api
       convert.api
-      convertUnwired.api
+      (sdk.cppApi convertUnwiredArgs)
     ];
   }
   ''
@@ -108,13 +126,14 @@ runCommandCC "tsugumi-cpp-abi-check"
     env -i ./fake_host --tools "${withoutTools}/lib/main.so" ""
     ./fake_host "$card" "$PWD/legacy.so"
 
-    $CXX -std=c++2c -Wall -Wextra -Werror -I"${filter.run.generated}/include" -I"$include" \
+    test -s "${filter.run}/lib/main.so"
+    $CXX -std=c++2c -Wall -Wextra -Werror -I"${filterWired.generated}/include" -I"$include" \
       -DFILTER "$tests/cpp/template.cc" ${lib.optionalString (!isDarwin) "-ldl"} -o filter-host
-    ./filter-host "${filter.run}/lib/main.so"
+    ./filter-host "${filterWired}/lib/main.so"
     $CXX -std=c++2c -Wall -Wextra -Werror -I"${convert.run.generated}/include" -I"$include" \
       "$tests/cpp/template.cc" ${lib.optionalString (!isDarwin) "-ldl"} -o convert-host
     ./convert-host "${convert.run}/lib/main.so"
-    ./convert-host "${convertUnwired.run}/lib/main.so" --unwired
+    ./convert-host "${convertUnwired}/lib/main.so" --unwired
 
 
     ${

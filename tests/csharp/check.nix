@@ -11,12 +11,12 @@ let
   inherit (stdenv.hostPlatform) isDarwin;
   fixtureEval = import ../card-eval.nix { inherit pkgs; };
   common = {
-    inputs = fixtureEval.inputs (./ports);
+    inputs = ./interface/_inputs.fbs;
     outputs = ./interface/_outputs.fbs;
     params = import ./interface/params.nix;
   };
   interface = (import ../../nix/card-interface.nix { inherit pkgs; }) common;
-  definition = fixtureEval.callWithParamCheck ./card { inherit (common) inputs params; } {
+  definition = fixtureEval.callWithParamCheck ./card { inherit (common) params; } {
     mode = 1;
   };
   card = definition.run;

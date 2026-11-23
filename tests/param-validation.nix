@@ -5,7 +5,7 @@ let
     params:
     (builtins.tryEval
       (cardInterface {
-        inputs = { };
+        inputs = ./cpp/interface/_inputs.fbs;
         outputs = ./cpp/interface/_outputs.fbs;
         inherit params;
       }).drvPath

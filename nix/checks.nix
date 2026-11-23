@@ -34,9 +34,7 @@
         name: definitionDir: libraries:
         let
           fixtureEval = import ../tests/card-eval.nix { inherit pkgs; };
-          definition = fixtureEval.call definitionDir {
-            inputs = fixtureEval.inputs ../tests/templates/text-required;
-          };
+          definition = fixtureEval.call definitionDir { };
         in
         assert builtins.elem "text" (map (view: view.name) definition.views);
         pkgs.runCommand "tsugumi-${name}-template-check" { } ''

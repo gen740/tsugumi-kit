@@ -3,7 +3,8 @@ let
   pkgs = import <nixpkgs> { };
   sdk = import <tsugumi-kit/sdk/js> { inherit pkgs; };
   common = {
-    inherit inputs params;
+    inherit params;
+    inputs = ./interface/_inputs.fbs;
     outputs = ./interface/_outputs.fbs;
   };
 in

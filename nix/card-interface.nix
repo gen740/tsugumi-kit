@@ -62,13 +62,10 @@ let
     root = outputDir;
     fileset = lib.fileset.fileFilter (file: file.hasExt "fbs") outputDir;
   };
-  portArgs = lib.concatMap (name: [
-    name
-    "${inputs.${name}.type}"
-  ]) (builtins.attrNames inputs);
 in
 pkgs.runCommand "tsugumi-card-interface" { nativeBuildInputs = [ pkgs.python3 ]; } ''
   python3 ${../sdk/codegen/card_interface.py} "$out" \
+    ${lib.escapeShellArg "${inputs}"} \
     ${lib.escapeShellArg "${outputSources}/${baseNameOf outputs}"} \
-    ${paramsFile} ${lib.escapeShellArgs portArgs}
+    ${paramsFile}
 ''

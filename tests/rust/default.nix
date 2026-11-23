@@ -9,17 +9,17 @@
 let
   fixtureEval = import ../card-eval.nix { inherit pkgs; };
   common = {
-    inputs = fixtureEval.inputs (./ports);
+    inputs = ./interface/_inputs.fbs;
     outputs = ./interface/_outputs.fbs;
     params = import ./interface/params.nix;
   };
   interface = (import ../../nix/card-interface.nix { inherit pkgs; }) common;
   sharedInterface = (import ../../nix/card-interface.nix { inherit pkgs; }) {
-    inputs = { inherit (common.inputs) number file directory; };
+    inputs = ../contract/_inputs.fbs;
     outputs = ../contract/_outputs.fbs;
     params = import ../contract/params.nix;
   };
-  definition = fixtureEval.callWithParamCheck ./definition.nix { inherit (common) inputs params; } {
+  definition = fixtureEval.callWithParamCheck ./definition.nix { inherit (common) params; } {
     mode = 1;
   };
   card = definition.run;

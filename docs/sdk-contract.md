@@ -10,7 +10,7 @@ Tsugumi calls `default.nix` with `{ params, inputs }`.
 | Argument | Value |
 | --- | --- |
 | `params` | The evaluated `params.nix` attribute set of current values, or `{ }` when the file is absent. |
-| `inputs` | An attribute per connected input port. Its `type` is the store path of a one-port FlatBuffers catalog. A normal upstream also supplies `exports`, including through Branch, Fork and Collect. Merge and Draft supply `type` alone. |
+| `inputs` | The Nix exports of upstream Cards guaranteed to run before this Card, keyed by Card ID. A Card with no exports contributes an empty set. Through Merge, only Cards common to all incoming branches contribute exports. |
 
 Imports such as `<nixpkgs>` and `<tsugumi-kit/sdk/cpp>` resolve through the
 project's `nixPath` declarations and corresponding `tsugumi.lock` entries.
@@ -22,7 +22,11 @@ and its bundled `views`.
 let
   pkgs = import <nixpkgs> { };
   sdk = import <tsugumi-kit/sdk/cpp> { inherit pkgs; };
-  common = { inherit inputs params; outputs = ./_outputs.fbs; };
+  common = {
+    inherit params;
+    inputs = ./_inputs.fbs;
+    outputs = ./_outputs.fbs;
+  };
 in
 {
   run = sdk.cppCard (common // { src = ./src; });
@@ -32,13 +36,16 @@ in
 ```
 
 Return the worker library as `run` and the codegen-only derivation as `api`.
-A definition may also return `views` and upstream `exports`. The worker
-loads `lib/main.so` from `run`. **Build SDK** evaluates and builds
+A definition may also return `views` and an `exports` attribute set.
+For example, when an upstream Card with ID `mylib` returns `exports.package`,
+add `buildInputs = [ inputs.mylib.package ];` to the run builder call.
+The worker loads `lib/main.so` from `run`. **Build SDK** evaluates and builds
 `(import ./. { inherit params inputs; }).api` in the Card's directory and
 displays the generated code and typed README from `share/tsugumi/api/`.
 
-All language builders take `inputs`, `outputs`, and optionally `params`.
-`outputs` points to the authored FlatBuffers file. Choose any root table
+All language builders take schema file paths as `inputs` and `outputs`,
+plus an optional evaluated `params` set. Pass the generated `_inputs.fbs`
+and the authored `_outputs.fbs`. For outputs, choose any root table
 name and namespace. Each field of that root table describes one output
 port. The run builder also takes `src` and language-specific options.
 
@@ -71,10 +78,14 @@ value in its derivation, as with `cxxflags` above.
 
 ## Inputs may be absent
 
-The builder combines the single-field `inputs.Inputs` catalogs from
-`inputs.<port>.type` into one generated input catalog. A Draft port has an
-empty provisional table and an unconnected port has no entry. A CardInput may omit an input. A Card
-declares whether it needs an input in its own code. The SDK reports
+Tsugumi generates `_inputs.fbs` in the Card definition from the wiring
+and upstream output types. Commit it with the definition. Its
+`inputs.Inputs` root has one field per connected port in declared order,
+with each type's declarations under `inputs.<port>`. With no wires, the
+root table is empty. A Draft port has an empty provisional table.
+
+A CardInput may omit an input. A Card declares whether it needs an input
+in its own code. The SDK reports
 `CardFailure.input_missing` with a message identifying the port when the Card
 requests a needed value and it is absent. Optional inputs use the language's
 absence value. The table gives the conventions for this revision's SDK ports.
@@ -107,9 +118,10 @@ and bytes unchanged. Verify and decode SDK payloads in the SDK.
 ## Generator and checks
 
 All generators use the shared [port reflection module](../sdk/codegen/tsugumi_ports.py)
-to read the assembled input catalog, authored output catalog, and generated
-parameter catalog. The Nix checks call Card definitions with evaluated
-parameter values, per-port files, and the project's nixPath names, then
+to read the wiring-generated input catalog, authored output catalog, and
+generated parameter catalog. The Nix checks use `_inputs.fbs` fixtures and
+call Card definitions with evaluated parameter values, upstream exports
+keyed by Card ID, and the project's nixPath names. The ABI checks then
 exercise `tsugumi_main` through the vendored ABI. Each SDK check compares
 the `run` and `api` derivation paths across values of the same type. The
 `sdkApi` check builds `api` and verifies the typed README.

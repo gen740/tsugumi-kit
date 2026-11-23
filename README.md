@@ -59,7 +59,11 @@ files are installed into the Card's `bin` directory. For example:
 let
   pkgs = import <nixpkgs> { };
   sdk = import <tsugumi-kit/sdk/cpp> { inherit pkgs; };
-  common = { inherit inputs; outputs = ./_outputs.fbs; };
+  common = {
+    inherit params;
+    inputs = ./_inputs.fbs;
+    outputs = ./_outputs.fbs;
+  };
 in
 {
   run = sdk.cppCard (common // { src = ./src; tools = [ pkgs.coreutils ]; });

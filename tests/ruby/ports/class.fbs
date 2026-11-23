@@ -1,9 +1,0 @@
-attribute "tsugumi";
-namespace inputs.class.template;
-table union { value:int; }
-
-namespace inputs;
-table Inputs {
-  class:inputs.class.template.union (id: 0);
-}
-root_type Inputs;

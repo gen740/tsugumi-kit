@@ -12,18 +12,18 @@
 let
   fixtureEval = import ../card-eval.nix { inherit pkgs; };
   common = {
-    inputs = fixtureEval.inputs (./ports);
+    inputs = ./interface/_inputs.fbs;
     outputs = ./interface/_outputs.fbs;
     params = import ./interface/params.nix;
   };
   interface = (import ../../nix/card-interface.nix { inherit pkgs; }) common;
-  definition = fixtureEval.callWithParamCheck ./default.nix { inherit (common) inputs params; } {
+  definition = fixtureEval.callWithParamCheck ./default.nix { inherit (common) params; } {
     mode = 1;
   };
   card = definition.run;
   outputOnlyDefinition = fixtureEval.call ./output-only { };
   outputCommon = {
-    inputs = { };
+    inputs = ./output-only/_inputs.fbs;
     outputs = ./output-only/_outputs.fbs;
     params = import ./output-only/params.nix;
   };
