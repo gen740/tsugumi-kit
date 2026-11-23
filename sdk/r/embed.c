@@ -26,6 +26,11 @@ extern bool tsugumi_r_cancelled(void);
 extern double tsugumi_r_remaining_ms(void);
 extern bool tsugumi_r_display(const char* request, int* status);
 extern int tsugumi_r_send(const char* view, const uint8_t* bytes, size_t size);
+int tsugumi_r_recv(const char* view, int64_t timeout_ms, uint8_t** data,
+                   size_t* size);
+char* tsugumi_r_artifact_dir(uint8_t* id);
+int tsugumi_r_artifact_upload(const char* path, uint8_t* id);
+char* tsugumi_r_artifact_open(const uint8_t* id);
 
 static SEXP sdk;
 
@@ -68,6 +73,64 @@ static SEXP send_bytes(SEXP view, SEXP bytes) {
 }
 
 /* R uses the registered arity when dispatching the erased function pointer. */
+static SEXP utf8(const char* text);
+
+static SEXP receive_bytes(SEXP view, SEXP timeout) {
+  const double millis = Rf_asReal(timeout);
+  if (!R_FINITE(millis) || millis < -9007199254740991.0 ||
+      millis > 9007199254740991.0 || millis != (double)(int64_t)millis)
+    Rf_error("Expected a safe integer timeout");
+  uint8_t* data = NULL;
+  size_t size = 0;
+  const int status = tsugumi_r_recv(Rf_translateCharUTF8(STRING_ELT(view, 0)),
+                                    (int64_t)millis, &data, &size);
+  if (status < 0) Rf_error("display receive was rejected");
+  SEXP result = PROTECT(Rf_allocVector(VECSXP, 2));
+  SET_VECTOR_ELT(result, 0,
+                 utf8(status == 0   ? "message"
+                      : status == 1 ? "timeout"
+                                    : "cancelled"));
+  if (status == 0) {
+    SEXP payload = Rf_allocVector(RAWSXP, (R_xlen_t)size);
+    if (size) memcpy(RAW(payload), data, size);
+    SET_VECTOR_ELT(result, 1, payload);
+  }
+  free(data);
+  UNPROTECT(1);
+  return result;
+}
+
+static SEXP artifact_dir(void) {
+  SEXP raw = PROTECT(Rf_allocVector(RAWSXP, 16));
+  char* path = tsugumi_r_artifact_dir(RAW(raw));
+  if (!path) Rf_error("Artifact creation failed");
+  SEXP result = PROTECT(Rf_allocVector(VECSXP, 2));
+  SET_VECTOR_ELT(result, 0, raw);
+  SET_VECTOR_ELT(result, 1, utf8(path));
+  free(path);
+  UNPROTECT(2);
+  return result;
+}
+
+static SEXP artifact_upload(SEXP path) {
+  SEXP raw = PROTECT(Rf_allocVector(RAWSXP, 16));
+  if (tsugumi_r_artifact_upload(Rf_translateCharUTF8(STRING_ELT(path, 0)),
+                                RAW(raw)))
+    Rf_error("Artifact upload failed");
+  UNPROTECT(1);
+  return raw;
+}
+
+static SEXP artifact_open(SEXP id) {
+  if (TYPEOF(id) != RAWSXP || XLENGTH(id) != 16)
+    Rf_error("Expected a 16-byte Artifact ID");
+  char* path = tsugumi_r_artifact_open(RAW(id));
+  if (!path) Rf_error("Artifact open failed");
+  SEXP result = utf8(path);
+  free(path);
+  return result;
+}
+
 #if defined(__clang__)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wcast-function-type-mismatch"
@@ -80,11 +143,16 @@ static const R_CallMethodDef methods[] = {
     {"tsugumi_r_remaining_ms", (DL_FUNC)&remaining_ms, 0},
     {"tsugumi_r_emit", (DL_FUNC)&emit, 1},
     {"tsugumi_r_send", (DL_FUNC)&send_bytes, 2},
+    {"tsugumi_r_recv", (DL_FUNC)&receive_bytes, 2},
+    {"tsugumi_r_artifact_dir", (DL_FUNC)&artifact_dir, 0},
+    {"tsugumi_r_artifact_upload", (DL_FUNC)&artifact_upload, 1},
+    {"tsugumi_r_artifact_open", (DL_FUNC)&artifact_open, 1},
     {NULL, NULL, 0},
 };
 
 static void register_effects(void) {
   R_RegisterCCallable("tsugumi", "send", (DL_FUNC)&tsugumi_r_send);
+  R_RegisterCCallable("tsugumi", "recv", (DL_FUNC)&tsugumi_r_recv);
   R_RegisterCCallable("tsugumi", "cancelled", (DL_FUNC)&tsugumi_r_cancelled);
   R_RegisterCCallable("tsugumi", "remaining_ms",
                       (DL_FUNC)&tsugumi_r_remaining_ms);
@@ -113,6 +181,8 @@ static void load_sdk(void* unused) {
   SEXP environment = PROTECT(R_NewEnv(R_GlobalEnv, TRUE, 29));
   source_sdk(environment, TSUGUMI_R_SDK);
   source_sdk(environment, TSUGUMI_R_CARD_API);
+  source_sdk(environment, TSUGUMI_R_PARAMS);
+  R_LockBinding(Rf_install("params"), environment);
   R_PreserveObject(environment);
   sdk = environment;
   UNPROTECT(1);
@@ -221,7 +291,8 @@ char* tsugumi_r_run(const char* input) {
   pthread_once(&startup, start);
   if (!started) return NULL;
 
-  /* The Card ABI serializes the callers. libR and its owner live until process exit.
+  /* The Card ABI serializes the callers. libR and its owner live until process
+   * exit.
    */
   struct call call = {input, NULL};
   pthread_mutex_lock(&mutex);

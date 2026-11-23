@@ -3,6 +3,7 @@
   runtime,
   portCodegen,
   cardInterface,
+  paramValues,
   publishApi,
 }:
 let
@@ -67,7 +68,7 @@ let
   '';
   generate =
     {
-      inputs,
+      inputs ? null,
       outputs,
       params ? { },
     }:
@@ -88,7 +89,7 @@ let
   juliaCard =
     {
       src,
-      inputs,
+      inputs ? null,
       outputs,
       params ? { },
       entry ? "main.jl",
@@ -106,6 +107,7 @@ let
     pkgs.runCommandCC "tsugumi-julia-card"
       {
         passthru = { inherit generated; };
+        nativeBuildInputs = [ pkgs.python3 ];
         buildInputs = [
           flatbuffers
           nlohmann_json
@@ -130,6 +132,7 @@ let
         }
 
         mkdir -p "$out/lib" "$out/share/tsugumi"
+        python3 ${./generate.py} --params ${paramValues params} "$out/share/tsugumi/params.jl"
         ${import ../../nix/prepare-tools.nix { inherit lib; } tools}
         $CXX -std=c++2c -O2 -DNDEBUG -fPIC -fvisibility=hidden -fvisibility-inlines-hidden \
           -Wall -Wextra -Werror -Wformat=2 -Wimplicit-fallthrough \
@@ -139,6 +142,7 @@ let
           -DTSUGUMI_LIBJULIA='"${juliaLib}"' \
           -DTSUGUMI_JULIA_PROJECT='"${project}"' \
           -DTSUGUMI_JULIA_DEPOT='"${depot}"' \
+          -DTSUGUMI_JULIA_PARAMS="\"$out/share/tsugumi/params.jl\"" \
           -DTSUGUMI_JULIA_SDK='"${./tsugumi.jl}"' \
           -DTSUGUMI_JULIA_CARD_API="\"${generated}/api/card.jl\"" \
           -DTSUGUMI_JULIA_SOURCE=${lib.escapeShellArg (builtins.toJSON "${src}")} \

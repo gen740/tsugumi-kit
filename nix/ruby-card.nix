@@ -3,6 +3,7 @@
   runtime,
   portCodegen,
   cardInterface,
+  paramValues,
   publishApi,
 }:
 let
@@ -11,7 +12,7 @@ let
   cpp = ../sdk/cpp;
   generate =
     {
-      inputs,
+      inputs ? null,
       outputs,
       params ? { },
     }:
@@ -32,7 +33,7 @@ let
   rubyCard =
     {
       src,
-      inputs,
+      inputs ? null,
       outputs,
       params ? { },
       name ? "tsugumi-ruby-card",
@@ -116,6 +117,7 @@ let
         passthru = { inherit generated; };
         nativeBuildInputs = [
           pkgs.pkg-config
+          pkgs.python3
           ruby
         ];
         buildInputs = [
@@ -127,6 +129,8 @@ let
       }
       ''
         test -f ${lib.escapeShellArg "${src}/main.rb"}
+        mkdir -p "$out/share/tsugumi"
+        python3 ${sdk}/card_ruby.py --params ${paramValues params} "$out/share/tsugumi/params.rb"
 
         libruby=$(ruby -rrbconfig -e 'print File.join(RbConfig::CONFIG.fetch("libdir"), RbConfig::CONFIG.fetch("LIBRUBY_SO"))')
         read -r -a rubyIncludes <<< "$(pkg-config --cflags ruby-${ruby.version.majMin})"
@@ -136,6 +140,7 @@ let
           -Wall -Wextra -Werror -Wno-unused-parameter "''${rubyIncludes[@]}" \
           "-DTSUGUMI_LIBRUBY=\"$libruby\"" \
           ${define "RUBY_CARD" "${src}"} \
+          "-DTSUGUMI_RUBY_PARAMS=\"$out/share/tsugumi/params.rb\"" \
           ${define "RUBY_SDK" "${sdk}/tsugumi.rb"} \
           ${define "RUBY_GEMS" "${ruby}/${ruby.gemPath}"} \
           ${define "RUBY_ACTIVATE" (lib.optionalString (lock != null) "${gems}/activate.rb")} \

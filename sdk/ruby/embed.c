@@ -49,10 +49,81 @@ static VALUE remaining_ms(VALUE self) {
   return LL2NUM(value);
 }
 
+struct receive_request {
+  const char* view;
+  int64_t timeout_ms;
+  uint8_t* data;
+  size_t size;
+  int status;
+};
+
+static void* receive_without_gvl(void* opaque) {
+  struct receive_request* request = opaque;
+  request->status = tsugumi_ruby_recv(request->view, request->timeout_ms,
+                                      &request->data, &request->size);
+  return NULL;
+}
+
+static VALUE receive_bytes(VALUE self, VALUE view, VALUE timeout) {
+  (void)self;
+  VALUE name = rb_str_new_frozen(view);
+  struct receive_request request = {StringValueCStr(name), NUM2LL(timeout),
+                                    NULL, 0, -1};
+  rb_thread_call_without_gvl(receive_without_gvl, &request, NULL, NULL);
+  RB_GC_GUARD(name);
+  if (request.status < 0)
+    rb_raise(rb_eRuntimeError, "display receive was rejected");
+  const char* status = request.status == 0   ? "message"
+                       : request.status == 1 ? "timeout"
+                                             : "cancelled";
+  VALUE payload = request.status == 0 ? rb_str_new((const char*)request.data,
+                                                   (long)request.size)
+                                      : Qnil;
+  free(request.data);
+  return rb_ary_new_from_args(2, ID2SYM(rb_intern(status)), payload);
+}
+
+static VALUE artifact_dir(VALUE self) {
+  (void)self;
+  uint8_t id[16];
+  char* path = tsugumi_ruby_artifact_dir(id);
+  if (!path) rb_raise(rb_eRuntimeError, "Artifact creation failed");
+  VALUE directory = rb_utf8_str_new_cstr(path);
+  free(path);
+  return rb_ary_new_from_args(2, rb_str_new((const char*)id, sizeof(id)),
+                              directory);
+}
+
+static VALUE artifact_upload(VALUE self, VALUE path) {
+  (void)self;
+  uint8_t id[16];
+  if (tsugumi_ruby_artifact_upload(StringValueCStr(path), id))
+    rb_raise(rb_eRuntimeError, "Artifact upload failed");
+  return rb_str_new((const char*)id, sizeof(id));
+}
+
+static VALUE artifact_open(VALUE self, VALUE id) {
+  (void)self;
+  Check_Type(id, T_STRING);
+  if (RSTRING_LEN(id) != 16)
+    rb_raise(rb_eArgError, "Expected a 16-byte Artifact ID");
+  char* path = tsugumi_ruby_artifact_open((const uint8_t*)RSTRING_PTR(id));
+  if (!path) rb_raise(rb_eRuntimeError, "Artifact open failed");
+  VALUE directory = rb_utf8_str_new_cstr(path);
+  free(path);
+  return directory;
+}
+
 static VALUE initialize(VALUE unused) {
   (void)unused;
   VALUE host = rb_define_module("TsugumiHost");
   rb_define_singleton_method(host, "send_bytes", send_bytes, 2);
+  rb_define_singleton_method(host, "recv", receive_bytes, 2);
+  rb_define_singleton_method(host, "artifact_dir", artifact_dir, 0);
+  rb_define_singleton_method(host, "artifact_upload", artifact_upload, 1);
+  rb_define_singleton_method(host, "artifact_open", artifact_open, 1);
+  rb_define_const(host, "PARAMS_FILE",
+                  rb_utf8_str_new_cstr(TSUGUMI_RUBY_PARAMS));
   rb_define_singleton_method(host, "cancelled", cancelled, 0);
   rb_define_singleton_method(host, "remaining_ms", remaining_ms, 0);
   rb_enc_set_default_external(rb_enc_from_encoding(rb_utf8_encoding()));

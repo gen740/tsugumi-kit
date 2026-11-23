@@ -10,7 +10,7 @@ let
   sdk = import <tsugumi-kit/sdk/r> { inherit pkgs; };
   common = {
     inherit params;
-    inputs = ./_inputs.fbs;
+    inputs = if builtins.pathExists ./_inputs.fbs then ./_inputs.fbs else null;
     outputs = ./_outputs.fbs;
   };
 in
@@ -27,35 +27,38 @@ under `share/tsugumi/api/`. Set `entry` to choose another file relative to `src`
 ```r
 main <- function(input) {
   if (cancelled()) stop("Stopped before writing")
-  file <- "note.txt"
-  writeLines(input$text$value, file)
-  list(file = file)
+  file <- artifact_dir()
+  writeLines(input$text$value, file.path(file$path, "note.txt"))
+  list(file = file$artifact)
 }
 ```
 
 The [R starter](../templates/r-write-text/) uses this entry with a FlatBuffer
-`text` input and a Path `file` output.
+`text` input and an Artifact `file` output.
+
+The SDK also exposes `sdk.input` and `sdk.artifact` for Input Card
+definitions. See the [Card SDK contract](sdk-contract.md).
 
 ## Inputs and outputs
 
-Read a needed input with `input$text` or `input[["text"]]`. When it is absent,
-including when the port is disconnected, the SDK reports `input_missing`
-and names the port. Use `optional_input(input, "text")` to get the optional
-value or `NULL`. Read parameters through `input$params`. A port named
-`params` is read through `input[["params"]]` or
-`optional_input(input, "params")`.
+Read a connected input with `input$text` or `input[["text"]]`. Use
+`optional_input(input, "text")` to handle a disconnected port. The
+build-time `params` list contains logical, double, character and list
+values. Integer params are exact decimal strings with class
+`tsugumi_int64`, which preserves the full signed 64-bit range.
 
-Return a named list keyed by output port name. Omit an optional output or set
-it to `NULL`. A missing required output produces `output_invalid`. Paths are
-character strings. Finish writing and close new files or directories under
-the call's working directory before returning their paths. Return the input
-path unchanged to forward an input.
+A mixed Merge yields `list(type = "Member", value = table)` after the
+SDK matches and verifies the candidate by schema ID. Collect yields
+opaque envelopes with `schema`, `bytes` and `artifacts`. Return a
+named list of outputs. Omit optional outputs or set them to `NULL`.
+A missing required output produces `output_invalid`.
 
-For a mixed Merge, the adapter verifies the nested buffer and decodes the
-selected member table. Read the member name from `arrival$type` and its
-table from `arrival$value`. Use `list(type = "Temperature", value = table)`
-to return a member on a Merge output. The generated README lists the member
-names for each port.
+`artifact_dir()` returns an Artifact and a writable directory in
+`$artifact` and `$path`. `artifact_upload(path)` copies a file or
+directory. `artifact_open(artifact)` returns the granted read-only
+directory. Forward an Artifact by returning it in a declared Artifact field.
+Declare Artifact fields with `include "tsugumi/artifact.fbs";`. The
+host seals created directories when the call returns.
 
 ## R values
 
@@ -88,6 +91,11 @@ views. Local argument and encoding errors raise an R error before calling
 the host. If the host cannot accept the message, `send` raises
 `"display rejected"`.
 
+`recv(view, timeout_ms)` returns a list with `status` and `bytes`. A
+negative timeout waits without a deadline. Status is `"message"`,
+`"timeout"` or `"cancelled"`. The SDK frames sends in messages of at
+most 16 MiB.
+
 The SDK bundles the `line-chart` and `points` HTML views.
 Declare the matching views in your Card's `default.nix` with
 `views = sdk.views ++ [ ... ];`.
@@ -106,11 +114,15 @@ pointers from their own threads:
 | Name | C signature |
 | --- | --- |
 | `send` | `int (const char* view, const uint8_t* bytes, size_t size)` |
+| `recv` | `int (const char* view, int64_t timeout_ms, uint8_t** data, size_t* size)` |
 | `cancelled` | `bool (void)` |
 | `remaining_ms` | `double (void)` |
 
 The native send function returns zero on success. Keep the view name and
-bytes alive until it returns. Native threads can send after `main` returns. Outside an invocation the queries return `true` and `0`.
+bytes alive until it returns. Native threads can send and receive after `main` returns. On a
+receive, the return status is 0 for a message, 1 for timeout, 2 for
+cancellation and negative for an error. Initialize the output pointer
+to null and release the returned bytes with `free()`. Outside an invocation the queries return `true` and `0`.
 
 The builder accepts `tools` for runtime executables. See [Runtime tools](../README.md#runtime-tools).
 

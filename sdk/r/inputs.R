@@ -11,7 +11,7 @@
   values[[i, ...]]
 }
 `$.tsugumi_input` <- function(x, name) {
-  if (identical(name, "params")) attr(x, "params") else x[[name]]
+  x[[name]]
 }
 optional_input <- function(input, name) {
   values <- unclass(input)

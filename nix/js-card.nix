@@ -13,6 +13,7 @@
   runtime,
   portCodegen,
   cardInterface,
+  paramValues,
   publishApi,
 }:
 let
@@ -39,7 +40,7 @@ let
       '';
   generate =
     {
-      inputs,
+      inputs ? null,
       outputs,
       params ? { },
     }:
@@ -61,7 +62,7 @@ let
         ln -s ${flatbuffersJs} "$out/js/node_modules/flatbuffers"
         cp ${sdk}/package.json .
         flatc --ts --gen-object-api --gen-all -o generated \
-          "$schemas/_inputs.fbs" "$schemas/_outputs.fbs" "$schemas/_params.fbs"
+          "$schemas/_inputs.fbs" "$schemas/_outputs.fbs" "${abi}/artifact.fbs"
         python3 "${sdk}/generate.py" "$schemas" "${../sdk/cpp}" \
           "${flatbuffers.src}/reflection/reflection.fbs" "$out/native" generated "$out/api/README.md"
         # The Card-facing API: the port bindings without the ABI envelope.
@@ -69,13 +70,13 @@ let
         flatc --ts --gen-object-api --gen-all -o generated "${abi}/card.fbs"
         install -Dm644 generated/tsugumi/data/failure-kind.ts "$out/api/tsugumi/data/failure-kind.ts"
         tsc --target es2022 --module nodenext --declaration --noCheck \
-          --rootDir generated --outDir "$out/js" generated/bindings.ts generated/tsugumi/card.ts
-        cp ${sdk}/{package.json,bootstrap.cjs,index.js,index.d.ts,effects.js,display.js,failure.js,runtime.js} "$out/js/"
+          --rootDir generated --outDir "$out/js" generated/bindings.ts generated/tsugumi/card.ts generated/tsugumi/artifact.ts
+        cp ${sdk}/{package.json,bootstrap.cjs,index.js,index.d.ts,effects.js,display.js,failure.js,runtime.js,artifact.js} "$out/js/"
       '';
   jsCard =
     {
       src,
-      inputs,
+      inputs ? null,
       outputs,
       params ? { },
       tools ? [ ],
@@ -102,6 +103,7 @@ let
     runCommandCC "tsugumi-js-card"
       {
         passthru = { inherit bindings; };
+        nativeBuildInputs = [ python3 ];
         buildInputs = [
           flatbuffers
           libuv
@@ -120,7 +122,9 @@ let
             cp -r --no-preserve=mode "${npmModules}/node_modules/." "$app/node_modules/"
           fi
         ''}
-        ln -s "${bindings}/js" "$app/node_modules/@tsugumi/card"
+        cp -R "${bindings}/js" "$app/node_modules/@tsugumi/card"
+        chmod u+w "$app/node_modules/@tsugumi/card"
+        python3 "${sdk}/generate.py" --params ${paramValues params} "$app/node_modules/@tsugumi/card/params.js"
         ${
           if isDarwin then
             ''
@@ -141,7 +145,7 @@ let
           -shared "''${toolPathObject[@]}" "''${link[@]}" -I"${bindings}/native/include" -I"${runtime}/include" \
           -I"${sdk}" -I"${../sdk/cpp/src}" -isystem "${libnode}/include/node" \
           "-DTSUGUMI_NODE=\"${libnode}/bin/node\"" "-DTSUGUMI_LIBNODE=\"''${libraries[0]}\"" \
-          "-DTSUGUMI_JS_BOOTSTRAP=\"${bindings}/js/bootstrap.cjs\"" "-DTSUGUMI_JS_ENTRY=\"$app/main.mjs\"" \
+          "-DTSUGUMI_JS_BOOTSTRAP=\"$app/node_modules/@tsugumi/card/bootstrap.cjs\"" "-DTSUGUMI_JS_ENTRY=\"$app/main.mjs\"" \
           "${sdk}/node_card.cc" "${bindings}/native/card_adapter.cc" \
           "${runtime}/lib/libtsugumi_abi.a" "''${libraries[0]}" -Wl,-rpath,"${libnode}/lib" -luv \
           -pthread ${lib.optionalString (!isDarwin) "-ldl"} -o "$out/lib/main.so"

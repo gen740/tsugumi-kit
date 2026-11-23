@@ -77,6 +77,87 @@ auto RemainingMs(const CallbackInfo& args) -> void {
   }
 }
 
+auto Text(v8::Isolate* isolate, const char* value) -> v8::Local<v8::String> {
+  return v8::String::NewFromUtf8(isolate, value).ToLocalChecked();
+}
+
+auto ViewName(v8::Isolate* isolate, Value value) -> std::string {
+  if (!value->IsString()) throw std::invalid_argument("Expected a string");
+  v8::String::Utf8Value string(isolate, value);
+  if (!*string || std::memchr(*string, 0, string.length()))
+    throw std::invalid_argument("Expected a string without NUL bytes");
+  return std::string(*string, string.length());
+}
+
+auto CopyBytes(v8::Isolate* isolate, std::span<const uint8_t> bytes)
+    -> v8::Local<v8::Uint8Array> {
+  const auto buffer = v8::ArrayBuffer::New(isolate, bytes.size());
+  if (!bytes.empty())
+    std::memcpy(buffer->GetBackingStore()->Data(), bytes.data(), bytes.size());
+  return v8::Uint8Array::New(buffer, 0, bytes.size());
+}
+
+auto Receive(const CallbackInfo& args) -> void {
+  auto* isolate = args.GetIsolate();
+  const auto context = isolate->GetCurrentContext();
+  try {
+    const auto timeout = args[1]->IntegerValue(context).FromMaybe(-1);
+    const auto message =
+        card::display::recv(ViewName(isolate, args[0]), timeout);
+    using card::display::ReceiveStatus;
+    const char* status = "message";
+    if (message.status == ReceiveStatus::kTimeout) status = "timeout";
+    if (message.status == ReceiveStatus::kCancelled) status = "cancelled";
+    const auto result = v8::Object::New(isolate);
+    result->Set(context, Text(isolate, "status"), Text(isolate, status))
+        .Check();
+    result
+        ->Set(context, Text(isolate, "bytes"),
+              CopyBytes(isolate, message.bytes))
+        .Check();
+    args.GetReturnValue().Set(result);
+  } catch (const std::exception& error) {
+    ThrowError(isolate, error.what());
+  }
+}
+
+auto Artifact(const CallbackInfo& args) -> void {
+  auto* isolate = args.GetIsolate();
+  const auto context = isolate->GetCurrentContext();
+  try {
+    const auto operation = ViewName(isolate, args[0]);
+    card::Artifact artifact;
+    std::filesystem::path path;
+    if (operation == "dir") {
+      auto [created, directory] = card::Artifact::dir();
+      artifact = std::move(created);
+      path = std::move(directory);
+    } else if (operation == "upload") {
+      artifact = card::Artifact::upload(ViewName(isolate, args[1]));
+    } else if (operation == "open" && args[1]->IsUint8Array()) {
+      std::array<uint8_t, 16> id{};
+      const auto bytes = args[1].As<v8::Uint8Array>();
+      if (bytes->ByteLength() != id.size() ||
+          bytes->CopyContents(id.data(), id.size()) != id.size())
+        throw std::invalid_argument("Expected a 16-byte Artifact ID");
+      artifact.id = std::make_unique<tsugumi::ArtifactId>(
+          flatbuffers::span<const uint8_t, 16>(id));
+      path = artifact.open();
+    } else {
+      throw std::invalid_argument("Unknown Artifact operation");
+    }
+    const auto result = v8::Array::New(isolate, 2);
+    result
+        ->Set(context, 0,
+              CopyBytes(isolate, {artifact.id->bytes()->Data(), 16}))
+        .Check();
+    result->Set(context, 1, Text(isolate, path.c_str())).Check();
+    args.GetReturnValue().Set(result);
+  } catch (const std::exception& error) {
+    ThrowError(isolate, error.what());
+  }
+}
+
 auto BindEffects(v8::Local<v8::Object> exports, Value,
                  v8::Local<v8::Context> context, void*) -> void {
   auto* isolate = v8::Isolate::GetCurrent();
@@ -87,6 +168,8 @@ auto BindEffects(v8::Local<v8::Object> exports, Value,
         .Check();
   };
   set("send", Send);
+  set("recv", Receive);
+  set("artifact", Artifact);
   set("cancelled", Cancelled);
   set("remainingMs", RemainingMs);
 }

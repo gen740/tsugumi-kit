@@ -1,83 +1,40 @@
-{
-  pkgs,
-  flatbuffers,
-  lib,
-  runCommandCC,
-  stdenv,
-  # The kit's root entry, `import ./. { inherit pkgs; }`.
-  kit,
-}:
+{ pkgs, kit }:
 let
-  runtime = kit.cppRuntime;
-  fixtureEval = import ../card-eval.nix { inherit pkgs; };
-  definition = fixtureEval.callWithParamCheck ./card { params = import ./interface/params.nix; } {
-    mode = 1;
+  sdk = kit.r;
+  schemas = ../../tests/contract;
+  common = {
+    inputs = schemas + "/_inputs.fbs";
+    outputs = schemas + "/_outputs.fbs";
+    params = import (schemas + "/params.nix");
   };
-  card = definition.run;
-  starterDir = ../../templates/r-write-text/write;
-  starter = fixtureEval.call starterDir { };
-  starterWired = kit.r.rCard (
-    fixtureEval.wiredTemplateArgs starterDir ../templates/text-to-path/_inputs.fbs
-    // {
-      src = starterDir + "/src";
-    }
-  );
-  inherit (stdenv.hostPlatform) isDarwin;
+  effects = pkgs.runCommandCC "tsugumi-r-test-effects" { buildInputs = [ pkgs.R ]; } ''
+    mkdir -p "$out"
+    $CXX -std=c++2c -Wall -Wextra -Werror -shared -fPIC -pthread       -I"${pkgs.R}/lib/R/include" -I"${kit.cppRuntime}/include"       -L"${pkgs.R}/lib/R/lib" -lR ${./effects.cc} -o "$out/contract_effects.so"
+  '';
+  fixture = pkgs.runCommand "tsugumi-r-contract-src" { } ''
+    mkdir -p "$out"
+    substitute ${./card/src/main.R} "$out/main.R"       --replace-fail '@EFFECTS@' "${effects}/contract_effects.so"
+  '';
+
+  card =
+    params:
+    sdk.rCard (
+      common
+      // {
+        inherit params;
+        src = fixture;
+      }
+    );
+  api = params: sdk.rApi (common // { inherit params; });
+  changed = common.params // {
+    offset = 101;
+  };
 in
-assert definition.views == kit.r.views;
-runCommandCC "tsugumi-r-abi-check"
-  {
-    buildInputs = [ flatbuffers ];
-    passthru.apis = [
-      definition.api
-      starter.api
-    ];
-  }
-  ''
-    api=${definition.api}/share/tsugumi/api
-    test -s "$api/README.md" && test -s "$api/_outputs.fbs" && test -s "$api/card.R"
-    grep -F '`params` — `list <inputs.params.Number> or NULL`' "$api/README.md"
-    grep -F '`arrival` — `list(type = "Temperature"' "$api/README.md"
-    card=${card}/lib/main.so
-    include=${runtime}/include
-    cp ${../fake_host.c} fake_host.c
-    cp ${../wire.h} wire.h
-    $CC -std=c11 -D_DEFAULT_SOURCE -Wall -Wextra -Werror \
-      -I"$include" -I. -pthread -c ${./host.c} -o host.o
-    $CC -std=c11 -Wall -Wextra -Werror -fPIC -shared "${../legacy.c}" -o legacy.so
-    $CXX -std=c++2c -Wall -Wextra -Werror -I. -isystem "${card.generated}/include" -I"$include" \
-      ${./wire.cc} host.o -pthread ${lib.optionalString (!isDarwin) "-ldl"} -o fake-host
-    test -s "${starter.run}/lib/main.so"
-    $CXX -std=c++2c -Wall -Wextra -Werror -I. -isystem "${starterWired.generated}/include" \
-      -I"$include" ${../julia/text_template.cc} ${lib.optionalString (!isDarwin) "-ldl"} -o text-host
-
-    mkdir home
-    pushd home
-    export HOME="$PWD"
-    mkdir scratch directory
-    export TMPDIR="$PWD/scratch"
-    printf 'input\n' > input.txt
-    printf 'directory\n' > directory/child
-    touch scratch/clear-me
-    ../fake-host "$card" "$OLDPWD/legacy.so"
-    ../text-host "${starterWired}/lib/main.so"
-    popd
-
-    ${
-      if isDarwin then
-        ''
-          test "$(nm -gUj "$card")" = _tsugumi_main
-        ''
-      else
-        ''
-          test "$(nm -D --defined-only -j "$card")" = tsugumi_main
-        ''
-    }
-    strings -a "$card" > card.strings
-    nm "$card" | c++filt > card.symbols
-    if grep -Ei 'BFBS|reflection_generated|flatbuffers.*reflection|reflection::' card.strings card.symbols; then
-      echo "Unexpected reflection data in main.so" >&2
-      exit 1
-    fi
-    touch "$out"
-  ''
+assert (card common.params).drvPath != (card changed).drvPath;
+assert (api common.params).drvPath == (api changed).drvPath;
+(import ../../nix/contract-check.nix { inherit pkgs; }) {
+  name = "r";
+  card = card common.params;
+  api = api common.params;
+  runtime = kit.cppRuntime;
+}

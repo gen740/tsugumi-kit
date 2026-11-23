@@ -2,8 +2,9 @@ module Tsugumi
 
 import JSON
 import Printf
+import Base64
 
-export Inputs, send, cancelled, remaining_ms, CardFailure
+export Inputs, Artifact, dir, upload, params, send, recv, cancelled, remaining_ms, CardFailure
 export Markdown, Scalar, Table, Image, Points, LineChart, Plotly, VegaLite
 
 struct CardFailure <: Exception
@@ -20,6 +21,62 @@ include(Main.TSUGUMI_JULIA_CARD_API)
 const HOST = Main.TSUGUMI_JULIA_HOST
 cancelled() = (@ccall gc_safe=true $(HOST.cancelled)()::Cint) != 0
 remaining_ms() = @ccall gc_safe=true $(HOST.remaining_ms)()::Int64
+
+include(Main.TSUGUMI_JULIA_PARAMS)
+
+struct Artifact
+    id::NTuple{16,UInt8}
+end
+
+function take_path(path)
+    path == C_NULL && error("Artifact operation failed")
+    try
+        return unsafe_string(path)
+    finally
+        Libc.free(path)
+    end
+end
+
+function dir(::Type{Artifact})
+    id = Vector{UInt8}(undef, 16)
+    path = @ccall $(HOST.dir)(id::Ptr{UInt8})::Ptr{UInt8}
+    return Artifact(Tuple(id)), take_path(path)
+end
+
+function upload(::Type{Artifact}, path::AbstractString)
+    id = Vector{UInt8}(undef, 16)
+    code = @ccall $(HOST.upload)(path::Cstring, id::Ptr{UInt8})::Cint
+    code == 0 || error("Artifact upload failed")
+    return Artifact(Tuple(id))
+end
+
+function Base.open(artifact::Artifact)
+    id = collect(artifact.id)
+    return take_path(@ccall $(HOST.open)(id::Ptr{UInt8})::Ptr{UInt8})
+end
+
+JSON.lower(artifact::Artifact) = Dict("\$artifact" => Base64.base64encode(collect(artifact.id)))
+
+decode_input(item) = item
+decode_input(items::Vector) = map(decode_input, items)
+function decode_input(item::Dict)
+    if haskey(item, "\$artifact")
+        return Artifact(Tuple(Base64.base64decode(item["\$artifact"])))
+    end
+    return Dict{String,Any}(key => decode_input(value) for (key, value) in item)
+end
+
+function recv(view::AbstractString, timeout_ms::Integer=-1)
+    bytes = Ref{Ptr{UInt8}}(C_NULL)
+    size = Ref{Csize_t}(0)
+    code = @ccall gc_safe=true $(HOST.recv)(view::Cstring, timeout_ms::Int64,
+                     bytes::Ref{Ptr{UInt8}}, size::Ref{Csize_t})::Cint
+    code == 1 && return (:timeout, nothing)
+    code == 2 && return (:cancelled, nothing)
+    code == 0 || error("display receive was rejected")
+    size[] == 0 && return (:message, UInt8[])
+    return (:message, unsafe_wrap(Vector{UInt8}, bytes[], size[]; own=true))
+end
 
 struct Markdown
     text::String
@@ -104,7 +161,7 @@ function JSON.show_json(io::JSON.Writer.StructuralContext, s::PortSerialization,
 end
 
 module CardCode
-using ..Tsugumi: Inputs, send, cancelled, remaining_ms, CardFailure
+using ..Tsugumi: Inputs, Artifact, dir, upload, params, send, recv, cancelled, remaining_ms, CardFailure
 using ..Tsugumi: Markdown, Scalar, Table, Image, Points, LineChart, Plotly, VegaLite
 end
 
@@ -157,7 +214,7 @@ function run(payload)
     loaded[] || return load_failure[]
     try
         values = JSON.parse(payload; inttype=Int128, allownan=false)
-        output = Base.invokelatest(CardCode.main, Inputs(values["ports"], values["params"]))
+        output = Base.invokelatest(CardCode.main, Inputs(decode_input(values["ports"])))
         if output isa CardFailure
             return failure_json(output)
         end

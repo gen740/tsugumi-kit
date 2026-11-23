@@ -1,5 +1,5 @@
 import { types } from "node:util";
-import { send as sendRaw } from "./effects.js";
+import { recv, send as sendRaw } from "./effects.js";
 
 export class Text {
   constructor(text) { this.text = text; }
@@ -128,4 +128,4 @@ function send(value) {
   throw new TypeError("Unsupported display value");
 }
 
-export const display = Object.freeze({ send });
+export const display = Object.freeze({ send, recv });

@@ -10,7 +10,7 @@ let
   sdk = import <tsugumi-kit/sdk/julia> { inherit pkgs; };
   common = {
     inherit params;
-    inputs = ./_inputs.fbs;
+    inputs = if builtins.pathExists ./_inputs.fbs then ./_inputs.fbs else null;
     outputs = ./_outputs.fbs;
   };
 in
@@ -27,35 +27,38 @@ under `share/tsugumi/api/`. Set `entry` to choose another file relative to `src`
 ```julia
 function main(input::Inputs)
     cancelled() && throw(CardFailure(:cancelled, "Stopped before writing"))
-    file = "note.txt"
-    open(io -> println(io, input.text["value"]), file, "w")
+    file, directory = dir(Artifact)
+    open(io -> println(io, input.text["value"]), joinpath(directory, "note.txt"), "w")
     return (; file)
 end
 ```
 
 The [Julia starter](../templates/julia-write-text/) uses this entry with a
-FlatBuffer `text` input and a Path `file` output.
+typed `text` input and an Artifact `file` output.
+
+The SDK also exposes `sdk.input` and `sdk.artifact` for Input Card
+definitions. See the [Card SDK contract](sdk-contract.md).
 
 ## Inputs and outputs
 
-Read a needed input with `input.text`, `input[:text]`, or `input["text"]`.
-When it is absent, including when the port is disconnected, the SDK reports
-`input_missing` and names the port. Use `get(input, :text, nothing)` to read
-an optional value of type `Union{T, Nothing}`. Read parameters through
-`input.params["parameter"]`. A port named `params` is read through indexing
-or `get(input, :params, nothing)`.
+Read a connected input with `input.text` or `input[:text]`. Use
+`get(input, :text, nothing)` to handle a disconnected port. Read build-time
+parameters from the `params` named tuple. A list param is a tuple, and
+integer params use `Int64`.
 
-Return a `NamedTuple` or dictionary keyed by output port name. Omit an
-optional output or set it to `nothing`. A missing required output produces
-`output_invalid`. Paths are strings. Finish writing and close new files or
-directories under the call's working directory before returning their paths.
-Return the input path unchanged to forward an input.
+A mixed Merge yields a dictionary with `"type"` and `"value"` entries.
+The SDK selects and verifies the incoming member by schema ID. Collect
+yields a table with opaque envelopes containing `"schema"`, `"bytes"`
+and `"artifacts"`. Return a named tuple or dictionary of outputs. Omit
+optional outputs or use `nothing`. A missing required output produces
+`output_invalid`.
 
-For a mixed Merge, the adapter verifies the nested buffer and decodes the
-selected member table. Read the member name at `arrival["type"]` and its
-dictionary at `arrival["value"]`. To return a member on a Merge output, use
-a dictionary with those keys or `(; type="Temperature", value=table)`.
-The generated README lists the member names for each port.
+`dir(Artifact)` returns the Artifact and a writable directory.
+`upload(Artifact, path)` copies a file or a directory. `open(artifact)`
+returns the granted read-only directory. Forward an Artifact by returning
+it in a declared Artifact field.
+Declare Artifact fields with `include "tsugumi/artifact.fbs";`. The
+host seals created directories when the call returns.
 
 ## Julia values
 
@@ -83,8 +86,11 @@ Declare the matching views in your Card's `default.nix` with
 The bundled `text` view displays values sent with `send("text")`.
 See the [view protocol](cpp-sdk.md#display-a-value).
 
-Tasks scheduled on a separate Julia thread can keep
-sending displays after `main` returns. Outside a call, `cancelled()` returns true and
+`recv(view, timeout_ms)` returns `(status, bytes)` with status
+`:message`, `:timeout` or `:cancelled`. A negative timeout waits without
+a deadline. The SDK frames sends in messages of at most 16 MiB.
+Tasks on a separate Julia thread can send and receive after `main` returns.
+The embedder starts two Julia threads when `JULIA_NUM_THREADS` is unset. Outside a call, `cancelled()` returns true and
 `remaining_ms()` returns 0. Throw `CardFailure(:kind, "message"; cell="name")` to
 set the failure kind and optional cell. Returning a `CardFailure` reports the
 same failure without a source location. For exceptions, the SDK reports a

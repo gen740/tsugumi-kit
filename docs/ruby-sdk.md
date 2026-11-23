@@ -11,7 +11,7 @@ let
   sdk = import <tsugumi-kit/sdk/ruby> { inherit pkgs; };
   common = {
     inherit params;
-    inputs = ./_inputs.fbs;
+    inputs = if builtins.pathExists ./_inputs.fbs then ./_inputs.fbs else null;
     outputs = ./_outputs.fbs;
   };
 in
@@ -28,37 +28,37 @@ Use **Build SDK** in the Card editor to inspect the API for the current wiring.
 ```ruby
 def main(input)
   text = input.fetch(:text).fetch('value')
-  file = 'note.txt'
-  File.write(file, text + "\n")
+  file, directory = Tsugumi::Artifact.dir
+  File.write(File.join(directory, 'note.txt'), text + "\n")
   {file: file}
 end
 ```
 
 The [Ruby starter](../templates/ruby-write-text/) uses this entry with a
-FlatBuffer `text` input and a Path `file` output.
+typed `text` input and an Artifact `file` output.
+
+The SDK also exposes `sdk.input` and `sdk.artifact` for Input Card
+definitions. See the [Card SDK contract](sdk-contract.md).
 
 ## Inputs and outputs
 
-- `input.fetch(:port)` reads a needed input. If the port is absent, the
-  SDK raises `Tsugumi::Failure` with kind `input_missing` and names the port,
-  including when it has no wire. `input[:port]` returns the value or `nil`.
-  Both accept string and symbol names. `fetch(:port, fallback)` and
-  `fetch(:port) { |name| ... }` supply defaults. The block receives the
-  name as a string. Read parameters through `input.params`, a Hash with
-  string keys.
-- Return a Hash keyed by output port name. Output Hashes accept string and
-  symbol keys. Omit optional outputs or set them to `nil`. Missing a
-  required output produces `output_invalid`.
-- A Path input is a staged absolute path as a Ruby String. A Path
-  output takes a String or an object with `to_path`, such as
-  `Pathname`. Finish writing and close files under the call's working
-  directory before returning their paths. Return an input path unchanged to
-  forward it. Path ports can carry regular files or directories.
-- For a mixed-type Merge, the SDK verifies and decodes the selected member's
-  nested FlatBuffer. Read its type name at `arrival['type']` and its
-  decoded table at `arrival['value']`. The generated API lists the names
-  and shapes that the port can yield. Use the same tagged Hash shape for
-  a mixed-type Merge output.
+Read a connected input with `input.fetch(:port)`, or use
+`input[:port]` to get `nil` for a disconnected port. Build-time
+`Tsugumi.params` is a frozen Hash with string keys and native values.
+
+A mixed Merge yields a tagged Hash. Read `arrival['type']` for the
+candidate name and `arrival['value']` for its table. The SDK selects and
+verifies the candidate by schema ID. Collect yields opaque envelopes
+with `schema`, `bytes` and `artifacts`. Return a Hash of outputs.
+Omit an optional output or set it to `nil`. A missing required output
+produces `output_invalid`.
+
+`Tsugumi::Artifact.dir` returns the Artifact and a writable directory.
+`Tsugumi::Artifact.upload(path)` copies a file or directory.
+`artifact.open` returns the granted read-only directory. Forward an
+Artifact by returning it in a declared Artifact field.
+Declare Artifact fields with `include "tsugumi/artifact.fbs";`. The
+host seals created directories when the call returns.
 
 ## FlatBuffer values
 
@@ -97,7 +97,10 @@ Scalars use the `markdown` view.
 | Line chart | `Tsugumi::LineChart.new([{id:, label:, x:, y:}, ...])` |
 | Plotly and Vega-Lite | `Tsugumi::Plotly.new(config)`, `Tsugumi::VegaLite.new(config)` |
 
-Ruby threads can send displays after `main` returns. `Tsugumi.cancelled`
+`Tsugumi.recv(view, timeout_ms)` returns `[status, bytes]`. Status is
+`:message`, `:timeout` or `:cancelled`. A negative timeout waits without
+a deadline. The SDK frames sends in messages of at most 16 MiB. Ruby
+threads can send and receive after `main` returns. `Tsugumi.cancelled`
 and `Tsugumi.remaining_ms` read the active call's state from any Ruby
 thread. Between calls they return `true` and `0`.
 

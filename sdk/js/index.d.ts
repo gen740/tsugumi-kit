@@ -1,9 +1,23 @@
 import { FailureKind } from "./tsugumi/data/failure-kind.js";
-import type { CardInput, CardOutput } from "./bindings.js";
+import { ArtifactT } from "./tsugumi/artifact.js";
+import type { CardInput, CardOutput, Params } from "./bindings.js";
 
-export { inputs, outputs, parameters } from "./bindings.js";
+export { inputs, outputs } from "./bindings.js";
 export type { CardInput, CardOutput, CardPorts } from "./bindings.js";
 export { FailureKind };
+export const params: Params;
+
+export class Artifact extends ArtifactT {
+  static dir(): [Artifact, string];
+  static upload(path: string): Artifact;
+  open(): string;
+}
+
+declare module "./tsugumi/artifact.js" {
+  interface ArtifactT {
+    open(): string;
+  }
+}
 
 export class Failure extends Error {
   constructor(kind: FailureKind, message: string, options?: { cell?: string });
@@ -12,6 +26,10 @@ export class Failure extends Error {
 }
 
 export function send(view: string, bytes: Uint8Array): number;
+export function recv(view: string, timeoutMs?: number): Readonly<{
+  status: "message" | "timeout" | "cancelled";
+  bytes: Uint8Array;
+}>;
 export function cancelled(): boolean;
 export function remainingMs(): number;
 
@@ -33,13 +51,16 @@ export class Points {
 }
 
 export const display: Readonly<{
+  recv: typeof recv;
   send(value: string | Text | Markdown | Table | Image | LineChart | Points): number;
 }>;
 
 export interface CardContext {
   readonly send: typeof send;
+  readonly recv: typeof recv;
   readonly display: typeof display;
   readonly cancelled: typeof cancelled;
   readonly remainingMs: typeof remainingMs;
 }
 export type Card = (input: CardInput, ctx: CardContext) => CardOutput | Promise<CardOutput>;
+export { ByteBuffer } from "flatbuffers";

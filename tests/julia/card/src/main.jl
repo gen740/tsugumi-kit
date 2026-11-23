@@ -1,132 +1,39 @@
-using Base64: base64decode, base64encode
-
-open(io -> println(io, "loaded"), "initialization.marker", "a")
-
-include("failure.jl")
+import Base64
 
 function main(input)
-    mode = input.params["mode"]
-    number = input.number
-    get(input, :unwired, nothing) === nothing || error("unwired input arrived")
-    mode == 18 && input.unwired
-    mode == 3 && throw(CardFailure(:cancelled, "explicit failure"; cell="fit"))
-    mode == 4 && fail_from_include()
-    mode == 5 && error("Card threw")
-    mode == 6 && return (;)
-    mode == 7 && return (; number=(; value=-1))
-    mode == 8 && return CardFailure(:input_missing, "returned failure"; cell="load")
-    mode == 9 && throw(CardFailure(:unspecified, "reserved failure kind"; cell="fit"))
-    mode == 10 && return (; number, table=(; rows=[nothing]))
+    item = input.arrival["value"]
+    granted = item["file"]
+    @assert isdir(open(granted)) && open(input.direct) == open(granted)
+    envelope = only(input.batch["items"])
+    bytes = Base64.base64decode(envelope["bytes"])
+    io = IOBuffer(bytes)
+    table = ltoh(read(io, Int32))
+    seek(io, table)
+    vtable = table - ltoh(read(io, Int32))
+    seek(io, vtable + 4)
+    field = ltoh(read(io, UInt16))
+    seek(io, table + field)
+    @assert envelope["schema"] == repeat("4", 64) && ltoh(read(io, Int32)) == 4
+    @assert params.offset === Int64(100) && params.labels isa Tuple
+    @assert params.flag && params.ratio === 1.0 && params.labels[1] == "日本語"
+    @assert !cancelled() && remaining_ms() == 500
+    number = item["value"] isa Integer ? item["value"] : 20
+    number < 0 && return (;)
 
-    for name in (:number, :table, :Params, :params)
-        hasproperty(input, name) || error("missing property $name")
+    artifact, directory = dir(Artifact)
+    file = joinpath(directory, "value.txt")
+    write(file, "test")
+    uploaded = upload(Artifact, file)
+    choice, _ = dir(Artifact)
+    @assert recv("request") == (:message, UInt8[42])
+    @assert recv("request", 0) == (:timeout, nothing)
+    @assert recv("request", 1) == (:cancelled, nothing)
+    send("listing", UInt8[42])
+    send("listing", fill(UInt8(42), (1 << 24) + 5))
+    Threads.@spawn begin
+        status, data = recv("background")
+        status === :message && send("background", data)
     end
-    !hasproperty(input, :ports) && !hasproperty(input, :unwired) || error("unexpected property")
-    input.Params["return"] == 43 && input.Params["__value"] == 7 || error("wrong reserved fields")
-    number["value"] == typemax(UInt64) || error("lost integer precision")
-    rows = input.table["rows"]
-    rows[1]["measure"] == "NaN" || error("wrong NaN token")
-    rows[2]["measure"] == "Infinity" || error("wrong infinity token")
-    rows[3]["measure"] == "-Infinity" || error("wrong negative infinity token")
-    rows[1]["maybe"] === nothing || error("missing optional scalar")
-    rows[2]["maybe"] == 0 || error("lost zero-valued optional scalar")
-    rows[1]["label"] == "Special" || error("wrong enum")
-    base64decode(rows[1]["bytes"]) == UInt8[0, 13, 255] || error("wrong byte vector")
-    rows[1]["choice"]["type"] == "Note" || error("wrong union")
-    rows[1]["choice"]["value"]["value"] == "日本語" || error("wrong union value")
-    rows[1]["measure"] = NaN
-    rows[2]["measure"] = Inf
-    rows[3]["measure"] = -Inf
-    rows[1]["bytes"] = base64encode(UInt8[255, 13, 0])
-
-    if mode == 11
-        cancelled() && remaining_ms() == 0 || error("wrong fallbacks for throwing host")
-        try
-            send("throwing host")
-            error("expected display rejection")
-        catch err
-            err isa ErrorException && err.msg == "display was rejected" || rethrow()
-        end
-    elseif 12 <= mode <= 14
-        check_gc_during_effect(mode, input.params["fd"])
-    elseif mode == 15 || mode == 16
-        effect_task[] = Threads.@spawn :default begin
-            mode == 15 ? cancelled() : remaining_ms() == -1
-        end
-        read_signal(input.params["fd"])
-        send("returning")
-    elseif mode == 17
-        fetch(effect_task[]) || error("wrong value from overlapping host callback")
-    end
-
-    if mode == 1
-        !cancelled() && remaining_ms() == 500 || error("wrong active effects")
-        try
-            send(Points([1], [], [1]))
-            error("expected a local display argument error")
-        catch err
-            err isa ArgumentError || rethrow()
-        end
-        send("résumé\n\"")
-        send(Markdown("**text**"))
-        send(2.5)
-        send(Table(["n"], [[1]]))
-        send(Image(UInt8[0, 13, 255]; media_type="image/png", alt="sample"))
-        send(Points([1], [1], [1]; colors=[0x123456]))
-        send(LineChart([(id="id", label="line", x=[2], y=[2])]))
-        send(Plotly((; data=[])))
-        send(VegaLite((; mark="point")))
-        send("custom", UInt8[0, 13, 255])
-        fd = input.params["fd"]
-        # The embedding thread owns the interactive pool in this fixture.
-        Threads.@spawn :default begin
-            read_signal(fd)
-            GC.gc()
-            cancelled() && remaining_ms() == 0 || error("host still active outside the call")
-            send("outside")
-        end
-    end
-
-    file = forward = nothing
-    source = get(input, :file, nothing)
-    if source !== nothing
-        open(io -> write(io, uppercase(read(source, String))), "output.txt", "w")
-        file = "output.txt"
-        forward = source
-    end
-    directory = get(input, "directory", nothing)
-    arrival = get(input, :arrival, nothing)
-    if arrival !== nothing
-        value = arrival["value"]
-        arrival = arrival["type"] == "Temperature" ?
-            (; type="Temperature", value=(; value=value["value"] + 1)) :
-            (; type=arrival["type"], value)
-    end
-    return (; number, table=(; rows), file, forward, directory, switch=input.Params, arrival)
-end
-
-const effect_task = Ref{Task}()
-
-function read_signal(fd)
-    signal = Ref{UInt8}(0)
-    received = @ccall gc_safe=true read(fd::Cint, signal::Ref{UInt8}, 1::Csize_t)::Cssize_t
-    received == 1 && signal[] == UInt8('!') || error("read failed")
-end
-
-function check_gc_during_effect(mode, fd)
-    task = Threads.@spawn :default begin
-        read_signal(fd)
-        GC.gc()
-        signal = Ref(UInt8('!'))
-        sent = @ccall gc_safe=true write(fd::Cint, signal::Ref{UInt8}, 1::Csize_t)::Cssize_t
-        sent == 1 || error("write failed")
-    end
-    if mode == 12
-        send("waiting for GC")
-    elseif mode == 13
-        !cancelled() || error("wrong cancellation status")
-    else
-        remaining_ms() == -1 || error("lost no-deadline sentinel")
-    end
-    fetch(task)
+    return (; listing=(; nested=(; file=artifact), files=[uploaded, granted],
+                        choice=(; type="File", value=choice), value=params.offset+number))
 end

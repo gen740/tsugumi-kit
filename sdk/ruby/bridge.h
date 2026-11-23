@@ -17,6 +17,11 @@ char* tsugumi_ruby_invoke(ruby_bytes input);
 int tsugumi_ruby_send(const char* view, ruby_bytes bytes);
 int tsugumi_ruby_cancelled(int* value);
 int tsugumi_ruby_remaining_ms(int64_t* value);
+int tsugumi_ruby_recv(const char* view, int64_t timeout_ms, uint8_t** data,
+                      size_t* size);
+char* tsugumi_ruby_artifact_dir(uint8_t* id);
+int tsugumi_ruby_artifact_upload(const char* path, uint8_t* id);
+char* tsugumi_ruby_artifact_open(const uint8_t* id);
 
 #ifdef __cplusplus
 }

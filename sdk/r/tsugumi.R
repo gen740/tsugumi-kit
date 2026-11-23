@@ -1,8 +1,18 @@
 # Sourced once into the SDK environment, which is the Card environment's parent.
 .tsugumi_json <- function(value) {
   # Use enough precision for a double round trip and retain special floats.
-  jsonlite::toJSON(value, auto_unbox = TRUE, digits = 17, null = "null",
+  jsonlite::toJSON(.tsugumi_encode_output(value), auto_unbox = TRUE, digits = 17, null = "null",
                    na = "string", raw = "base64", dataframe = "rows")
+}
+
+.tsugumi_encode_output <- function(value) {
+  if (inherits(value, "tsugumi_artifact") || inherits(value, "tsugumi_int64")) {
+    return(unclass(value))
+  }
+  if (!is.list(value) || is.data.frame(value)) return(value)
+  result <- lapply(value, .tsugumi_encode_output)
+  attributes(result) <- attributes(value)
+  result
 }
 
 send <- function(value, bytes) {
@@ -73,10 +83,37 @@ vega_lite <- function(spec) .tsugumi_view("vega-lite", spec)
 cancelled <- function() .Call("tsugumi_r_cancelled")
 remaining_ms <- function() .Call("tsugumi_r_remaining_ms")
 
+recv <- function(view, timeout_ms = -1) {
+  stopifnot(is.character(view), length(view) == 1L, !is.na(view))
+  result <- .Call("tsugumi_r_recv", view, timeout_ms)
+  setNames(result, c("status", "bytes"))
+}
+
+.artifact <- function(id) {
+  structure(list(`$artifact` = jsonlite::base64_enc(id)), class = "tsugumi_artifact")
+}
+
+artifact_dir <- function() {
+  created <- .Call("tsugumi_r_artifact_dir")
+  list(artifact = .artifact(created[[1L]]), path = created[[2L]])
+}
+
+artifact_upload <- function(path) {
+  stopifnot(is.character(path), length(path) == 1L, !is.na(path))
+  .artifact(.Call("tsugumi_r_artifact_upload", path))
+}
+
+artifact_open <- function(artifact) {
+  stopifnot(inherits(artifact, "tsugumi_artifact"))
+  .Call("tsugumi_r_artifact_open", jsonlite::base64_dec(artifact[["$artifact"]]))
+}
+
 .tsugumi_state <- new.env(parent = emptyenv())
 
 .tsugumi_decode_input <- function(value) {
   if (!is.list(value)) return(value)
+  id <- value[["$artifact"]]
+  if (!is.null(id)) return(.artifact(jsonlite::base64_dec(id)))
   numbers <- value[["$numeric"]]
   if (is.null(numbers)) return(lapply(value, .tsugumi_decode_input))
   # Wide integers are decimal strings, since a double may round them.
@@ -140,8 +177,7 @@ remaining_ms <- function() .Call("tsugumi_r_remaining_ms")
     }
     values <- jsonlite::fromJSON(json, simplifyVector = FALSE)
     input <- structure(lapply(values$ports, .tsugumi_decode_input),
-                       class = "tsugumi_input",
-                       params = .tsugumi_decode_input(values$params))
+                       class = "tsugumi_input")
     output <- .tsugumi_state$entry(input)
     output_names <- names(output)
     if (is.null(output) || (is.list(output) && !length(output))) {

@@ -6,6 +6,7 @@
 #include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <exception>
 #include <future>
 #include <mutex>
@@ -14,6 +15,57 @@
 #include <vector>
 
 #include "display.hh"
+
+extern "C" auto tsugumi_julia_recv(const char* view, int64_t timeout_ms,
+                                   uint8_t** data, size_t* size) -> int {
+  try {
+    const auto message = card::display::recv(view, timeout_ms);
+    using card::display::ReceiveStatus;
+    if (message.status == ReceiveStatus::kTimeout) return 1;
+    if (message.status == ReceiveStatus::kCancelled) return 2;
+    *size = message.bytes.size();
+    *data = nullptr;
+    if (*size == 0) return 0;
+    *data = static_cast<uint8_t*>(std::malloc(*size));
+    if (!*data) return -1;
+    std::memcpy(*data, message.bytes.data(), *size);
+    return 0;
+  } catch (...) {
+    return -1;
+  }
+}
+
+extern "C" auto tsugumi_julia_artifact_dir(uint8_t* id) -> char* {
+  try {
+    const auto [artifact, path] = card::Artifact::dir();
+    std::memcpy(id, artifact.id->bytes()->Data(), 16);
+    return strdup(path.c_str());
+  } catch (...) {
+    return nullptr;
+  }
+}
+
+extern "C" auto tsugumi_julia_artifact_upload(const char* path, uint8_t* id)
+    -> int {
+  try {
+    const auto artifact = card::Artifact::upload(path);
+    std::memcpy(id, artifact.id->bytes()->Data(), 16);
+    return 0;
+  } catch (...) {
+    return -1;
+  }
+}
+
+extern "C" auto tsugumi_julia_artifact_open(const uint8_t* id) -> char* {
+  try {
+    card::Artifact artifact;
+    artifact.id = std::make_unique<tsugumi::ArtifactId>(
+        flatbuffers::span<const uint8_t, 16>(id, 16));
+    return strdup(artifact.open().c_str());
+  } catch (...) {
+    return nullptr;
+  }
+}
 
 namespace tsugumi::julia {
 namespace {
@@ -215,26 +267,36 @@ class Interpreter {
     SetEnv("JULIA_PROJECT", TSUGUMI_JULIA_PROJECT);
     SetEnv("JULIA_LOAD_PATH", "@:@stdlib");
     jl_options.startupfile = JL_OPTIONS_STARTUPFILE_OFF;
+    if (!std::getenv("JULIA_NUM_THREADS")) SetEnv("JULIA_NUM_THREADS", "2");
     jl_init();
     jl_gc_safe_enter(static_cast<jl_ptls_t>(jl_get_ptls_states()));
     const JuliaScope scope;
     CheckJulia("Initializing Julia");
 
     // Use addresses for ccall so the bridge remains private to main.so.
-    char bridge[256];
+    char bridge[512];
     const int length = std::snprintf(
         bridge, sizeof(bridge),
         "const TSUGUMI_JULIA_HOST = (emit=Ptr{Cvoid}(%p), send=Ptr{Cvoid}(%p), "
-        "cancelled=Ptr{Cvoid}(%p), remaining_ms=Ptr{Cvoid}(%p))",
+        "cancelled=Ptr{Cvoid}(%p), remaining_ms=Ptr{Cvoid}(%p), "
+        "recv=Ptr{Cvoid}(%p), dir=Ptr{Cvoid}(%p), upload=Ptr{Cvoid}(%p), "
+        "open=Ptr{Cvoid}(%p))",
         reinterpret_cast<void*>(EmitDisplay), reinterpret_cast<void*>(Send),
         reinterpret_cast<void*>(IsCancelled),
-        reinterpret_cast<void*>(RemainingMs));
+        reinterpret_cast<void*>(RemainingMs),
+        reinterpret_cast<void*>(tsugumi_julia_recv),
+        reinterpret_cast<void*>(tsugumi_julia_artifact_dir),
+        reinterpret_cast<void*>(tsugumi_julia_artifact_upload),
+        reinterpret_cast<void*>(tsugumi_julia_artifact_open));
     if (length < 0 || static_cast<size_t>(length) >= sizeof(bridge))
       throw std::runtime_error("Could not initialize the Julia bridge");
     jl_eval_string(bridge);
     CheckJulia("Installing the Julia bridge");
-    jl_eval_string("const TSUGUMI_JULIA_CARD_API = \"" TSUGUMI_JULIA_CARD_API "\"");
+    jl_eval_string("const TSUGUMI_JULIA_CARD_API = \"" TSUGUMI_JULIA_CARD_API
+                   "\"");
     CheckJulia("Locating the Julia Card API");
+    jl_eval_string("const TSUGUMI_JULIA_PARAMS = \"" TSUGUMI_JULIA_PARAMS "\"");
+    CheckJulia("Locating the Julia parameters");
     jl_eval_string("Base.include(Main, \"" TSUGUMI_JULIA_SDK "\")");
     CheckJulia("Loading the Julia SDK");
     auto* sdk = reinterpret_cast<jl_module_t*>(

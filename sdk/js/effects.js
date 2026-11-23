@@ -23,3 +23,14 @@ export function cancelled() {
 export function remainingMs() {
   return host().remainingMs();
 }
+
+export function recv(view, timeoutMs = -1) {
+  if (typeof view !== "string" || view.includes("\0") || !Number.isSafeInteger(timeoutMs)) {
+    throw new TypeError("Expected a view name and a safe integer timeout");
+  }
+  return host().recv(view, timeoutMs);
+}
+
+export function artifactEffect(operation, value) {
+  return host().artifact(operation, value);
+}

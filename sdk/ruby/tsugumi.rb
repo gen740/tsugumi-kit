@@ -13,11 +13,8 @@ module Tsugumi
 
   # Every input may be absent: an unconnected input never arrives.
   class Inputs
-    attr_reader :params
-
-    def initialize(ports, params)
+    def initialize(ports)
       @ports = ports
-      @params = params
     end
 
     # An optional input, or nil when it is absent.
@@ -31,6 +28,29 @@ module Tsugumi
       raise Failure.new(:input_missing, "Missing input #{name}")
     end
   end
+
+  class Artifact
+    def initialize(id)
+      @id = id.freeze
+      freeze
+    end
+
+    def self.dir
+      id, path = TsugumiHost.artifact_dir
+      [new(id), path]
+    end
+
+    def self.upload(path) = new(TsugumiHost.artifact_upload(File.path(path)))
+    def open = TsugumiHost.artifact_open(@id)
+
+    def to_h = {"$artifact" => @id.bytes}
+  end
+
+  def self.params = PARAMS
+  require TsugumiHost::PARAMS_FILE
+  private_constant :PARAMS
+
+  def self.recv(view, timeout_ms = -1) = TsugumiHost.recv(view, timeout_ms)
 
   Markdown = Struct.new(:text)
   Scalar = Struct.new(:value, :label)
@@ -140,9 +160,6 @@ module Tsugumi
       return value.positive? ? 'Infinity' : '-Infinity' if value.infinite?
       value
     else
-      # Pathname and other path objects become the Path port's string.
-      return json_value(value.to_path, remaining_depth) if value.respond_to?(:to_path)
-
       object = value.to_h if value.respond_to?(:to_h)
       raise ArgumentError, "expected a value or #to_h for #{value.class}" unless object.is_a?(Hash)
       json_value(object, remaining_depth)
@@ -179,6 +196,17 @@ module Tsugumi
     result
   end
 
+  def self.decode_input(value)
+    case value
+    when Hash
+      return Artifact.new(value.fetch('$artifact').pack('C*')) if value.key?('$artifact')
+
+      value.transform_values { |item| decode_input(item) }
+    when Array then value.map { |item| decode_input(item) }
+    else value
+    end
+  end
+
   def self._dispatch(input_json, directory, prefix)
     @load_failure = load_card(directory, prefix) unless defined?(@load_failure)
     return JSON.generate({failure: @load_failure}) if @load_failure
@@ -189,7 +217,7 @@ module Tsugumi
       return JSON.generate({failure: failure(error, directory, prefix, 'invalid_request')})
     end
     begin
-      output = @card.main(Inputs.new(input.fetch('ports'), input.fetch('params')))
+      output = @card.main(Inputs.new(decode_input(input.fetch('ports'))))
     rescue Exception => error # Includes SystemExit raised by Card code.
       return JSON.generate({failure: failure(error, directory, prefix)})
     end

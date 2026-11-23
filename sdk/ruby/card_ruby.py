@@ -12,13 +12,28 @@ import re
 import sys
 from pathlib import Path
 
+if sys.argv[1] == "--params":
+    values = json.loads(Path(sys.argv[2]).read_text())
+
+    def ruby_value(value):
+        if isinstance(value, list):
+            return "[" + ", ".join(map(ruby_value, value)) + "].freeze"
+        literal = json.dumps(value, ensure_ascii=False).replace("#", r"\#")
+        return f"{literal}.freeze" if isinstance(value, str) else literal
+
+    pairs = (f"{ruby_value(key)} => {ruby_value(value)}" for key, value in values.items())
+    Path(sys.argv[3]).write_text(
+        "module Tsugumi\n  PARAMS = {" + ", ".join(pairs) + "}.freeze\nend\n"
+    )
+    sys.exit(0)
+
 sys.dont_write_bytecode = True
 sys.path.insert(0, sys.argv[1])
 
-from card_cpp import FLATC_KEYWORDS, cpp_type, flatc_identifier, generate_headers  # noqa: E402
+from card_cpp import FLATC_KEYWORDS, cpp_type, flatc_identifier, generate_headers, validators  # noqa: E402
 from tsugumi_ports import fields, load_card_schemas, reflect_schema, write_api_readme  # noqa: E402
 
-SCHEMAS = ("_inputs", "_outputs", "_params")
+SCHEMAS = ("_inputs", "_outputs")
 SCALARS = {
     "Bool": "bool",
     "Byte": "int8_t",
@@ -70,7 +85,6 @@ class Glue:
 
     def __init__(self, names):
         self.names = names
-        self.functions = []
 
     def cxx(self, name):
         return cpp_type(name, self.names)
@@ -106,6 +120,15 @@ class Glue:
 
     def emit_object(self, obj, schema):
         fields = table_fields(obj)
+        if obj["name"] == "tsugumi.Artifact":
+            return self.codec("::tsugumi::ArtifactT", [
+                'return Json{{"$artifact", std::vector<uint8_t>(value.id->bytes()->begin(), value.id->bytes()->end())}};',
+            ], [
+                'const auto bytes = value.at("$artifact").get<std::array<uint8_t, 16>>();',
+                '::tsugumi::ArtifactT result;',
+                'result.id = std::make_unique<::tsugumi::ArtifactId>(flatbuffers::span<const uint8_t, 16>(bytes));',
+                'return result;',
+            ])
         struct = obj.get("is_struct", False)
         kind = self.object_type(obj)
         encode = ["return Json{"] if fields else ["(void)value;", "return Json::object();"]
@@ -191,46 +214,6 @@ class Glue:
         decode.append('throw std::invalid_argument("invalid union tag");')
         return self.codec(native, encode, decode)
 
-    def decode_merge(self, type_, members):
-        """Return a function that reads the selected box as a tagged Ruby value."""
-        function = f"DecodeMerge{len(self.functions)}"
-        body = [f"auto {function}(const {self.cxx(type_)}T& merged, std::string_view name) -> Json {{"]
-        self.functions.append(body)
-        for member, ruby_name in zip(members, merge_names(members)):
-            target = self.cxx(member.type)
-            value = f"Encode(abi::ReadValue<{target}>({{box->bytes.data(), box->bytes.size()}}, name))"
-            if member.merge:
-                child = self.decode_merge(member.type, member.merge)
-                value = f"{child}(abi::ReadValue<{target}>({{box->bytes.data(), box->bytes.size()}}, name), name)"
-            body += [f"  if (const auto* box = merged.value.As{self.variant(member.tag)}())",
-                     f'    return Json{{{{"type", {quote(ruby_name)}}}, {{"value", {value}}}}};']
-        body += ['  abi::Reject(FailureKind::invalid_request, "Invalid Merge input " + std::string(name));',
-                 "}", ""]
-        return function
-
-    def encode_merge(self, type_, members):
-        """Return a function that boxes a tagged Ruby value."""
-        function = f"EncodeMerge{len(self.functions)}"
-        merged = self.cxx(type_) + "T"
-        body = [f"auto {function}(const Json& value, std::string_view name) -> {merged} {{",
-                '  CheckObject(value, {"type", "value"});',
-                '  const auto& tag = value.at("type");',
-                f"  {merged} merged;"]
-        self.functions.append(body)
-        for member, ruby_name in zip(members, merge_names(members)):
-            target = self.cxx(member.type)
-            native = f'Codec<{target}T>::Decode(value.at("value"))'
-            if member.merge:
-                native = f'{self.encode_merge(member.type, member.merge)}(value.at("value"), name)'
-            body += [f"  if (tag == {quote(ruby_name)}) {{",
-                     f"    {self.cxx(member.box_type)}T box;",
-                     f"    box.bytes = abi::PackValue<{target}>({native}, name);",
-                     "    merged.value.Set(std::move(box));",
-                     "    return merged;",
-                     "  }"]
-        body += ['  throw std::invalid_argument("invalid Merge member for " + std::string(name));',
-                 "}", ""]
-        return function
 
 
 def run_card(card, glue):
@@ -242,20 +225,21 @@ def run_card(card, glue):
     ]
     for port in card.inputs:
         name = quote(port.name)
-        if port.kind == "Path":
-            lines += [f"  if (const auto path = input.ReadPath({name}))",
-                      f"    values[{name}] = path->string();"]
-            continue
-        value = "Encode(*port)"
-        if port.merge:
-            value = f"{glue.decode_merge(port.type, port.merge)}(*port, {name})"
-        lines += [f"  if (const auto port = input.ReadPort<{cxx(port.type)}>({name}))",
-                  f"    values[{name}] = {value};"]
+        lines += [f"  if (const auto entry = input.ReadPort({name})) {{"]
+        for index, (member, tag) in enumerate(zip(port.candidates, merge_names(port.candidates))):
+            value = f"Encode(abi::ReadValue<{cxx(member.type)}>(entry->bytes, {name}))"
+            if len(port.candidates) > 1:
+                value = f'Json{{{{"type", {quote(tag)}}}, {{"value", {value}}}}}'
+            keyword = "if" if index == 0 else "else if"
+            lines += [f'    {keyword} (entry->schema == "{member.schema}")',
+                      f"      values[{name}] = {value};"]
+        lines += [f'    else abi::Reject(FailureKind::input_invalid, "Unknown schema for " + std::string({name}));',
+                  '  } else {',
+                  f'    abi::Reject(FailureKind::input_missing, "Missing input " + std::string({name}));',
+                  '  }']
     lines += [
         "  input.CheckConsumed();",
-        f'  const auto params = abi::ReadValue<{cxx(card.params_type)}, '
-        f'{str(not card.params).lower()}>(input.Params(), "params");',
-        '  const auto reply = InvokeRuby(Json{{"ports", std::move(values)}, {"params", Encode(params)}});',
+        '  const auto reply = InvokeRuby(Json{{"ports", std::move(values)}});',
         '  if (reply.contains("failure")) return FailureResult(reply.at("failure"));',
         '  const auto& outputs = reply.at("outputs");',
         "  CardResultT result;",
@@ -266,21 +250,13 @@ def run_card(card, glue):
         name = quote(port.name)
         required = str(port.required).lower()
         table = cxx(port.type)
-        if port.kind == "Path":
-            native = "std::filesystem::path"
-            decode = "value->get<std::string>()"
-        elif port.merge:
-            native = table + "T"
-            decode = f"{glue.encode_merge(port.type, port.merge)}(*value, {name})"
-        else:
-            native = table + "T"
-            decode = f"Codec<{table}T>::Decode(*value)"
+        native = table + "T"
+        decode = f"Codec<{native}>::Decode(*value)"
         lines += [
             f"    std::optional<{native}> output_{index};",
             f"    if (const auto value = outputs.find({name}); value != outputs.end() && !value->is_null())",
             f"      output_{index} = {decode};",
-            (f"    abi::WritePath(result, {name}, output_{index}, {required});" if port.kind == "Path"
-             else f"    abi::WritePort<{table}>(result, {name}, output_{index}, {required});"),
+            f"    abi::WritePort<{table}>(result, {name}, output_{index}, {required}, VisitArtifacts);",
         ]
     return lines + [
         "  } catch (const tsugumi::Failure&) {",
@@ -293,7 +269,7 @@ def run_card(card, glue):
     ]
 
 
-def generate_glue(card, schemas, names):
+def generate_glue(card, schemas, names, output_schema):
     glue = Glue(names)
     bodies = []
     codecs = set()
@@ -325,7 +301,6 @@ def generate_glue(card, schemas, names):
         '#include "json_codec.hh"',
         '#include "_inputs_generated.h"',
         '#include "_outputs_generated.h"',
-        '#include "_params_generated.h"',
         "",
         "namespace tsugumi::ruby {",
         "",
@@ -337,7 +312,8 @@ def generate_glue(card, schemas, names):
         *declarations,
         "",
         *bodies,
-        *(line for function in reversed(glue.functions) for line in function),
+        "using abi::AddArtifact;",
+        *validators(output_schema, (glue.cxx(port.type) for port in card.outputs)),
         *run,
         "",
         "}  // namespace tsugumi::ruby",
@@ -395,6 +371,8 @@ class Signatures:
         return value + "?" if nullable or field.get("optional", False) else value
 
     def table(self, name):
+        if name == "tsugumi.Artifact":
+            return "Artifact"
         alias = self.alias(name)
         if alias not in self.aliases:
             self.aliases[alias] = None
@@ -425,24 +403,25 @@ class Signatures:
                 self.aliases[alias] = " | ".join([*names, "Integer"])
         return alias
 
-    def merge(self, members):
-        return " | ".join(
-            f'{{ "type" => {quote(name)}, "value" => '
-            f'{"(" + self.merge(member.merge) + ")" if member.merge else self.table(member.type)} }}'
-            for member, name in zip(members, merge_names(members)))
-
-    def port(self, port, *, output=False):
-        if port.kind == "Path":
-            return "(String | _PathLike)" if output else "String"
-        return f"({self.merge(port.merge)})" if port.merge else self.table(port.type)
+    def port(self, port):
+        if len(port.candidates) > 1:
+            return "(" + " | ".join(
+                f'{{ "type" => {quote(tag)}, "value" => {self.table(member.type)} }}'
+                for member, tag in zip(port.candidates, merge_names(port.candidates))
+            ) + ")"
+        return self.table(port.type)
 
 
 def generate_api(card, schemas, out):
     signatures = Signatures(schemas)
     inputs = [(port.name, signatures.port(port)) for port in card.inputs]
-    outputs = [(port, signatures.port(port, output=True)) for port in card.outputs]
-    params = signatures.table(card.params_type)
-    _, param_schema = signatures.objects[card.params_type]
+    outputs = [(port, signatures.port(port)) for port in card.outputs]
+    def param_type(type_):
+        if type_.startswith("["):
+            return f"Array[{param_type(type_[1:-1])}]"
+        return {"bool": "bool", "long": "Integer", "double": "Float", "string": "String"}[type_]
+
+    params = ", ".join(f"{quote(param.name)} => {param_type(param.type)}" for param in card.params)
     keys = [f"(:{port_symbol(name)} | {quote(name)})" for name, _ in inputs]
     fetch = [f"{key} -> {type_}" for key, (_, type_) in zip(keys, inputs)]
     fetch += [
@@ -462,16 +441,19 @@ def generate_api(card, schemas, out):
         '  type float = Float | "NaN" | "Infinity" | "-Infinity"',
         *(f"  type {alias} = {body}" for alias, body in signatures.aliases.items()),
         "",
-        "  interface _PathLike",
-        "    def to_path: () -> String",
+        "  class Artifact",
+        "    def self.dir: () -> [Artifact, String]",
+        "    def self.upload: (String) -> Artifact",
+        "    def open: () -> String",
         "  end",
+        "",
+        f"  def self.params: () -> {{ {params} }}" if params else "  def self.params: () -> Hash[String, untyped]",
         "",
         "  class Inputs",
         "    # Needed input: raises Tsugumi::Failure (input_missing) when absent.",
         "    def fetch: " + "\n             | ".join(fetch),
         "    # Optional input: nil when absent.",
         "    def []: " + "\n          | ".join(lookup),
-        f"    def params: () -> {params}",
         "  end",
         "",
         f"  type output = {{ {record} }}" if record else "  type output = Hash[untyped, untyped]",
@@ -486,7 +468,7 @@ def generate_api(card, schemas, out):
         ((name, type_ + "?") for name, type_ in inputs),
         ((port.name, type_ + (" (required output)" if port.required else ""))
          for port, type_ in outputs),
-        ((param.name, signatures.field(param.field, param_schema)) for param in card.params),
+        ((param.name, param_type(param.type)) for param in card.params),
     )
     with readme.open("a", encoding="utf-8") as file:
         file.write("\nSee `card.rbs` for Ruby types. Use `input.fetch(:port)` for a needed input "
@@ -501,8 +483,8 @@ if __name__ == "__main__":
     schemas, out, reflection = (Path(path).resolve() for path in sys.argv[2:])
     card = load_card_schemas(schemas, reflection)
     (out / "include").mkdir(parents=True, exist_ok=True)
-    names, _ = generate_headers(schemas, out, reflection)
+    names, output_schema = generate_headers(schemas, out, reflection)
     reflected = [reflect_schema(schemas / f"{name}.fbs", reflection) for name in SCHEMAS]
     (out / "src").mkdir(parents=True, exist_ok=True)
-    (out / "src/card_glue.cc").write_text(generate_glue(card, reflected, names), encoding="utf-8")
+    (out / "src/card_glue.cc").write_text(generate_glue(card, reflected, names, output_schema), encoding="utf-8")
     generate_api(card, reflected, out / "api")

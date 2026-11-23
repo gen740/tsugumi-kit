@@ -9,11 +9,27 @@ import shutil
 import sys
 from pathlib import Path
 
+if sys.argv[1] == "--params":
+    values = json.loads(Path(sys.argv[2]).read_text())
+
+    def r_value(value):
+        if type(value) is int:
+            return f'structure("{value}", class = "tsugumi_int64")'
+        if type(value) is bool:
+            return "TRUE" if value else "FALSE"
+        if isinstance(value, list):
+            return "list(" + ", ".join(map(r_value, value)) + ")"
+        return json.dumps(value, ensure_ascii=False)
+
+    fields = (f"{json.dumps(name)} = {r_value(value)}" for name, value in values.items())
+    Path(sys.argv[3]).write_text("params <- list(" + ", ".join(fields) + ")\n")
+    sys.exit(0)
+
 from tsugumi_ports import load_card_schemas, reflect_schema, write_api_readme
 
 # flatc appends an underscore to object API members named like C++ keywords.
 sys.path.insert(0, sys.argv[1])
-from card_cpp import FLATC_KEYWORDS
+from card_cpp import cpp_type, flatc_identifier, generate_headers, validators
 
 SCALARS = {
     "Bool": "bool",
@@ -31,17 +47,13 @@ SCALARS = {
 }
 
 
-def cpp(name):
-    return "::" + name.replace(".", "::")
-
-
 def quote(text):
     return json.dumps(text, ensure_ascii=False)
 
 
 class Codecs:
-    def __init__(self, schemas, keywords):
-        self.keywords = keywords
+    def __init__(self, schemas, names):
+        self.names = names
         self.types = {}
         self.bodies = []
         for schema in schemas:
@@ -53,13 +65,21 @@ class Codecs:
         if name in self.used:
             return self.used[name][0]
         entry, schema = self.types[name]
-        native = cpp(name)
+        native = self.cpp(name)
         if entry.get("is_union"):
             native += "Union"
         elif "fields" in entry and not entry.get("is_struct"):
             native += "T"
         index = self.used[name] = (len(self.used), native)
-        if entry.get("is_union"):
+        if name == "tsugumi.Artifact":
+            to = '  return Json{{"$artifact", ToBase64(std::vector<uint8_t>(value.id->bytes()->begin(), value.id->bytes()->end()))}};'
+            from_ = """  const auto bytes = FromBase64(Member(json, "$artifact"));
+  if (bytes.size() != 16) throw std::invalid_argument("Expected an Artifact ID");
+  tsugumi::ArtifactT result;
+  result.id = std::make_unique<tsugumi::ArtifactId>(
+      flatbuffers::span<const uint8_t, 16>(bytes.data(), 16));
+  return result;"""
+        elif entry.get("is_union"):
             to, from_ = self.union(entry, schema, native)
         elif "values" in entry:
             to, from_ = self.enum(entry, native)
@@ -75,6 +95,9 @@ class Codecs:
             f"{from_}\n}}\n"
         )
         return number
+
+    def cpp(self, name):
+        return cpp_type(name, self.names)
 
     def type_name(self, type_, schema):
         index = type_.get("index", -1)
@@ -103,7 +126,7 @@ class Codecs:
 
     def field(self, field):
         name = field["name"]
-        return name + "_" if name in self.keywords else name
+        return flatc_identifier(self.names.get(name, name))
 
     def table(self, entry, schema, native):
         to = ["  Json json = Json::object();"]
@@ -179,10 +202,10 @@ class Codecs:
                 target = self.type_name(element, schema)
                 length = type_["fixed_length"]
                 if element["base_type"] == "Obj":
-                    item_type = cpp(target)
+                    item_type = self.cpp(target)
                     item = "*item"
                 else:
-                    item_type = cpp(target) if target else SCALARS[element["base_type"]]
+                    item_type = self.cpp(target) if target else SCALARS[element["base_type"]]
                     item = "item"
                     if item_type == "bool":
                         item_type = "uint8_t"
@@ -206,7 +229,7 @@ class Codecs:
         to = []
         from_ = []
         for member in entry["values"]:
-            tag = f'{native}::{member["name"]}'
+            tag = f'{native}::{self.field(member)}'
             name = quote(member["name"])
             to.append(f"  if (value == {tag}) return {name};")
             from_.append(f"  if (json == {name}) return {tag};")
@@ -215,7 +238,7 @@ class Codecs:
         return "\n".join(to), "\n".join(from_)
 
     def union(self, entry, schema, native):
-        union = cpp(entry["name"])
+        union = self.cpp(entry["name"])
         to = [f"  if (value.type == {union}::NONE) return nullptr;"]
         from_ = [f"  {native} value;", "  if (json.is_null()) return value;",
                  '  const auto& tag = Member(json, "type");',
@@ -224,7 +247,8 @@ class Codecs:
             if member["name"] == "NONE":
                 continue
             name = quote(member["name"])
-            tag = f'{union}::{member["name"]}'
+            variant = self.field(member)
+            tag = f'{union}::{variant}'
             type_ = member["union_type"]
             target = self.type_name(type_, schema)
             if target:
@@ -234,7 +258,7 @@ class Codecs:
                 object_type = SCALARS[type_["base_type"]]
             to += [
                 f"  if (value.type == {tag}) {{",
-                f"    if (const auto* item = value.As{member['name']}())",
+                f"    if (const auto* item = value.As{variant}())",
                 '      return Json{{"type", ' + name + '}, {"value", ' +
                 self.convert(type_, schema, "To", "*item") + '}};',
                 "  }",
@@ -269,115 +293,47 @@ def merge_tags(members):
     ]
 
 
-def native(name):
-    return f"{cpp(name)}::NativeTableType"
-
-
-class Ports:
-    """Emit the Merge conversions that hide the core's boxes from R."""
-
-    def __init__(self, codecs):
-        self.codecs = codecs
-        self.functions = []
-
-    def decode_merge(self, type_, members):
-        function = f"DecodeMerge{len(self.functions)}"
-        body = [f"auto {function}(const {native(type_)}& merged, std::string_view name) -> Json {{"]
-        self.functions.append(body)
-        for member, tag in zip(members, merge_tags(members)):
-            value = f"ReadValue<{cpp(member.type)}>({{box->bytes.data(), box->bytes.size()}}, name)"
-            if member.merge:
-                value = f"{self.decode_merge(member.type, member.merge)}({value}, name)"
-            else:
-                value = f"To{self.codecs.use(member.type)}({value})"
-            body += [f"  if (const auto* box = merged.value.As{member.tag}())",
-                     f"    return Json{{{{\"type\", {quote(tag)}}}, {{\"value\", {value}}}}};"]
-        body += ['  Reject(FailureKind::invalid_request, "Invalid Merge input " + std::string(name));',
-                 "}"]
-        return function
-
-    def encode_merge(self, type_, members):
-        function = f"EncodeMerge{len(self.functions)}"
-        body = [
-            f"auto {function}(const Json& value, std::string_view name) -> {native(type_)} {{",
-            '  const auto& type = Member(value, "type");',
-            '  const auto& payload = Member(value, "value");',
-            f"  {native(type_)} merged;",
-        ]
-        self.functions.append(body)
-        for member, tag in zip(members, merge_tags(members)):
-            if member.merge:
-                value = f"{self.encode_merge(member.type, member.merge)}(payload, name)"
-            else:
-                value = f"From{self.codecs.use(member.type)}(payload)"
-            body += [f"  if (type == {quote(tag)}) {{",
-                     f"    {native(member.box_type)} box;",
-                     f"    box.bytes = PackValue<{cpp(member.type)}>({value}, name);",
-                     "    merged.value.Set(std::move(box));",
-                     "    return merged;",
-                     "  }"]
-        body += ['  throw std::invalid_argument("Unknown Merge member for " + std::string(name));',
-                 "}"]
-        return function
-
-    def emit(self):
-        return "\n\n".join("\n".join(body) for body in reversed(self.functions))
-
-
 def r_type(port):
-    if port.kind == "Path":
-        return "character path"
-    if port.merge:
+    if len(port.candidates) > 1:
         return " | ".join(f'list(type = "{tag}", value = <{member.type}>)'
-                          for member, tag in zip(port.merge, merge_tags(port.merge)))
-    return f"list <{port.type}>"
+                          for member, tag in zip(port.candidates, merge_tags(port.candidates)))
+    return "Artifact" if port.type == "tsugumi.Artifact" else f"list <{port.type}>"
 
 
-def generate(card, schemas):
-    codecs = Codecs(schemas, FLATC_KEYWORDS)
-    ports = Ports(codecs)
+def generate(card, schemas, names, output_schema):
+    codecs = Codecs(schemas, names)
     read = []
     write = []
     for port in card.inputs:
         name = quote(port.name)
-        if port.kind == "Path":
-            read += [f"  if (const auto path = buffer.ReadPath({name}))",
-                     f"    ports[{name}] = path->string();"]
-            continue
-        value = (f"{ports.decode_merge(port.type, port.merge)}(*port, {name})" if port.merge
-                 else f"To{codecs.use(port.type)}(*port)")
-        read += [f"  if (const auto port = buffer.ReadPort<{cpp(port.type)}>({name}))",
-                 f"    ports[{name}] = {value};"]
-    params = codecs.use(card.params_type)
-    read += [
-        "  buffer.CheckConsumed();",
-        f'  const auto params = To{params}(ReadValue<{cpp(card.params_type)}, '
-        f'{str(not card.params).lower()}>(buffer.Params(), "params"));',
-        '  input = Json{{"ports", std::move(ports)}, {"params", params}};',
-    ]
+        read += [f"  if (const auto entry = buffer.ReadPort({name})) {{"]
+        for index, (member, tag) in enumerate(zip(port.candidates, merge_tags(port.candidates))):
+            value = f"To{codecs.use(member.type)}(ReadValue<{codecs.cpp(member.type)}>(entry->bytes, {name}))"
+            if len(port.candidates) > 1:
+                value = f'Json{{{{"type", {quote(tag)}}}, {{"value", {value}}}}}'
+            keyword = "if" if index == 0 else "else if"
+            read += [f'    {keyword} (entry->schema == "{member.schema}")',
+                     f"      ports[{name}] = {value};"]
+        read += [f'    else Reject(FailureKind::input_invalid, "Unknown schema for " + std::string({name}));',
+                 '  } else {',
+                 f'    Reject(FailureKind::input_missing, "Missing input " + std::string({name}));',
+                 '  }']
+    read += ["  buffer.CheckConsumed();", '  input = Json{{"ports", std::move(ports)}};']
     for port in card.outputs:
         name = quote(port.name)
         required = str(port.required).lower()
-        if port.kind == "Path":
-            value_type = "std::filesystem::path"
-            value = "FromValue<std::string>(*item)"
-            store = f"WritePath(result, {name}, port, {required});"
-        else:
-            value_type = native(port.type)
-            value = (f"{ports.encode_merge(port.type, port.merge)}(*item, {name})" if port.merge
-                     else f"From{codecs.use(port.type)}(*item)")
-            store = f"WritePort<{cpp(port.type)}>(result, {name}, port, {required});"
         write += [
             "  {",
             f"    const auto item = output.find({name});",
-            f"    std::optional<{value_type}> port;",
+            f"    std::optional<{codecs.cpp(port.type)}::NativeTableType> port;",
             "    if (item != output.end()) {",
-            f"      if (!item->is_null()) port = {value};",
+            f"      if (!item->is_null()) port = From{codecs.use(port.type)}(*item);",
             "      output.erase(item);",
             "    }",
-            f"    {store}",
+            f"    WritePort<{codecs.cpp(port.type)}>(result, {name}, port, {required}, VisitArtifacts);",
             "  }",
         ]
+    visits = validators(output_schema, (codecs.cpp(port.type) for port in card.outputs))
     return """// Generated by the Tsugumi R SDK.
 #include <filesystem>
 #include <optional>
@@ -385,7 +341,6 @@ def generate(card, schemas):
 
 #include "_inputs_generated.h"
 #include "_outputs_generated.h"
-#include "_params_generated.h"
 #include "adapter.hh"
 #include "bridge.hh"
 
@@ -393,7 +348,7 @@ namespace {
 using namespace tsugumi::abi;
 using namespace tsugumi::r;
 
-""" + codecs.emit() + "\n\n" + ports.emit() + """
+""" + codecs.emit() + "\n\n" + "\n".join(visits) + """
 
 auto RunCard(tsugumi_bytes bytes) -> Tsugumi::Card::CardResultT {
   Tsugumi::Card::CardResultT result;
@@ -403,7 +358,7 @@ auto RunCard(tsugumi_bytes bytes) -> Tsugumi::Card::CardResultT {
     Json ports = Json::object();
 """ + "\n".join("  " + line for line in read) + """
   } catch (const std::invalid_argument& error) {
-    Reject(FailureKind::invalid_request, error.what());
+    Reject(FailureKind::input_invalid, error.what());
   }
   auto reply = RunR(input);
   if (const auto failure = reply.find("failure"); failure != reply.end())
@@ -436,11 +391,10 @@ API_NOTES = """
 `main(input)` reads `input$port` (or `input[["port"]]`) for an input it
 needs; an absent input raises a Card failure of kind `input_missing`.
 `optional_input(input, "port")` returns `NULL` for an absent input.
-Read parameters from `input$params`; use `input[["params"]]` for a port
-named `params`. Return a named list of outputs.
+Read parameters from the generated `params` constant. Return a named list of outputs.
 
 A table is a named list keyed by the field names in the `.fbs` files in this
-directory. A Path port is a character string. A Merge of mixed types is
+directory. Artifact fields hold Artifact values. A Merge of mixed types is
 `list(type = "Member", value = table)`.
 """
 
@@ -449,9 +403,11 @@ if __name__ == "__main__":
     input_api, source, out, reflection = (Path(path).resolve() for path in sys.argv[2:])
     card = load_card_schemas(source, reflection)
     schemas = [reflect_schema(source / f"_{side}.fbs", reflection)
-               for side in ("inputs", "outputs", "params")]
+               for side in ("inputs", "outputs")]
+    (out / "include").mkdir(parents=True, exist_ok=True)
+    names, output_schema = generate_headers(source, out, reflection)
     (out / "src").mkdir(parents=True, exist_ok=True)
-    (out / "src/r_adapter.cc").write_text(generate(card, schemas), encoding="utf-8")
+    (out / "src/r_adapter.cc").write_text(generate(card, schemas, names, output_schema), encoding="utf-8")
     api = out / "api"
     api.mkdir()
     write_api_readme(
@@ -469,5 +425,7 @@ if __name__ == "__main__":
         + "\n\n" + input_api.read_text(encoding="utf-8"),
         encoding="utf-8",
     )
-    for side in ("inputs", "outputs", "params"):
-        shutil.copyfile(source / f"_{side}.fbs", api / f"_{side}.fbs")
+    for schema in source.rglob("*.fbs"):
+        target = api / schema.relative_to(source)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(schema, target)

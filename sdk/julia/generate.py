@@ -10,12 +10,30 @@ import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+if sys.argv[1] == "--params":
+    values = json.loads(Path(sys.argv[2]).read_text())
+
+    def julia_value(value):
+        if type(value) is int:
+            return "typemin(Int64)" if value == -(1 << 63) else f"Int64({value})"
+        if isinstance(value, list):
+            return "(" + ", ".join(map(julia_value, value)) + ",)"
+        return json.dumps(value, ensure_ascii=False).replace("$", r"\$")
+
+    declarations = (f"Symbol({julia_value(key)}) => {julia_value(value)}"
+                    for key, value in values.items())
+    Path(sys.argv[3]).write_text("const params = (; " + ", ".join(declarations) + ")\n")
+    sys.exit(0)
+
+
 sys.path.insert(0, sys.argv[1])
 from card_cpp import (
-    SCHEMAS, cpp_type, flatc_identifier, generate_headers, merged_leaves,
+    cpp_type, flatc_identifier, generate_headers,
     normalize_schema, schema_tokens, validators,
 )
 from tsugumi_ports import load_card_schemas, reflect_schema, write_api_readme
+
+SCHEMAS = ("_inputs", "_outputs")
 
 SCALARS = {
     "Bool": "bool",
@@ -75,6 +93,17 @@ class Schema:
     def object_codec(self, obj):
         is_struct = obj.get("is_struct", False)
         native = qualified(obj["name"]) + ("" if is_struct else "T")
+        if obj["name"] == "tsugumi.Artifact":
+            return native, [
+                '  return Json{{"$artifact", Base64::encode(value.id->bytes()->Data(), 16)}};',
+            ], [
+                '  const auto bytes = Base64::decode(Required(value, "$artifact").get<std::string>());',
+                '  if (bytes.size() != 16) throw std::invalid_argument("Expected an Artifact ID");',
+                '  tsugumi::ArtifactT result;',
+                '  result.id = std::make_unique<tsugumi::ArtifactId>(',
+                '      flatbuffers::span<const uint8_t, 16>(bytes.data(), 16));',
+                '  return result;',
+            ]
         fields = [
             field for field in sorted(obj["fields"], key=lambda f: f.get("id", 0))
             if not field.get("deprecated")
@@ -202,65 +231,17 @@ def native(type_, names):
     return f"{cpp_type(type_, names)}::NativeTableType"
 
 
-def decode_merge(type_, members, names, functions):
-    function = f"DecodeMerge{len(functions)}"
-    body = functions[function] = [
-        f"auto {function}(const {native(type_, names)}& merged, std::string_view name) -> Json {{",
-    ]
-    for member, tag in zip(members, merge_tags(members)):
-        variant = flatc_identifier(names.get(member.tag, member.tag))
-        value = (f"ReadValue<{cpp_type(member.type, names)}>"
-                 "({box->bytes.data(), box->bytes.size()}, name)")
-        value = (f"{decode_merge(member.type, member.merge, names, functions)}({value}, name)"
-                 if member.merge else f"Encode({value})")
-        body += [f"  if (const auto* box = merged.value.As{variant}())",
-                 f"    return Json{{{{\"type\", {json.dumps(tag)}}}, {{\"value\", {value}}}}};"]
-    body += ['  Reject(FailureKind::invalid_request, "Invalid Merge input " + std::string(name));',
-             "}"]
-    return function
-
-
-def encode_merge(type_, members, names, functions):
-    function = f"EncodeMerge{len(functions)}"
-    body = functions[function] = [
-        f"auto {function}(const Json& value, std::string_view name) -> {native(type_, names)} {{",
-        '  CheckObject(value, {"type", "value"});',
-        '  const auto& type = Required(value, "type");',
-        '  const auto& payload = Required(value, "value");',
-        f"  {native(type_, names)} merged;",
-    ]
-    for member, tag in zip(members, merge_tags(members)):
-        table = cpp_type(member.type, names)
-        if member.merge:
-            child = encode_merge(member.type, member.merge, names, functions)
-            pack = f"PackValue<{table}>({child}(payload, name), name)"
-        else:
-            pack = f"PackValue<{table}>(Decode<{native(member.type, names)}>(payload), name, IsPackable)"
-        body += [f"  if (type == {json.dumps(tag)}) {{",
-                 f"    {native(member.box_type, names)} box;",
-                 f"    box.bytes = {pack};",
-                 "    merged.value.Set(std::move(box));",
-                 "    return merged;",
-                 "  }"]
-    body += ['  throw std::invalid_argument("Unknown Merge member for " + std::string(name));', "}"]
-    return function
-
-
 def julia_type(port):
-    if port.kind == "Path":
-        return "String (path)"
-    if port.merge:
-        members = (f'(type="{tag}", value=Dict of {member.type})'
-                   for member, tag in zip(port.merge, merge_tags(port.merge)))
-        return " | ".join(members)
-    return f"Dict{{String,Any}} of {port.type}"
+    if len(port.candidates) > 1:
+        return " | ".join(f'(type="{tag}", value=Dict of {member.type})'
+                          for member, tag in zip(port.candidates, merge_tags(port.candidates)))
+    return "Artifact" if port.type == "tsugumi.Artifact" else f"Dict{{String,Any}} of {port.type}"
 
 
 def generate(card, schemas, names, output_schema):
     declarations = [
         '#include "_inputs_generated.h"',
         '#include "_outputs_generated.h"',
-        '#include "_params_generated.h"',
         '#include "codec.hh"',
         "",
         "namespace tsugumi::julia {",
@@ -294,19 +275,21 @@ def generate(card, schemas, names, output_schema):
                 "}",
             ]
 
-    functions = {}
     read = []
     for port in card.inputs:
         name = json.dumps(port.name)
-        if port.kind == "Path":
-            read += [f"    if (const auto path = input.ReadPath({name}))",
-                     f"      members[{name}] = path->string();"]
-            continue
-        value = "Encode(*port)"
-        if port.merge:
-            value = f"{decode_merge(port.type, port.merge, names, functions)}(*port, {name})"
-        read += [f"    if (const auto port = input.ReadPort<{cpp_type(port.type, names)}>({name}))",
-                 f"      members[{name}] = {value};"]
+        read += [f"    if (const auto entry = input.ReadPort({name})) {{"]
+        for index, (member, tag) in enumerate(zip(port.candidates, merge_tags(port.candidates))):
+            value = f"Encode(ReadValue<{cpp_type(member.type, names)}>(entry->bytes, {name}))"
+            if len(port.candidates) > 1:
+                value = f'Json{{{{"type", {json.dumps(tag)}}}, {{"value", {value}}}}}'
+            keyword = "if" if index == 0 else "else if"
+            read += [f'      {keyword} (entry->schema == "{member.schema}")',
+                     f"        members[{name}] = {value};"]
+        read += [f'      else Reject(FailureKind::input_invalid, "Unknown schema for " + std::string({name}));',
+                 '    } else {',
+                 f'      Reject(FailureKind::input_missing, "Missing input " + std::string({name}));',
+                 '    }']
 
     write = [f"    CheckObject(output, {{{', '.join(json.dumps(port.name) for port in card.outputs)}}});"]
     for index, port in enumerate(card.outputs):
@@ -315,29 +298,17 @@ def generate(card, schemas, names, output_schema):
         field = f"field_{index}"
         present = f"{field} != output.end() && !{field}->is_null()"
         write.append(f"    const auto {field} = output.find({name});")
-        if port.kind == "Path":
-            write += [f"    std::optional<std::filesystem::path> value_{index};",
-                      f"    if ({present}) value_{index} = Decode<std::string>(*{field});",
-                      f"    WritePath(result, {name}, value_{index}, {required});"]
-            continue
         table = cpp_type(port.type, names)
-        write.append(f"    std::optional<{native(port.type, names)}> value_{index};")
-        if port.merge:
-            encode = encode_merge(port.type, port.merge, names, functions)
-            write += [f"    if ({present}) value_{index} = {encode}(*{field}, {name});",
-                      f"    WritePort<{table}>(result, {name}, value_{index}, {required});"]
-        else:
-            write += [f"    if ({present}) value_{index} = Decode<{native(port.type, names)}>(*{field});",
-                      f"    WritePort<{table}>(result, {name}, value_{index}, {required}, IsPackable);"]
+        write += [f"    std::optional<{native(port.type, names)}> value_{index};",
+                  f"    if ({present}) value_{index} = Decode<{native(port.type, names)}>(*{field});",
+                  f"    WritePort<{table}>(result, {name}, value_{index}, {required}, VisitArtifacts);"]
 
-    roots = (cpp_type(type_, names) for port in card.outputs if port.kind == "FlatBuffer"
-             for type_ in merged_leaves(port.type, port.merge))
+    roots = (cpp_type(port.type, names) for port in card.outputs)
     body = [
         "namespace {",
         "using namespace tsugumi::abi;",
         "",
         *validators(output_schema, roots),
-        *(line for function in reversed(functions.values()) for line in [*function, ""]),
         "auto RunCard(tsugumi_bytes bytes) -> Tsugumi::Card::CardResultT {",
         "  Input input(bytes);",
         "  auto members = Json::object();",
@@ -345,14 +316,11 @@ def generate(card, schemas, names, output_schema):
         "  try {",
         *read,
         "    input.CheckConsumed();",
-        f"    const auto params = Encode(ReadValue<{cpp_type(card.params_type, names)}, "
-        f"{str(not card.params).lower()}>"
-        '(input.Params(), "params"));',
-        '    request = Json{{"ports", members}, {"params", params}}.dump();',
+        '    request = Json{{"ports", members}}.dump();',
         "  } catch (const Json::exception& error) {",
-        "    Reject(FailureKind::invalid_request, error.what());",
+        "    Reject(FailureKind::input_invalid, error.what());",
         "  } catch (const std::invalid_argument& error) {",
-        "    Reject(FailureKind::invalid_request, error.what());",
+        "    Reject(FailureKind::input_invalid, error.what());",
         "  }",
         "  const auto response = RunJulia(request);",
         '  if (response.contains("failure")) return ReadFailure(response.at("failure"));',
@@ -386,13 +354,11 @@ API_NOTES = """
 `main(input)` reads `input.port` (or `input[:port]`) for an input it needs;
 an absent input raises `CardFailure(:input_missing, "Missing input port")`.
 `get(input, :port, nothing)` returns `nothing` for an absent input.
-Read parameters from `input.params`; use `input[:params]` for a port named
-`params`. Return a `NamedTuple` or a dictionary keyed by output port.
+Read parameters from the generated `params` constant. Return a `NamedTuple` or a dictionary keyed by output port.
 
 A table is a dictionary keyed by the field names in the `.fbs` files in this
-directory. A Path port is a `String`. A mixed Merge is a dictionary with
-`"type"` and `"value"` keys. An output may also use a named tuple
-`(; type="Member", value=table)`.
+directory. A mixed Merge is a dictionary with `"type"` and `"value"` keys.
+Artifact fields hold `Artifact` values and Collect holds opaque envelopes.
 """
 
 
@@ -440,5 +406,7 @@ if __name__ == "__main__":
         + "\n\n" + input_api.read_text(encoding="utf-8"),
         encoding="utf-8",
     )
-    for base in SCHEMAS:
-        shutil.copyfile(source / f"{base}.fbs", api / f"{base}.fbs")
+    for schema in source.rglob("*.fbs"):
+        target = api / schema.relative_to(source)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(schema, target)

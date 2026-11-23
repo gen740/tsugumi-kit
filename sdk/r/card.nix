@@ -15,12 +15,13 @@
   runtime,
   portCodegen,
   cardInterface,
+  paramValues,
   publishApi,
 }:
 let
   generate =
     {
-      inputs,
+      inputs ? null,
       outputs,
       params ? { },
     }:
@@ -36,16 +37,13 @@ let
       }
       ''
         schemas=${lib.escapeShellArg "${interface}"}
-        mkdir -p "$out/include"
-        flatc --cpp --gen-object-api --scoped-enums --force-empty --force-empty-vectors \
-          -o "$out/include" "$schemas"/_{inputs,outputs,params}.fbs
         python3 ${./codegen.py} ${../cpp} ${./inputs.R} "$schemas" "$out" \
           ${flatbuffers.src}/reflection/reflection.fbs
       '';
   rCard =
     {
       src,
-      inputs,
+      inputs ? null,
       outputs,
       params ? { },
       name ? "tsugumi-r-card",
@@ -70,6 +68,7 @@ let
     runCommandCC name
       {
         passthru = { inherit generated; };
+        nativeBuildInputs = [ python3 ];
         buildInputs = [
           flatbuffers
           nlohmann_json
@@ -81,6 +80,7 @@ let
       }
       ''
         mkdir -p "$out/lib" "$out/share/tsugumi"
+        python3 ${./codegen.py} --params ${paramValues params} "$out/share/tsugumi/params.R"
         source_root=${lib.escapeShellArg "${src}"}
         source="$source_root"/${lib.escapeShellArg entry}
         test -f "$source"
@@ -89,6 +89,7 @@ let
           -I"${runtime}/include" -I"${rHome}/include" -DTSUGUMI_LIBR='"${rHome}/lib/${rShared}"' \
           -DTSUGUMI_R_HOME='"${rHome}"' -DTSUGUMI_R_LIBS="\"$R_LIBS_SITE\"" \
           -DTSUGUMI_R_SDK='"${./tsugumi.R}"' -DTSUGUMI_R_SOURCE="\"$source\"" \
+          -DTSUGUMI_R_PARAMS="\"$out/share/tsugumi/params.R\"" \
           -DTSUGUMI_R_CARD_API="\"${generated}/api/card.R\"" \
           -DTSUGUMI_R_SOURCE_ROOT="\"$source_root\"" \
           -DTSUGUMI_R_FONTS='"${makeFontsConf { fontDirectories = fonts; }}"' \

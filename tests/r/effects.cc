@@ -1,22 +1,15 @@
 #define R_NO_REMAP
 #include <R_ext/Rdynload.h>
 #include <Rinternals.h>
-#include <unistd.h>
 
-#include <string_view>
+#include <cstdint>
+#include <cstdlib>
 #include <thread>
 
-#include "wire.h"
-
 namespace {
-
 using Send = int (*)(const char*, const uint8_t*, size_t);
-using Cancelled = bool (*)();
-using RemainingMs = double (*)();
+using Recv = int (*)(const char*, int64_t, uint8_t**, size_t*);
 
-std::thread background;
-
-// R_GetCCallable uses an erased function pointer as its registry value.
 #if defined(__clang__)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wcast-function-type-mismatch"
@@ -33,33 +26,17 @@ auto GetEffect(const char* name) -> Effect {
 #elif defined(__GNUC__)
 #pragma GCC diagnostic pop
 #endif
-
 }  // namespace
 
-extern "C" auto start_effects(SEXP input_fd) -> SEXP {
+extern "C" auto start_effects() -> SEXP {
   const auto send = GetEffect<Send>("send");
-  const auto cancelled = GetEffect<Cancelled>("cancelled");
-  const auto remaining_ms = GetEffect<RemainingMs>("remaining_ms");
-  const int fd = Rf_asInteger(input_fd);
-  std::thread helper([=] {
-    CHECK(!cancelled());
-    CHECK(remaining_ms() == 500);
-  });
-  helper.join();
-  background = std::thread([=] {
-    char signal;
-    CHECK(read(fd, &signal, 1) == 1);
-    CHECK(cancelled());
-    CHECK(remaining_ms() == 0);
-
-    const std::string_view config = R"({"text":"outside"})";
-    CHECK(send("text", reinterpret_cast<const uint8_t*>(config.data()),
-               config.size()) == 0);
-  });
-  return R_NilValue;
-}
-
-extern "C" auto join_effects() -> SEXP {
-  background.join();
+  const auto recv = GetEffect<Recv>("recv");
+  std::thread([send, recv] {
+    uint8_t* data = nullptr;
+    size_t size = 0;
+    if (recv("background", -1, &data, &size) == 0)
+      send("background", data, size);
+    std::free(data);
+  }).detach();
   return R_NilValue;
 }

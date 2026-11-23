@@ -5,6 +5,20 @@ import re
 import sys
 from pathlib import Path
 
+if sys.argv[1] == "--params":
+    values = json.loads(Path(sys.argv[2]).read_text())
+
+    def js_value(value):
+        if type(value) is int:
+            return f"{value}n"
+        if isinstance(value, list):
+            return "Object.freeze([" + ", ".join(map(js_value, value)) + "])"
+        return json.dumps(value)
+
+    fields = (f"[{json.dumps(name)}]: {js_value(value)}" for name, value in values.items())
+    Path(sys.argv[3]).write_text("export const params = Object.freeze({" + ", ".join(fields) + "});\n")
+    sys.exit(0)
+
 from tsugumi_ports import load_card_schemas, reflect_schema, write_api_readme
 
 
@@ -36,6 +50,8 @@ def camel(name):
 
 def js_type(name, *, output=False):
     namespace, _, cls = name.rpartition(".")
+    if (namespace == "tsugumi" or namespace.startswith("tsugumi.")):
+        return name
     if output:
         namespace = "outputs" if namespace == "outputs" else ".".join(
             filter(None, ("outputs", namespace.removeprefix("outputs."))))
@@ -134,75 +150,60 @@ def union_rules(schema):
     return lines
 
 
-def ts_value_type(type_, members, *, output=False):
-    if members:
-        return " | ".join(ts_value_type(member.type, member.merge, output=output) for member in members)
-    return js_type(type_, output=output) + "T"
-
-
 def ts_type(port, *, output=False):
-    return "string" if port.kind == "Path" else ts_value_type(port.type, port.merge, output=output)
+    types = [candidate.type for candidate in port.candidates] or [port.type]
+    return " | ".join(js_type(type_, output=output) + "T" for type_ in types)
 
 
-def descriptor(type_, members, *, output=False):
-    """The runtime's view of one FlatBuffer type, with a Merge's boxed members."""
+def descriptor(type_, *, output=False):
     cls = js_type(type_, output=output)
     table = type_.rsplit(".", 1)[-1]
-    entries = [f"read: {cls}.{camel('get_root_as_' + table)}", f"object: {cls}T"]
-    if members:
-        boxed = ", ".join(
-            f"{{ tag: {member.value}, box: {js_type(member.box_type, output=output)}, "
-            f"boxObject: {js_type(member.box_type, output=output)}T, "
-            f"type: {descriptor(member.type, member.merge, output=output)} }}"
-            for member in members)
-        entries.append(f"members: [{boxed}]")
-    return "{ " + ", ".join(entries) + " }"
+    return f"{{ read: {cls}.{camel('get_root_as_' + table)}, object: {cls}T }}"
 
 
 def port_descriptor(port, *, output=False):
-    entries = [f"name: {json.dumps(port.name)}", f"kind: {json.dumps(port.kind)}",
-               f"required: {str(port.required).lower()}"]
-    if port.kind == "FlatBuffer":
-        entries.append(f"type: {descriptor(port.type, port.merge, output=output)}")
+    name = f"name: {json.dumps(port.name)}"
+    if output:
+        entries = [name, f"required: {str(port.required).lower()}",
+                   f"type: {descriptor(port.type, output=True)}"]
+    else:
+        candidates = ", ".join(f"[{json.dumps(c.schema)}, {descriptor(c.type)}]"
+                               for c in port.candidates)
+        entries = [name, f"candidates: new Map([{candidates}])"]
     return "  { " + ", ".join(entries) + " },"
 
 
+def param_type(type_):
+    if type_.startswith("["):
+        return f"readonly {param_type(type_[1:-1])}[]"
+    return {"bool": "boolean", "long": "bigint", "double": "number", "string": "string"}[type_]
+
+
 def js_bindings(card, output_schema):
-    lines = [
+    return "\n".join([
         "import { inputs } from './_inputs.js';",
         "import * as outputs from './output-types.js';",
-        "import { parameters } from './_params.js';",
-        "export { inputs, outputs, parameters };",
+        "import * as tsugumi from './tsugumi.js';",
+        "export { inputs, outputs };",
         "",
-        "// Connected inputs; any of them may be absent from a call.",
+        "export interface Params {",
+        *(f"  readonly {json.dumps(param.name)}: {param_type(param.type)};" for param in card.params),
+        "}",
+        "",
         "export interface CardPorts {",
-    ]
-    lines += [f"  {json.dumps(port.name)}?: {ts_type(port)};" for port in card.inputs]
-    lines += [
+        *(f"  {json.dumps(port.name)}: {ts_type(port)};" for port in card.inputs),
         "}",
         "",
         "export interface CardInput {",
-        f"  params: {js_type(card.params_type)}T;",
         "  ports: CardPorts;",
-        "  // The input's value, or an input_missing Failure naming the port.",
-        "  need<K extends keyof CardPorts>(name: K): Exclude<CardPorts[K], undefined>;",
-        "  need(name: string): Exclude<CardPorts[keyof CardPorts], undefined>;",
+        "  need<K extends keyof CardPorts>(name: K): CardPorts[K];",
         "}",
         "",
         "export interface CardOutput {",
-    ]
-    for port in card.outputs:
-        optional = "" if port.required else "?"
-        suffix = "" if port.required else " | undefined"
-        lines.append(f"  {json.dumps(port.name)}{optional}: {ts_type(port, output=True)}{suffix};")
-    table = card.params_type.rsplit(".", 1)[-1]
-    lines += [
+        *(f"  {json.dumps(port.name)}{'' if port.required else '?'}: {ts_type(port, output=True)};"
+          for port in card.outputs),
         "}",
         "",
-        "export function readParams(bytes: Uint8Array): parameters.ParamsT {",
-        *([] if card.params else ["  if (!bytes.length) return new parameters.ParamsT();"]),
-        f"  return {js_type(card.params_type)}.{camel('get_root_as_' + table)}(new ByteBuffer(bytes)).unpack();",
-        "}",
         "export const inputPorts = [",
         *map(port_descriptor, card.inputs),
         "];",
@@ -211,40 +212,12 @@ def js_bindings(card, output_schema):
         "];",
         "",
         *union_rules(output_schema),
-    ]
-    return 'import { ByteBuffer } from "flatbuffers";\n' + "\n".join(lines) + "\n"
+        "",
+    ])
 
 
-def cpp_adapter(card, names):
-    # The C++ generator's renamed identifiers, shared with its headers.
-    from card_cpp import cpp_type, flatc_identifier
-
-    functions = {}
-
-    def verify_value(type_, members, bytes_, name, kind):
-        merge = ", " + verify_merge(type_, members) if members else ""
-        return (f"VerifyNodeValue<{cpp_type(type_, names)}>({bytes_}, "
-                f"{name}, {kind}{merge});")
-
-    def verify_merge(type_, members):
-        function = f"VerifyMerge{len(functions)}"
-        functions[function] = body = [
-            f"auto {function}(const {cpp_type(type_, names)}& merged,",
-            "    std::string_view name, FailureKind kind) -> void {",
-        ]
-        for member in members:
-            tag = flatc_identifier(names.get(member.tag, member.tag))
-            body += [
-                f"  if (const auto* box = merged.value_as_{tag}()) {{",
-                "    const auto* bytes = box->bytes();",
-                "    if (!bytes) Reject(kind, \"Missing Merge bytes for \" + std::string(name));",
-                "    " + verify_value(member.type, member.merge,
-                                      "{bytes->data(), bytes->size()}", "name", "kind"),
-                "    return;",
-                "  }",
-            ]
-        body += ['  Reject(kind, "Invalid Merge port " + std::string(name));', "}", ""]
-        return function
+def cpp_adapter(card, names, output_schema):
+    from card_cpp import cpp_type, validators
 
     body = [
         "auto RunCard(tsugumi_bytes bytes) -> Tsugumi::Card::CardResultT {",
@@ -253,38 +226,45 @@ def cpp_adapter(card, names):
     ]
     for port in card.inputs:
         name = json.dumps(port.name)
-        if port.kind == "Path":
-            body.append(f"    input.ReadPath({name});")
-        else:
+        body.extend([f"    if (const auto entry = input.ReadPort({name})) {{",
+                     "      const Buffer payload(entry->bytes);"])
+        for index, member in enumerate(port.candidates):
+            keyword = "if" if index == 0 else "else if"
             body += [
-                f"    if (const auto payload = input.ReadPortBytes({name}))",
-                "      " + verify_value(port.type, port.merge, "*payload", name,
-                                        "FailureKind::invalid_request"),
+                f'      {keyword} (entry->schema == "{member.schema}") {{',
+                f"        if (!payload.Verify<{cpp_type(member.type, names)}>())",
+                f'          Reject(FailureKind::input_invalid, "Invalid FlatBuffer for " + std::string({name}));',
+                "      }",
             ]
+        body += [
+            f'      else Reject(FailureKind::input_invalid, "Unknown schema for " + std::string({name}));',
+            '    } else {',
+            f'      Reject(FailureKind::input_missing, "Missing input " + std::string({name}));',
+            '    }',
+        ]
     body += [
         "    input.CheckConsumed();",
-        "    " + ("" if card.params else "if (input.Params().size != 0) ")
-        + verify_value(card.params_type, (), "input.Params()", '"params"',
-                              "FailureKind::invalid_request"),
         "  }",
         "  auto result = RunNodeCard(bytes);",
         "  std::unordered_set<std::string> seen;",
-        "  for (const auto& port : result.outputs) {",
+        "  for (auto& port : result.outputs) {",
         "    if (!seen.insert(port->name).second)",
         '      Reject(FailureKind::output_invalid, "Duplicate output " + port->name);',
     ]
     for port in card.outputs:
-        body.append(f"    if (port->name == {json.dumps(port.name)}) {{")
-        if port.kind == "Path":
-            body.append("      VerifyPathOutput(*port);")
-        else:
-            body += [
-                "      VerifyFlatBufferOutput(*port);",
-                "      " + verify_value(port.type, port.merge,
-                                        "{port->bytes.data(), port->bytes.size()}",
-                                        "port->name", "FailureKind::output_invalid"),
-            ]
-        body += ["      continue;", "    }"]
+        table = cpp_type(port.type, names)
+        body += [
+            f"    if (port->name == {json.dumps(port.name)}) {{",
+            "      const Buffer buffer({port->bytes.data(), port->bytes.size()});",
+            f"      const auto* value = buffer.Verify<{table}>();",
+            "      port->artifacts.clear();",
+            f"      {table}::NativeTableType native;",
+            "      if (value) value->UnPackTo(&native);",
+            "      if (!value || !VisitArtifacts(native, port->artifacts))",
+            '        Reject(FailureKind::output_invalid, "Invalid output " + port->name);',
+            "      continue;",
+            "    }",
+        ]
     body += [
         '    Reject(FailureKind::output_invalid, "Unknown output " + port->name);',
         "  }",
@@ -297,18 +277,15 @@ def cpp_adapter(card, names):
     body += ["  return result;", "}"]
     return "\n".join([
         '#include <string>',
-        '#include <string_view>',
         '#include <unordered_set>',
-        "",
         '#include "_inputs_generated.h"',
         '#include "_outputs_generated.h"',
-        '#include "_params_generated.h"',
         '#include "node_card.hh"',
         "",
         "namespace {",
         "using namespace tsugumi::abi;",
         "",
-        *(line for function in reversed(functions.values()) for line in function),
+        *validators(output_schema, (cpp_type(port.type, names) for port in card.outputs)),
         *body,
         "}  // namespace",
         "",
@@ -338,8 +315,8 @@ if __name__ == "__main__":
 
     card = load_card_schemas(schemas, reflection)
     native.joinpath("include").mkdir(parents=True)
-    names, _ = generate_headers(schemas, native, reflection)
-    native.joinpath("card_adapter.cc").write_text(cpp_adapter(card, names))
+    names, cpp_output_schema = generate_headers(schemas, native, reflection)
+    native.joinpath("card_adapter.cc").write_text(cpp_adapter(card, names, cpp_output_schema))
     export_escaped_objects(js)
     link_namespace_barrels(js)
     output_schema = reflect_schema(schemas / "_outputs.fbs", reflection)

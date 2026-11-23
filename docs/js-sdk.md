@@ -1,20 +1,21 @@
 # Writing a JavaScript Card
 
 This guide targets **the Card ABI (unreleased)**. A JavaScript Card exports one
-function from `src/main.mjs`. It receives typed input ports and parameters and
+function from `src/main.mjs`. It receives typed input ports and a context and
 returns an object keyed by output port. The function can return a Promise.
 
 ```js
 import { writeFile } from "node:fs/promises";
-import { Failure, FailureKind, Text } from "@tsugumi/card";
+import { join } from "node:path";
+import { Artifact, Failure, FailureKind, Text, params } from "@tsugumi/card";
 
 /** @type {import("@tsugumi/card").Card} */
-export default async function run({ params }, { cancelled, display }) {
+export default async function run(_input, { cancelled, display }) {
   if (cancelled()) throw new Failure(FailureKind.cancelled, "Stopped before writing");
-  const file = "note.txt";
-  const bytes = new TextEncoder().encode(params.text ?? "");
-  await writeFile(file, bytes);
-  display.send(new Text(`Wrote ${bytes.length} bytes to ${file}`));
+  const [file, directory] = Artifact.dir();
+  const bytes = new TextEncoder().encode(params.text);
+  await writeFile(join(directory, "note.txt"), bytes);
+  display.send(new Text(`Wrote ${bytes.length} bytes to note.txt`));
   return { file };
 }
 ```
@@ -30,7 +31,7 @@ let
   sdk = import <tsugumi-kit/sdk/js> { inherit pkgs; };
   common = {
     inherit params;
-    inputs = ./_inputs.fbs;
+    inputs = if builtins.pathExists ./_inputs.fbs then ./_inputs.fbs else null;
     outputs = ./_outputs.fbs;
   };
 in
@@ -44,25 +45,29 @@ in
 `jsApi` publishes the generated TypeScript sources, `index.d.ts`, and a typed
 README under `share/tsugumi/api/`. The run output contains `lib/main.so`.
 
+The SDK also exposes `sdk.input` and `sdk.artifact` for Input Card
+definitions. See the [Card SDK contract](sdk-contract.md).
+
 ## Types and dependencies
 
-The builder generates `@tsugumi/card` from the supplied schemas. The builder's
-`bindings` passthru contains the generated package under `js/`.
-`CardInput.params` is the generated `ParamsT` object.
-`input.ports[name]` returns the value or `undefined`. The generated
-`CardPorts` type lists the connected ports. Use `input.need(name)` to get a
-needed value of type `T`. If the port is absent, including when it is
-disconnected, `need` throws a `Failure` with kind `input_missing` and a
-message naming the port.
+The builder generates `@tsugumi/card` from the supplied schemas. Import
+`params` from that package to read the frozen build-time values. The
+generated `Params` type records their types. FlatBuffers 64-bit integers
+and integer params are JavaScript `bigint` values.
 
-Use the generated type under `outputs` to construct a FlatBuffer output.
-For example, `outputs.weather.ReadingT` uses the authored `weather.Reading` table. The generated
-namespaces expose child tables, structs, and enums. For mixed-type Merge
-ports, the generated input and output types are unions of the member object
-types. Narrow an input with `instanceof`, and return an instance of the
-corresponding output member type. The SDK handles verification and boxing.
-Omit optional outputs or set them to `undefined`. Return `{}` from a Card
-with no outputs. FlatBuffers 64-bit integers are JavaScript `bigint` values.
+Input ports appear under `input.ports`. Use `input.need(name)` when the
+Card requires the port. The generated schema contains only connected ports.
+The SDK verifies each arrival against the candidate selected by schema ID.
+A mixed Merge yields one of the member object types. Use `instanceof`
+with the generated class from `inputs` to narrow it. Collect yields opaque
+envelopes containing a schema ID, payload bytes and Artifact IDs. Use
+the generated member accessor with `ByteBuffer` to decode a recognized
+envelope.
+
+Return an instance of the generated type under `outputs` for each port.
+For example, `outputs.weather.ReadingT` represents `weather.Reading`.
+Omit optional outputs or set them to `undefined`. A missing required output
+produces `output_invalid`.
 
 For npm dependencies, put `package.json` and `package-lock.json` in `src`.
 List packages needed at runtime under `dependencies`. Nix imports the lock,
@@ -98,32 +103,22 @@ Argument and encoding errors throw JavaScript exceptions before the SDK
 calls the host. These functions can also be imported from `@tsugumi/card`.
 The [bundled HTML views](cpp-sdk.md#display-a-value) define their private encodings.
 
-Use `ctx.cancelled()` to poll for cancellation and `ctx.remainingMs()` to
-read the deadline in milliseconds. `-1` means the active call has no
-deadline. Between calls, they return `true` and `0`, respectively. The
-Node event loop keeps running between calls, and callbacks on that loop
-and Node `worker_threads` can use `send` for the worker's lifetime.
-When the worker process exits, the SDK stops the Node environment and
-waits for it, including its `worker_threads`, before libnode's exit-time
-destructors run. A `worker_threads` Worker blocked in a synchronous call
-delays that exit, as in Node.
+Use `ctx.recv(view, timeoutMs)` to receive bytes and a `status` of
+`"message"`, `"timeout"` or `"cancelled"`. A negative timeout waits
+without a deadline. The SDK frames sends in messages of at most 16 MiB.
+Send and receive work on Node worker threads after the Card returns.
+`ctx.cancelled()` and `ctx.remainingMs()` report the active call's state.
+Throw `Failure` to report a structured Card failure.
 
-Throw a `Failure(FailureKind.cancelled, message)` for a structured failure.
-An ordinary exception or rejected Promise becomes `worker_failed`.
-When Node supplies a Card source location, the SDK includes the relative
-file path and line.
+## Artifacts and worker lifetime
 
-## Files and worker lifetime
+Declare an Artifact field using `include "tsugumi/artifact.fbs";`.
+`Artifact.dir()` returns an Artifact and a writable directory.
+`Artifact.upload(path)` copies a file or directory. Call `artifact.open()`
+to get the granted read-only directory. Return the same Artifact to forward
+it. Finish writing before returning so the host can seal the directory.
 
-Declare a Path output as `string (tsugumi: "path")` in `_outputs.fbs` and
-return its path as a string. Create the file or directory under the current
-working directory and complete its writes before returning. A Path input
-is a staged absolute path string. To forward it, return that string unchanged. See
-[Files, directories and worker lifetime](cpp-sdk.md#files-directories-and-worker-lifetime)
-for the worker's filesystem rules.
+The Card embeds Node 24 and keeps its module state and dependencies warm
+when the worker is reused.
 
-The Card library links a shared Node 24 build and creates one
-`node::CommonEnvironmentSetup` in the worker process. With `reuseWorker`,
-module state and loaded dependencies stay warm for subsequent calls of
-the same Card. Code running between calls can publish displays, but
-should finish all work needed for output files before its invocation returns.
+Build `checks.<system>.jsAbi` to run the ABI harness.
