@@ -98,8 +98,7 @@ template <class Table>
 auto WritePort(Tsugumi::Card::CardResultT& result, std::string_view name,
                const std::optional<typename Table::NativeTableType>& value,
                bool required,
-               bool (*visit)(const typename Table::NativeTableType&,
-                             std::vector<ArtifactId>&)) -> void {
+               bool (*valid)(const typename Table::NativeTableType&)) -> void {
   if (!value) {
     if (required) {
       Reject(FailureKind::output_invalid,
@@ -109,7 +108,7 @@ auto WritePort(Tsugumi::Card::CardResultT& result, std::string_view name,
   }
   auto port = std::make_unique<Tsugumi::Card::CardPortT>();
   port->name = name;
-  if (!visit(*value, port->artifacts)) {
+  if (!valid(*value)) {
     Reject(FailureKind::output_invalid, "Invalid output " + std::string(name));
   }
   flatbuffers::FlatBufferBuilder builder;
@@ -123,7 +122,7 @@ auto WritePort(Tsugumi::Card::CardResultT& result, std::string_view name,
   result.outputs.push_back(std::move(port));
 }
 
-auto AddArtifact(std::vector<ArtifactId>& artifacts, const ArtifactId& id)
-    -> void;
+// The open failure message for an Artifact ID of 16 bytes.
+auto ArtifactUnavailable(const uint8_t* id) -> std::string;
 
 }  // namespace tsugumi::abi

@@ -12,6 +12,20 @@
 #include <string_view>
 
 namespace tsugumi::abi {
+
+auto ArtifactUnavailable(const uint8_t* id) -> std::string {
+  static constexpr char kDigits[] = "0123456789abcdef";
+  std::string uuid;
+  for (int i = 0; i < 16; ++i) {
+    if (i == 4 || i == 6 || i == 8 || i == 10) uuid += '-';
+    uuid += kDigits[id[i] >> 4];
+    uuid += kDigits[id[i] & 15];
+  }
+  return "artifact " + uuid +
+         " is not available: it was not kept after its run, was deleted, or "
+         "is not in this project";
+}
+
 namespace {
 
 using Tsugumi::Card::CardFailureT;
@@ -201,15 +215,6 @@ auto Input::CheckConsumed() const -> void {
   }
 }
 
-auto AddArtifact(std::vector<ArtifactId>& artifacts, const ArtifactId& id)
-    -> void {
-  if (std::ranges::none_of(artifacts, [&](const auto& existing) {
-        return std::ranges::equal(*existing.bytes(), *id.bytes());
-      })) {
-    artifacts.push_back(id);
-  }
-}
-
 }  // namespace tsugumi::abi
 
 namespace card {
@@ -309,13 +314,14 @@ auto recv(int64_t timeout_ms) -> Received {
 
 namespace tsugumi {
 
-auto ArtifactT::dir() -> std::pair<ArtifactT, std::filesystem::path> {
+auto ArtifactT::dir(bool keep) -> std::pair<ArtifactT, std::filesystem::path> {
   const std::lock_guard lock(abi::effects_mutex);
   const auto* call = abi::active_call;
   tsugumi_artifact_id id{};
   tsugumi_bytes path{};
+  const uint32_t flags = keep ? TSUGUMI_ARTIFACT_KEEP : 0;
   if (!call || !call->effects || !call->effects->artifact_create ||
-      call->effects->artifact_create(call->host, &id, &path) != 0)
+      call->effects->artifact_create(call->host, flags, &id, &path) != 0)
     throw std::runtime_error("The host could not create an Artifact");
   ArtifactT artifact;
   artifact.id = std::make_unique<ArtifactId>(
@@ -325,8 +331,9 @@ auto ArtifactT::dir() -> std::pair<ArtifactT, std::filesystem::path> {
               reinterpret_cast<const char*>(path.data), path.size))};
 }
 
-auto ArtifactT::upload(const std::filesystem::path& source) -> ArtifactT {
-  auto [artifact, path] = dir();
+auto ArtifactT::upload(const std::filesystem::path& source, bool keep)
+    -> ArtifactT {
+  auto [artifact, path] = dir(keep);
   if (std::filesystem::is_directory(source)) {
     std::filesystem::copy(source, path,
                           std::filesystem::copy_options::recursive);
@@ -344,7 +351,7 @@ auto ArtifactT::open() const -> std::filesystem::path {
   if (id) std::ranges::copy(*id->bytes(), capability.bytes);
   if (!id || !call || !call->effects || !call->effects->artifact_open ||
       call->effects->artifact_open(call->host, &capability, &path) != 0)
-    throw std::runtime_error("The host could not open the Artifact");
+    throw std::runtime_error(abi::ArtifactUnavailable(capability.bytes));
   return std::filesystem::path(
       std::string_view(reinterpret_cast<const char*>(path.data), path.size));
 }

@@ -77,7 +77,7 @@ auto run(const Card::Inputs& input) -> Card::Output {
   listing.nested->file = std::make_unique<card::Artifact>(std::move(artifact));
   listing.files.push_back(std::make_unique<card::Artifact>(std::move(upload)));
   listing.files.push_back(std::make_unique<card::Artifact>(granted));
-  auto [choice, unused] = card::Artifact::dir();
+  auto [choice, unused] = card::Artifact::dir(false);
   listing.choice.Set(std::move(choice));
   return output;
 }
