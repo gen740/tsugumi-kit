@@ -65,8 +65,7 @@ let
               ])
             ) root;
           };
-      # Keep both catalog roots out of the fileset so that an Input Card
-      # consumes only its own output catalog.
+      # Include sibling schema dependencies without copying the other catalog root.
     in
     pkgs.runCommand "tsugumi-schema-source" { } ''
       mkdir -p "$out"

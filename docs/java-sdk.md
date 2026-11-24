@@ -22,7 +22,7 @@ import tsugumi.Display;
 
 public final class Main {
     public static Card.Output run(Card.Input input) throws IOException {
-        String text = input.text().getValue();
+        String text = Card.params().value();
         var created = Artifacts.dir();
         Files.writeString(created.path().resolve("message.txt"), text);
         Display.send(new Display.Text(text));
@@ -80,8 +80,7 @@ output produces `output_invalid`. Pass `null` to omit an optional output.
 
 `Card.params()` returns the typed build-time parameter record. Parameter
 values affect the run derivation and preserve the API when their types are
-unchanged. The SDK also exports `sdk.input` and `sdk.artifact` for Input
-Cards.
+unchanged.
 
 `Artifacts.dir()` returns a writable directory and its `ArtifactT`.
 `Artifacts.upload(path)` copies a file or directory into a new Artifact.

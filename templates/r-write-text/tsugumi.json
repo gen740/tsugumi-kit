@@ -24,23 +24,9 @@
   "canvas": {
     "cards": [
       {
-        "id": "settings"
-      },
-      {
         "id": "write"
       }
     ],
-    "connections": [
-      {
-        "from": {
-          "card": "settings",
-          "port": "text"
-        },
-        "to": {
-          "card": "write",
-          "port": "text"
-        }
-      }
-    ]
+    "connections": []
   }
 }

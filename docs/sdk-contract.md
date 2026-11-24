@@ -2,8 +2,7 @@
 
 This kit implements the unreleased Card ABI, version 0. Each language has a
 `sdk/<lang>/default.nix` entry taking `{ pkgs }`. It exports its
-`<lang>Card` and `<lang>Api` builders, `views`, and the shared
-`input` and `artifact` functions from `sdk/input`.
+`<lang>Card` and `<lang>Api` builders and `views`.
 
 ## Card definition
 
@@ -27,7 +26,7 @@ in
 
 In the definition function, `inputs` holds upstream Nix exports keyed by
 Card ID. The builder's `inputs` argument is the generated schema path.
-Tsugumi generates this file for each Code and Input Card. It contains an empty
+Tsugumi generates this file for each Code Card. It contains an empty
 `Inputs` table when the Card has no connected inputs.
 
 Pass the evaluated `params` attrset. Each value is a bool, signed 64-bit
@@ -81,26 +80,6 @@ For every output, visit each nested table, vector and active union member.
 List each distinct Artifact ID in `CardPort.artifacts`, including IDs
 forwarded from granted inputs. The host grants IDs from input sidecars and
 seals directories after the call.
-
-An Input Card's definition returns the result of the shared helper as
-`run`. Its `values` attribute set maps output port names to flatc JSON
-table values. A nested `sdk.artifact ./data.csv` marks a file or folder for
-copying into the immutable build output.
-
-```nix
-run = sdk.input {
-  outputs = ./_outputs.fbs;
-  values.example = { label = params.label; file = sdk.artifact ./data.csv; };
-};
-```
-
-The build produces `share/tsugumi/input/ports/<port>`,
-`ports/<port>.artifacts` with one lowercase hex ID per line, and
-`artifacts/<id>/` under that same Input root. IDs are the first 16 bytes of
-SHA-256 over the UTF-8 port name, one NUL byte and the source store path.
-The build computes this byte sequence directly because Nix evaluation
-strings cannot represent NUL. Core checks missing required Input Card
-ports when it emits the build output.
 
 ## Display and effects
 

@@ -11,7 +11,6 @@ pkgs.callPackage ../../nix/java-card.nix {
     ;
   inherit (deps) runtime;
 }
-// (import ../input { inherit pkgs; })
 // {
   inherit (deps.views) dawnView;
   views = deps.views.common;

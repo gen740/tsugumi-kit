@@ -60,8 +60,7 @@ be omitted.
 
 `tsugumi.Parameters()` returns a typed snapshot of the evaluated build-time
 parameters. Parameter values affect the run build. The API derivation
-depends on parameter types. The entry also exports the Input Card
-builders `sdk.input` and `sdk.artifact`.
+depends on parameter types.
 
 `tsugumi.Send(view, bytes)` takes a declared view name and a byte slice.
 `tsugumi.SendValue(value)` encodes strings, numbers, `Markdown`, `Scalar`,

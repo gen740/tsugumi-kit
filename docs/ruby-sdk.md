@@ -27,7 +27,7 @@ Use **Build SDK** in the Card editor to inspect the API for the current wiring.
 
 ```ruby
 def main(input)
-  text = input.fetch(:text).fetch('value')
+  text = Tsugumi.params.fetch('value')
   file, directory = Tsugumi::Artifact.dir
   File.write(File.join(directory, 'note.txt'), text + "\n")
   {file: file}
@@ -35,10 +35,7 @@ end
 ```
 
 The [Ruby starter](../templates/ruby-write-text/) uses this entry with a
-typed `text` input and an Artifact `file` output.
-
-The SDK also exposes `sdk.input` and `sdk.artifact` for Input Card
-definitions. See the [Card SDK contract](sdk-contract.md).
+text parameter and an Artifact `file` output.
 
 ## Inputs and outputs
 

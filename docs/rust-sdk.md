@@ -61,8 +61,7 @@ and invalid output objects produce `output_invalid`.
 
 `tsugumi::PARAMS` is a typed build-time constant. A parameter value change
 affects the run build and preserves the generated API when its type is
-unchanged. The entry also exports the shared `sdk.input` and `sdk.artifact`
-helpers for Input Cards.
+unchanged.
 
 `tsugumi::send(view, bytes)` takes a declared view name and a byte slice.
 `tsugumi::send_value(value)` supports text, `f64`, `Scalar`, `Markdown`,

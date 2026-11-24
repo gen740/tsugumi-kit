@@ -46,9 +46,6 @@ in
 `jsApi` publishes the generated TypeScript sources, `index.d.ts`, and a typed
 README under `share/tsugumi/api/`. The run output contains `lib/main.so`.
 
-The SDK also exposes `sdk.input` and `sdk.artifact` for Input Card
-definitions. See the [Card SDK contract](sdk-contract.md).
-
 ## Types and dependencies
 
 The builder generates `@tsugumi/card` from the supplied schemas. Import
