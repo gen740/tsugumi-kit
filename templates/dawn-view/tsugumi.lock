@@ -9,8 +9,8 @@
     {
       "name": "tsugumi-kit",
       "url": "github:gen740/tsugumi-kit/main",
-      "rev": "460b28f2182b9756537e7f92e06231bf655c85d1",
-      "narHash": "sha256-m7l+N2paxonqGpy5xbh6WlxdhOI2/TEUgh/QB2IiFvw="
+      "rev": "57cfeba43306d7ec66d6d4c88f224b33b5a2beba",
+      "narHash": "sha256-3G51df8ZgvM5dxSuGIiztXJUA910CSPAtZf9cNkT94k="
     }
   ]
 }
