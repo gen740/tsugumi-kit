@@ -1,12 +1,5 @@
 { pkgs }:
 rec {
-  # An ABI test can model rewiring a template by supplying the resulting catalog.
-  wiredTemplateArgs = definition: inputs: {
-    inherit inputs;
-    outputs = definition + "/_outputs.fbs";
-    params = import (definition + "/params.nix");
-  };
-
   call =
     definition:
     let

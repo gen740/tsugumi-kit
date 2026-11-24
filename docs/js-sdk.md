@@ -22,7 +22,8 @@ export default async function run(_input, { cancelled, display }) {
 
 The [note template](../templates/js-write-note/) includes the matching Card
 definition. Declare input ports in `_card.json`, output types in `_outputs.fbs`, and
-current parameter values in `params.nix`. Select the SDK in `default.nix`.
+current parameter values in `params.nix` (omit the file when the Card has no
+params). Select the SDK in `default.nix`.
 
 ```nix
 { params, inputs }:

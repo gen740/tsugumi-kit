@@ -17,6 +17,9 @@ filter-counts/
     src/card.cc
 ```
 
+`params.nix` holds the Card's params. A Card without params has no
+`params.nix`; Tsugumi treats a missing file as `{ }`.
+
 For a wired project template, keep the generated `_inputs.fbs` in the
 destination Card definition. Tsugumi regenerates it from the project's
 wiring and upstream output types. The file is absent for unwired Cards.
