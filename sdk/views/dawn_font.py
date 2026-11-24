@@ -56,10 +56,24 @@ def pack(bitmaps, width):
     return (height, positions) if height <= MAX_EXTENT else None
 
 
-def generate(font_path, pixel_size, characters_path):
+def uleb128(value):
+    result = bytearray()
+    while value >= 128:
+        result.append((value & 127) | 128)
+        value >>= 7
+    result.append(value)
+    return result
+
+
+def generate(font_path, pixel_size, characters_path, license_path):
     font = ImageFont.truetype(font_path, pixel_size, layout_engine=ImageFont.Layout.BASIC)
     with TTFont(font_path) as source:
         supported = source.getBestCmap()
+        copyright_notice = source["name"].getDebugName(0)
+    name = b"tsugumi.noto-sans-cjk-jp.ofl"
+    notice = copyright_notice.encode("utf-8") + b"\n\n" + license_path.read_bytes()
+    section = uleb128(len(name)) + name + notice
+    Path("font-license.wasm-section").write_bytes(b"\0" + uleb128(len(section)) + section)
     characters = (
         set(japanese_codepoints())
         if characters_path is None
@@ -111,5 +125,6 @@ if __name__ == "__main__":
     parser.add_argument("font", type=Path)
     parser.add_argument("pixel_size", type=int, choices=range(8, 129), metavar="8..128")
     parser.add_argument("--characters", type=Path)
+    parser.add_argument("--license", type=Path, required=True)
     args = parser.parse_args()
-    generate(args.font, args.pixel_size, args.characters)
+    generate(args.font, args.pixel_size, args.characters, args.license)

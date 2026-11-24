@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 const module = await WebAssembly.compile(await readFile(process.argv[2]));
+const [license] = WebAssembly.Module.customSections(module, "tsugumi.noto-sans-cjk-jp.ofl");
+assert.match(new TextDecoder().decode(license), /SIL OPEN FONT LICENSE Version 1\.1/);
 let memory;
 let incoming;
 let sent;

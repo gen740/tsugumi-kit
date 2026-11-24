@@ -19,6 +19,10 @@ let
     url = "https://raw.githubusercontent.com/notofonts/noto-cjk/Sans2.004/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf";
     hash = "sha256-aKP8mIALKiezcfL7eZkdrzYzvYkwnU/6ppRv1YfzdbU=";
   };
+  notoSansLicense = fetchurl {
+    url = "https://raw.githubusercontent.com/notofonts/noto-cjk/Sans2.004/LICENSE";
+    hash = "sha256-anP5VBwt50FYwOfPawpY73dPWngL8ZHy1+ycxT7+K/I=";
+  };
   fontPython = python3.withPackages (ps: [
     ps.fonttools
     ps.pillow
@@ -64,6 +68,7 @@ assert font == null || (builtins.isInt pixelSize && pixelSize >= 8 && pixelSize 
         cp ${./dawn_font.h} include/tsugumi/dawn_font.h
         cp ${./dawn_font.c} dawn_font.c
         ${fontPython}/bin/python ${./dawn_font.py} ${notoSansJP} ${toString pixelSize} \
+          --license ${notoSansLicense} \
           ${lib.optionalString (characters != null) "--characters ${charactersFile}"}
         "''${cc[@]}" -std=c23 -Wall -Wextra -Werror -c dawn_font.c -o dawn_font.o
         sources+=(dawn_font.o)
@@ -71,6 +76,9 @@ assert font == null || (builtins.isInt pixelSize && pixelSize >= 8 && pixelSize 
       "''${cc[@]}" -nostdlib -Wl,--no-entry -Wl,--strip-all \
         ${lib.escapeShellArgs cflags} "''${sources[@]}" -o "$out/view.wasm"
 
+      ${lib.optionalString (font != null) ''
+        cat font-license.wasm-section >> "$out/view.wasm"
+      ''}
       wasm-objdump -x "$out/view.wasm" > imports
       awk '
         /^Import\[/ { importing = 1; next }

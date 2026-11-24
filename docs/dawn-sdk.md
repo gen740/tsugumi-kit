@@ -54,7 +54,9 @@ exactly the characters your view needs. The replacement glyph is always
 included. The build reports an error if the selected glyphs exceed the
 4096-by-4096 atlas limit. The bitmap and glyph metrics travel in the Wasm
 file and can be used without network or filesystem access. The source
-typeface is distributed under the [SIL Open Font License](https://github.com/notofonts/noto-cjk/blob/Sans2.004/Sans/LICENSE).
+typeface's copyright and license accompany the atlas in the Wasm custom
+section `tsugumi.noto-sans-cjk-jp.ofl`.
+[SIL Open Font License](https://github.com/notofonts/noto-cjk/blob/Sans2.004/LICENSE)
 
 ```c
 #include <tsugumi/dawn_font.h>
