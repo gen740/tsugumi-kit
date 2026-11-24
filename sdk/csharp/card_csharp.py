@@ -138,7 +138,7 @@ internal static class EmbeddedParams
 """, encoding="utf-8")
 
 
-def artifact_visitors(schema, roots):
+def output_validators(schema, roots):
     objects, enums = schema["objects"], schema["enums"]
     by_name = {obj["name"]: index for index, obj in enumerate(objects)}
     functions = {}
@@ -149,17 +149,14 @@ def artifact_visitors(schema, roots):
         obj = objects[index]
         typ = csharp_type(obj["name"]) + "T"
         functions[False, index] = body = [
-            f"    internal static void Collect({typ}? value, List<global::tsugumi.ArtifactIdT> ids)",
+            f"    internal static void Validate({typ}? value)",
             "    {",
             "        if (value is null) return;",
         ]
         if obj["name"] == "tsugumi.Artifact":
             body += [
-                "        if (value.Id?.Bytes is not { Length: 16 } id)",
+                "        if (value.Id?.Bytes is not { Length: 16 })",
                 '            throw InputPorts.Rejected(FailureKind.output_invalid, "Invalid Artifact ID");',
-                "        foreach (var item in ids)",
-                "            if (id.AsSpan().SequenceEqual(item.Bytes)) return;",
-                "        ids.Add(new() { Bytes = (byte[])id.Clone() });",
             ]
         else:
             for field in obj["fields"]:
@@ -183,9 +180,9 @@ def artifact_visitors(schema, roots):
                     args = ""
                 if vector:
                     body += [f"        if ({value} is {{ }} list{prop})",
-                             f"            foreach (var child in list{prop}) Collect(child, ids{args});"]
+                             f"            foreach (var child in list{prop}) Validate(child{args});"]
                 else:
-                    body += [f"        Collect({value}, ids{args});"]
+                    body += [f"        Validate({value}{args});"]
         body += ["    }", ""]
 
     def union(index):
@@ -194,7 +191,7 @@ def artifact_visitors(schema, roots):
         enum = enums[index]
         typ = csharp_type(enum["name"])
         functions[True, index] = body = [
-            f"    internal static void Collect({typ}Union? choice, List<global::tsugumi.ArtifactIdT> ids, bool required)",
+            f"    internal static void Validate({typ}Union? choice, bool required)",
             "    {",
             f"        switch (choice?.Type ?? {typ}.NONE)",
             "        {",
@@ -212,7 +209,7 @@ def artifact_visitors(schema, roots):
             body.append(f"            case {typ}.@{tag} when choice?.Value is {variant_type} item{tag}:")
             if child_obj and not child_obj.get("is_struct"):
                 table(child["index"])
-                body.append(f"                Collect(item{tag}, ids);")
+                body.append(f"                Validate(item{tag});")
             body.append("                return;")
         body += [
             "            default:",
@@ -311,11 +308,10 @@ class Generator:
             output_lines += [
                 f"        if ({prop} is {{ }} value{index})",
                 "        {",
-                "            var ids = new List<global::tsugumi.ArtifactIdT>();",
-                f"            Ports.Collect(value{index}, ids);",
+                f"            Ports.Validate(value{index});",
                 f"            var bytes = InputPorts.Pack({name}, {table}Verify.Verify, "
                 f"builder => {self.pack(port.type)}(builder, value{index}).Value);",
-                f"            result.Outputs.Add(InputPorts.FlatBufferPort({name}, bytes, ids));",
+                f"            result.Outputs.Add(InputPorts.FlatBufferPort({name}, bytes));",
                 "        }",
             ]
         output_lines += ["        return result;", "    }", "}"]
@@ -344,7 +340,7 @@ class Generator:
             "",
             "internal static class Ports",
             "{",
-            *artifact_visitors(schema, dict.fromkeys(port.type for port, _ in outputs)),
+            *output_validators(schema, dict.fromkeys(port.type for port, _ in outputs)),
             "}",
             "",
         ]

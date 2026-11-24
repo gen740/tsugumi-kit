@@ -413,7 +413,7 @@ def generate_native(card, names, cpp, output_schema, out):
             input_rows.append(f"    {{{json.dumps(port.name)}, {json.dumps(candidate.schema)}, VerifyJavaTable<{table}>}},")
     roots = [cpp.cpp_type(port.type, names) for port in card.outputs]
     output_rows = [
-        f"    {{{json.dumps(port.name)}, {str(port.required).lower()}, CollectJavaArtifacts<{typ}, VisitArtifacts>}},"
+        f"    {{{json.dumps(port.name)}, {str(port.required).lower()}, ValidJavaOutput<{typ}, ValidOutput>}},"
         for port, typ in zip(card.outputs, roots)
     ]
     visitors = "\n".join(cpp.validators(output_schema, roots))

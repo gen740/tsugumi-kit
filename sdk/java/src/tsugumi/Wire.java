@@ -56,7 +56,7 @@ final class Wire {
 
         void add(String name, byte[] bytes) {
             offsets.add(CardPort.createCardPort(result, result.createString(name),
-                    0, CardPort.createBytesVector(result, bytes), 0));
+                    0, CardPort.createBytesVector(result, bytes)));
         }
 
         byte[] finish() {

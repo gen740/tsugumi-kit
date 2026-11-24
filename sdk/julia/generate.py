@@ -301,7 +301,7 @@ def generate(card, schemas, names, output_schema):
         table = cpp_type(port.type, names)
         write += [f"    std::optional<{native(port.type, names)}> value_{index};",
                   f"    if ({present}) value_{index} = Decode<{native(port.type, names)}>(*{field});",
-                  f"    WritePort<{table}>(result, {name}, value_{index}, {required}, VisitArtifacts);"]
+                  f"    WritePort<{table}>(result, {name}, value_{index}, {required}, ValidOutput);"]
 
     roots = (cpp_type(port.type, names) for port in card.outputs)
     body = [

@@ -127,62 +127,7 @@ def params_source(card, values):
     return "\n".join([*lines, "};", ""])
 
 
-def visitors(schema, roots):
-    objects, enums = schema["objects"], schema["enums"]
-    indices = {obj["name"]: index for index, obj in enumerate(objects)}
-    functions = {}
-
-    def visit(index):
-        function = f"visit_{index}"
-        if index in functions:
-            return function
-        obj = objects[index]
-        typ = rust_type(obj["name"], "output_types") + "T"
-        functions[index] = body = [
-            f"fn {function}(value: &{typ}, ids: &mut Vec<[u8; 16]>) {{",
-            "    let _ = (&value, &ids);",
-        ]
-        if obj["name"] == "tsugumi.Artifact":
-            body += ["    if !ids.contains(&value.id.bytes) { ids.push(value.id.bytes); }"]
-        else:
-            for field in obj["fields"]:
-                if field.get("deprecated"):
-                    continue
-                kind = field["type"]
-                index = kind.get("index", -1)
-                base = kind["base_type"]
-                value = "value." + flatc_snake(field["name"])
-                if field["name"] in FLATC_KEYWORDS:
-                    value += "_"
-                if base == "Obj" and not objects[index].get("is_struct"):
-                    nested = visit(index)
-                    if field.get("required"):
-                        body += [f"    {nested}(&{value}, ids);"]
-                    else:
-                        body += [f"    if let Some(child) = &{value} {{ {nested}(child, ids); }}"]
-                elif base == "Vector" and kind.get("element") == "Obj" and not objects[index].get("is_struct"):
-                    nested = visit(index)
-                    items = f"{value}.iter()" if field.get("required") else f"{value}.iter().flatten()"
-                    body += [f"    for child in {items} {{ {nested}(child, ids); }}"]
-                elif base == "Union":
-                    enum = enums[index]
-                    typ = rust_type(enum["name"], "output_types") + "T"
-                    body += [f"    match &{value} {{"]
-                    for variant in enum["values"][1:]:
-                        child = variant["union_type"]
-                        if child["base_type"] == "Obj" and not objects[child["index"]].get("is_struct"):
-                            nested = visit(child["index"])
-                            body += [f"        {typ}::{variant['name']}(child) => {nested}(child, ids),"]
-                    body += ["        _ => {},", "    }"]
-        body += ["}", ""]
-        return function
-
-    selected = {root: visit(indices[root]) for root in roots}
-    return selected, [line for body in functions.values() for line in body]
-
-
 def generate(inputs, outputs, output_schema):
-    selected, artifact_visitors = visitors(output_schema, [port.type for port, _, _ in outputs])
     aliases = []
     reads = []
     for port, field, alias in inputs:
@@ -251,12 +196,9 @@ def generate(inputs, outputs, output_schema):
     for port, field, _ in outputs:
         name = rust_string(port.name)
         typ = rust_type(port.type, "output_types")
-        visit = selected[port.type]
         lines += [
             f"        if let Some(value) = self.{field} {{",
-            "            let mut ids = Vec::new();",
-            f"            {visit}(&value, &mut ids);",
-            f"            runtime::write_port::<{typ}>(builder, &mut ports, {name}, &ids, |builder| {{",
+            f"            runtime::write_port::<{typ}>(builder, &mut ports, {name}, |builder| {{",
             "                let root = value.pack(builder);",
             "                builder.finish(root, None);",
             "            })?;",
@@ -270,7 +212,6 @@ def generate(inputs, outputs, output_schema):
         "    }",
         "}",
         "",
-        *artifact_visitors,
         """/// Register a function of type `fn(Inputs<'_>) -> Result<Output>`.
 #[macro_export]
 macro_rules! export {

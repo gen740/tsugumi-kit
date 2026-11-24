@@ -46,14 +46,34 @@ values. Integer params are exact decimal strings with class
 
 A mixed Merge yields `list(type = "Member", value = table)` after the
 SDK matches and verifies the candidate by schema ID. Collect yields
-opaque envelopes with `schema`, `bytes` and `artifacts`. Return a
+opaque envelopes with `schema` and `bytes`. Return a
 named list of outputs. Omit optional outputs or set them to `NULL`.
 A missing required output produces `output_invalid`.
 
 `artifact_dir()` returns an Artifact and a writable directory in
 `$artifact` and `$path`. `artifact_upload(path)` copies a file or
-directory. `artifact_open(artifact)` returns the granted read-only
-directory. Forward an Artifact by returning it in a declared Artifact field.
+directory. `artifact_open(artifact)` returns the read-only directory of
+any sealed Artifact of the project whose ID the Card knows, such as one in
+an input. Forward an Artifact by returning it in a
+declared Artifact field.
+
+Both keep the Artifact after its run by default. With `keep = FALSE` it
+exists only while its run runs: later Cards of the same run can open it,
+and it is removed with its record when the run ends. Opening it after that
+signals an error saying the Artifact is not available. Read keep from a
+parameter to let the person running choose:
+
+```nix
+# params.nix
+{
+  keep_scratch = false;
+}
+```
+
+```r
+scratch <- artifact_dir(keep = params$keep_scratch)
+```
+
 Declare Artifact fields with `include "tsugumi/artifact.fbs";`. The
 host seals created directories when the call returns.
 

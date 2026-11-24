@@ -193,7 +193,6 @@ def generate_cpp(inputs, outputs, names, output_schema, cpp):
         '#include "_outputs_generated.h"',
         "namespace {",
         "using Tsugumi::Card::CardResultT;",
-        "using tsugumi::abi::AddArtifact;",
         "using tsugumi::abi::Buffer;",
         *cpp.validators(output_schema, roots),
     ]
@@ -207,7 +206,7 @@ def generate_cpp(inputs, outputs, names, output_schema, cpp):
             "  auto port = std::make_unique<Tsugumi::Card::CardPortT>();",
             "  typename Table::NativeTableType value;",
             "  table->UnPackTo(&value);",
-            "  if (!VisitArtifacts(value, port->artifacts)) return false;",
+            "  if (!ValidOutput(value)) return false;",
             "  port->name = name;",
             "  port->bytes.assign(bytes.data, bytes.data + bytes.size);",
             "  static_cast<CardResultT*>(out)->outputs.push_back(std::move(port));",

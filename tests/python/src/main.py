@@ -29,7 +29,7 @@ def run(input: Input) -> Output:
     file = directory / "value.txt"
     file.write_text("test")
     upload = Artifact.upload(file)
-    choice, _ = Artifact.dir()
+    choice, _ = Artifact.dir(keep=False)
 
     view = tsugumi.view_open("listing", tsugumi.ViewMode.WINDOW, 640, 480)
     route = tsugumi.route_register(view.session)

@@ -306,7 +306,7 @@ def generate_cpp(card, python_names, cpp_names, output_schema, out):
         for port in card.outputs:
             lines += [
                 f"    if (port->name == {json.dumps(port.name)}) {{",
-                f"      VerifyOutput<{table(port.type)}>(*port, VisitArtifacts);",
+                f"      VerifyOutput<{table(port.type)}>(*port, ValidOutput);",
                 "      continue;",
                 "    }",
             ]
@@ -351,16 +351,16 @@ def main(schemas, out, reflection):
         marker = "class ArtifactT(object):"
         artifact.write_text(artifact.read_text().replace(marker, marker + """
     @classmethod
-    def dir(cls):
+    def dir(cls, keep=True):
         from tsugumi._artifact import create
 
-        return create(cls)
+        return create(cls, keep)
 
     @classmethod
-    def upload(cls, source):
+    def upload(cls, source, keep=True):
         from tsugumi._artifact import upload
 
-        return upload(cls, source)
+        return upload(cls, source, keep)
 
     def open(self):
         from tsugumi._artifact import open_artifact
@@ -370,9 +370,9 @@ def main(schemas, out, reflection):
         stub = artifact.with_suffix(".pyi")
         stub.write_text(stub.read_text().replace(marker, marker + """
   @classmethod
-  def dir(cls) -> tuple[ArtifactT, pathlib.Path]: ...
+  def dir(cls, keep: bool = True) -> tuple[ArtifactT, pathlib.Path]: ...
   @classmethod
-  def upload(cls, source: str | os.PathLike[str]) -> ArtifactT: ...
+  def upload(cls, source: str | os.PathLike[str], keep: bool = True) -> ArtifactT: ...
   def open(self) -> pathlib.Path: ...
 """).replace("import typing", "import os\nimport pathlib\nimport typing"), encoding="utf-8")
         for path in (out / "python").rglob("*.py*"):

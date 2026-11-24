@@ -35,9 +35,9 @@ extern int tsugumi_r_send(const tsugumi_view_session* session,
                           const uint8_t* bytes, size_t size);
 /* On success, free event->data.data after consuming it. */
 extern int tsugumi_r_recv(int64_t timeout_ms, tsugumi_view_event* event);
-char* tsugumi_r_artifact_dir(uint8_t* id);
-int tsugumi_r_artifact_upload(const char* path, uint8_t* id);
-char* tsugumi_r_artifact_open(const uint8_t* id);
+char* tsugumi_r_artifact_dir(int keep, uint8_t* id);
+int tsugumi_r_artifact_upload(const char* path, int keep, uint8_t* id);
+int tsugumi_r_artifact_open(const uint8_t* id, char** path);
 
 static SEXP sdk;
 
@@ -183,9 +183,9 @@ static SEXP receive_event(SEXP timeout) {
                            &received);
 }
 
-static SEXP artifact_dir(void) {
+static SEXP artifact_dir(SEXP keep) {
   SEXP raw = PROTECT(Rf_allocVector(RAWSXP, 16));
-  char* path = tsugumi_r_artifact_dir(RAW(raw));
+  char* path = tsugumi_r_artifact_dir(Rf_asLogical(keep) == TRUE, RAW(raw));
   if (!path) Rf_error("Artifact creation failed");
   SEXP result = PROTECT(Rf_allocVector(VECSXP, 2));
   SET_VECTOR_ELT(result, 0, raw);
@@ -195,10 +195,10 @@ static SEXP artifact_dir(void) {
   return result;
 }
 
-static SEXP artifact_upload(SEXP path) {
+static SEXP artifact_upload(SEXP path, SEXP keep) {
   SEXP raw = PROTECT(Rf_allocVector(RAWSXP, 16));
   if (tsugumi_r_artifact_upload(Rf_translateCharUTF8(STRING_ELT(path, 0)),
-                                RAW(raw)))
+                                Rf_asLogical(keep) == TRUE, RAW(raw)))
     Rf_error("Artifact upload failed");
   UNPROTECT(1);
   return raw;
@@ -207,8 +207,13 @@ static SEXP artifact_upload(SEXP path) {
 static SEXP artifact_open(SEXP id) {
   if (TYPEOF(id) != RAWSXP || XLENGTH(id) != 16)
     Rf_error("Expected a 16-byte Artifact ID");
-  char* path = tsugumi_r_artifact_open(RAW(id));
-  if (!path) Rf_error("Artifact open failed");
+  char* path = NULL;
+  if (tsugumi_r_artifact_open(RAW(id), &path)) {
+    if (!path) Rf_error("Artifact open failed");
+    SEXP message = PROTECT(utf8(path));
+    free(path);
+    Rf_error("%s", Rf_translateCharUTF8(STRING_ELT(message, 0)));
+  }
   SEXP result = utf8(path);
   free(path);
   return result;
@@ -230,8 +235,8 @@ static const R_CallMethodDef methods[] = {
     {"tsugumi_r_route_unregister", (DL_FUNC)&unregister_route, 1},
     {"tsugumi_r_send", (DL_FUNC)&send_bytes, 2},
     {"tsugumi_r_recv", (DL_FUNC)&receive_event, 1},
-    {"tsugumi_r_artifact_dir", (DL_FUNC)&artifact_dir, 0},
-    {"tsugumi_r_artifact_upload", (DL_FUNC)&artifact_upload, 1},
+    {"tsugumi_r_artifact_dir", (DL_FUNC)&artifact_dir, 1},
+    {"tsugumi_r_artifact_upload", (DL_FUNC)&artifact_upload, 2},
     {"tsugumi_r_artifact_open", (DL_FUNC)&artifact_open, 1},
     {NULL, NULL, 0},
 };

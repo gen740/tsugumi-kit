@@ -8,6 +8,7 @@ import "C"
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"unsafe"
 )
@@ -37,11 +38,19 @@ func (id *ArtifactIdT) bytes() [16]byte {
 	return [16]byte{id.Byte0, id.Byte1, id.Byte2, id.Byte3, id.Byte4, id.Byte5, id.Byte6, id.Byte7, id.Byte8, id.Byte9, id.Byte10, id.Byte11, id.Byte12, id.Byte13, id.Byte14, id.Byte15}
 }
 
-// Dir creates a writable artifact directory for the current call.
-func Dir() (*ArtifactT, string, error) {
+func keepFlag(keep bool) C.int {
+	if keep {
+		return 1
+	}
+	return 0
+}
+
+// Dir creates a writable artifact directory for the current call. Without
+// keep, the artifact exists only while its run runs.
+func Dir(keep bool) (*ArtifactT, string, error) {
 	var id [16]byte
 	var path *C.char
-	if C.tsugumi_go_artifact_dir((*C.uint8_t)(&id[0]), &path) != 0 {
+	if C.tsugumi_go_artifact_dir(keepFlag(keep), (*C.uint8_t)(&id[0]), &path) != 0 {
 		return nil, "", errors.New("the host could not create an Artifact")
 	}
 	defer C.free(unsafe.Pointer(path))
@@ -49,20 +58,20 @@ func Dir() (*ArtifactT, string, error) {
 }
 
 // Upload copies a directory or a single file into a new artifact.
-func Upload(source string) (*ArtifactT, error) {
+func Upload(source string, keep bool) (*ArtifactT, error) {
 	if strings.IndexByte(source, 0) >= 0 {
 		return nil, errors.New("artifact source contains a NUL byte")
 	}
 	path := C.CString(source)
 	defer C.free(unsafe.Pointer(path))
 	var id [16]byte
-	if C.tsugumi_go_artifact_upload(path, (*C.uint8_t)(&id[0])) != 0 {
+	if C.tsugumi_go_artifact_upload(path, keepFlag(keep), (*C.uint8_t)(&id[0])) != 0 {
 		return nil, errors.New("could not upload the Artifact")
 	}
 	return &ArtifactT{Id: artifactID(id)}, nil
 }
 
-// Open returns the read-only directory granted to the current call.
+// Open returns the read-only directory of a sealed artifact of the project.
 func (artifact *ArtifactT) Open() (string, error) {
 	if artifact == nil || artifact.Id == nil {
 		return "", errors.New("Artifact is missing an ID")
@@ -70,7 +79,8 @@ func (artifact *ArtifactT) Open() (string, error) {
 	id := artifact.Id.bytes()
 	var path *C.char
 	if C.tsugumi_go_artifact_open((*C.uint8_t)(&id[0]), &path) != 0 {
-		return "", errors.New("the host could not open the Artifact")
+		return "", fmt.Errorf("artifact %x-%x-%x-%x-%x is not available: it was not kept after its run, "+
+			"was deleted, or is not in this project", id[0:4], id[4:6], id[6:8], id[8:10], id[10:16])
 	}
 	defer C.free(unsafe.Pointer(path))
 	return C.GoString(path), nil

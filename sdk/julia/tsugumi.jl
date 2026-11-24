@@ -38,22 +38,27 @@ function take_path(path)
     end
 end
 
-function dir(::Type{Artifact})
+# keep=false makes an Artifact that exists only while its run runs.
+function dir(::Type{Artifact}; keep::Bool=true)
     id = Vector{UInt8}(undef, 16)
-    path = @ccall $(HOST.dir)(id::Ptr{UInt8})::Ptr{UInt8}
+    path = @ccall $(HOST.dir)(Cint(keep)::Cint, id::Ptr{UInt8})::Ptr{UInt8}
     return Artifact(Tuple(id)), take_path(path)
 end
 
-function upload(::Type{Artifact}, path::AbstractString)
+function upload(::Type{Artifact}, path::AbstractString; keep::Bool=true)
     id = Vector{UInt8}(undef, 16)
-    code = @ccall $(HOST.upload)(path::Cstring, id::Ptr{UInt8})::Cint
+    code = @ccall $(HOST.upload)(path::Cstring, Cint(keep)::Cint, id::Ptr{UInt8})::Cint
     code == 0 || error("Artifact upload failed")
     return Artifact(Tuple(id))
 end
 
 function Base.open(artifact::Artifact)
     id = collect(artifact.id)
-    return take_path(@ccall $(HOST.open)(id::Ptr{UInt8})::Ptr{UInt8})
+    path = Ref{Ptr{UInt8}}(C_NULL)
+    code = @ccall $(HOST.open)(id::Ptr{UInt8}, path::Ptr{Ptr{UInt8}})::Cint
+    code == 0 && return take_path(path[])
+    path[] == C_NULL && error("Artifact open failed")
+    error(take_path(path[]))
 end
 
 JSON.lower(artifact::Artifact) = Dict("\$artifact" => Base64.base64encode(collect(artifact.id)))

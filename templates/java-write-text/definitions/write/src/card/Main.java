@@ -8,8 +8,9 @@ import tsugumi.Display;
 
 public final class Main {
     public static Card.Output run(Card.Input input) throws IOException {
-        String text = Card.params().value();
-        var created = Artifacts.dir();
+        var params = Card.params();
+        String text = params.value();
+        var created = Artifacts.dir(params.keep_output());
         Files.writeString(created.path().resolve("message.txt"), text);
         Display.send(new Display.Text(text));
         return new Card.Output(created.artifact());

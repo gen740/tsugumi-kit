@@ -199,12 +199,13 @@ auto Artifact(const CallbackInfo& args) -> void {
     const auto operation = ViewName(isolate, args[0]);
     card::Artifact artifact;
     std::filesystem::path path;
+    const bool keep = args[2]->BooleanValue(isolate);
     if (operation == "dir") {
-      auto [created, directory] = card::Artifact::dir();
+      auto [created, directory] = card::Artifact::dir(keep);
       artifact = std::move(created);
       path = std::move(directory);
     } else if (operation == "upload") {
-      artifact = card::Artifact::upload(ViewName(isolate, args[1]));
+      artifact = card::Artifact::upload(ViewName(isolate, args[1]), keep);
     } else if (operation == "open" && args[1]->IsUint8Array()) {
       std::array<uint8_t, 16> id{};
       const auto bytes = args[1].As<v8::Uint8Array>();

@@ -330,7 +330,7 @@ def generate(card, schemas, names, output_schema):
             f"      if (!item->is_null()) port = From{codecs.use(port.type)}(*item);",
             "      output.erase(item);",
             "    }",
-            f"    WritePort<{codecs.cpp(port.type)}>(result, {name}, port, {required}, VisitArtifacts);",
+            f"    WritePort<{codecs.cpp(port.type)}>(result, {name}, port, {required}, ValidOutput);",
             "  }",
         ]
     visits = validators(output_schema, (codecs.cpp(port.type) for port in card.outputs))

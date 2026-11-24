@@ -256,7 +256,7 @@ def run_card(card, glue):
             f"    std::optional<{native}> output_{index};",
             f"    if (const auto value = outputs.find({name}); value != outputs.end() && !value->is_null())",
             f"      output_{index} = {decode};",
-            f"    abi::WritePort<{table}>(result, {name}, output_{index}, {required}, VisitArtifacts);",
+            f"    abi::WritePort<{table}>(result, {name}, output_{index}, {required}, ValidOutput);",
         ]
     return lines + [
         "  } catch (const tsugumi::Failure&) {",
@@ -312,7 +312,6 @@ def generate_glue(card, schemas, names, output_schema):
         *declarations,
         "",
         *bodies,
-        "using abi::AddArtifact;",
         *validators(output_schema, (glue.cxx(port.type) for port in card.outputs)),
         *run,
         "",
@@ -442,8 +441,8 @@ def generate_api(card, schemas, out):
         *(f"  type {alias} = {body}" for alias, body in signatures.aliases.items()),
         "",
         "  class Artifact",
-        "    def self.dir: () -> [Artifact, String]",
-        "    def self.upload: (String) -> Artifact",
+        "    def self.dir: (?keep: bool) -> [Artifact, String]",
+        "    def self.upload: (String, ?keep: bool) -> Artifact",
         "    def open: () -> String",
         "  end",
         "",

@@ -216,21 +216,17 @@ pub(crate) fn write_port<'a, T: Verifiable>(
     builder: &mut FlatBufferBuilder<'a>,
     ports: &mut OutputPorts<'a>,
     name: &str,
-    ids: &[[u8; 16]],
     pack: impl FnOnce(&mut FlatBufferBuilder<'_>),
 ) -> Result<()> {
     let bytes = pack_value::<T>(name, pack)?;
     let name = builder.create_string(name);
     let bytes = builder.create_vector(&bytes);
-    let artifacts: Vec<_> = ids.iter().map(ArtifactId::new).collect();
-    let artifacts = (!artifacts.is_empty()).then(|| builder.create_vector(&artifacts));
     ports.push(CardPort::create(
         builder,
         &CardPortArgs {
             name: Some(name),
             schema: None,
             bytes: Some(bytes),
-            artifacts,
         },
     ));
     Ok(())
@@ -283,7 +279,11 @@ type SendEffect = unsafe extern "C" fn(*mut c_void, *const ViewSession, *const u
 type RecvEffect = unsafe extern "C" fn(*mut c_void, *mut ViewEvent, i64) -> c_int;
 type CancelEffect = unsafe extern "C" fn(*mut c_void) -> c_int;
 type DeadlineEffect = unsafe extern "C" fn(*mut c_void) -> i64;
-type CreateArtifact = unsafe extern "C" fn(*mut c_void, *mut ArtifactId, *mut Bytes) -> c_int;
+type CreateArtifact =
+    unsafe extern "C" fn(*mut c_void, u32, *mut ArtifactId, *mut Bytes) -> c_int;
+
+/// `TSUGUMI_ARTIFACT_KEEP`: keep the Artifact after its run.
+const ARTIFACT_KEEP: u32 = 1;
 type OpenArtifact = unsafe extern "C" fn(*mut c_void, *const ArtifactId, *mut Bytes) -> c_int;
 
 #[doc(hidden)]
@@ -532,7 +532,7 @@ fn effect_failure(action: &str) -> Failure {
 }
 
 fn artifact_path(
-    action: &str,
+    failure: impl FnOnce() -> Failure,
     callback: impl FnOnce(&EffectTarget, &mut Bytes) -> Option<i32>,
 ) -> Result<PathBuf> {
     let target = lock(&ACTIVE);
@@ -542,29 +542,46 @@ fn artifact_path(
         .and_then(|target| callback(target, &mut bytes))
         != Some(0)
     {
-        return Err(effect_failure(action));
+        return Err(failure());
     }
-    let path = copy_effect_bytes(bytes)
-        .filter(|path| !path.is_empty() && !path.contains(&0))
-        .ok_or_else(|| effect_failure(action))?;
+    let Some(path) = copy_effect_bytes(bytes).filter(|path| !path.is_empty() && !path.contains(&0))
+    else {
+        return Err(failure());
+    };
     Ok(PathBuf::from(std::ffi::OsStr::from_bytes(&path)))
 }
 
 impl ArtifactT {
+    /// A new Artifact kept after its run, and its writable directory.
     pub fn dir() -> Result<(Self, PathBuf)> {
+        Self::dir_with_keep(true)
+    }
+
+    /// With `keep` false, the Artifact exists only while its run runs.
+    pub fn dir_with_keep(keep: bool) -> Result<(Self, PathBuf)> {
         let mut id = ArtifactId::default();
-        let path = artifact_path("create an Artifact", |target, out| {
-            target
-                .effects
-                .artifact_create
-                .map(|create| unsafe { create(target.host, &mut id, out) })
-        })?;
+        let flags = if keep { ARTIFACT_KEEP } else { 0 };
+        let path = artifact_path(
+            || effect_failure("create an Artifact"),
+            |target, out| {
+                target
+                    .effects
+                    .artifact_create
+                    .map(|create| unsafe { create(target.host, flags, &mut id, out) })
+            },
+        )?;
         Ok((Self { id: id.unpack() }, path))
     }
 
+    /// A new Artifact kept after its run holding a copy of the file or directory.
     pub fn upload(source: impl AsRef<Path>) -> Result<Self> {
+        Self::upload_with_keep(source, true)
+    }
+
+    /// With `keep` false, the Artifact exists only while its run runs.
+    pub fn upload_with_keep(source: impl AsRef<Path>, keep: bool) -> Result<Self> {
         let source = source.as_ref();
-        let (artifact, directory) = Self::dir()?;
+        let (artifact, directory) = Self::dir_with_keep(keep)?;
         if source.is_dir() {
             copy_directory(source, &directory)?;
         } else {
@@ -588,12 +605,29 @@ impl Artifact<'_> {
 }
 
 fn open_artifact(id: &ArtifactId) -> Result<PathBuf> {
-    artifact_path("open the Artifact", |target, out| {
-        target
-            .effects
-            .artifact_open
-            .map(|open| unsafe { open(target.host, id, out) })
-    })
+    artifact_path(
+        || {
+            let hex: String = id.bytes().iter().map(|byte| format!("{byte:02x}")).collect();
+            Failure::new(
+                FailureKind::worker_failed,
+                format!(
+                    "artifact {}-{}-{}-{}-{} is not available: it was not kept after its run, \
+                     was deleted, or is not in this project",
+                    &hex[..8],
+                    &hex[8..12],
+                    &hex[12..16],
+                    &hex[16..20],
+                    &hex[20..]
+                ),
+            )
+        },
+        |target, out| {
+            target
+                .effects
+                .artifact_open
+                .map(|open| unsafe { open(target.host, id, out) })
+        },
+    )
 }
 
 fn copy_directory(source: &Path, destination: &Path) -> std::io::Result<()> {

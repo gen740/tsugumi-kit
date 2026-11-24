@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdlib>
+#include <exception>
 #include <limits>
 #include <string>
 #include <unordered_set>
@@ -151,9 +152,10 @@ auto Recv(JNIEnv* env, jclass, jlong timeout, jintArray status,
   }
 }
 
-auto ArtifactDir(JNIEnv* env, jclass, jbyteArray id) noexcept -> jbyteArray {
+auto ArtifactDir(JNIEnv* env, jclass, jbyteArray id, jboolean keep) noexcept
+    -> jbyteArray {
   try {
-    const auto [artifact, path] = card::Artifact::dir();
+    const auto [artifact, path] = card::Artifact::dir(keep == JNI_TRUE);
     env->SetByteArrayRegion(
         id, 0, 16, reinterpret_cast<const jbyte*>(artifact.id->bytes()->Data()));
     if (env->ExceptionCheck()) return nullptr;
@@ -165,11 +167,12 @@ auto ArtifactDir(JNIEnv* env, jclass, jbyteArray id) noexcept -> jbyteArray {
   }
 }
 
-auto ArtifactUpload(JNIEnv* env, jclass, jbyteArray source) noexcept -> jbyteArray {
+auto ArtifactUpload(JNIEnv* env, jclass, jbyteArray source,
+                    jboolean keep) noexcept -> jbyteArray {
   try {
     const auto path = ReadString(env, source);
     if (env->ExceptionCheck()) return nullptr;
-    const auto artifact = card::Artifact::upload(path);
+    const auto artifact = card::Artifact::upload(path, keep == JNI_TRUE);
     return CopyBytes(env, artifact.id->bytes()->Data(), 16);
   } catch (...) {
     ThrowEffectError(env, "Could not upload the Artifact");
@@ -188,6 +191,9 @@ auto ArtifactOpen(JNIEnv* env, jclass, jbyteArray id) noexcept -> jbyteArray {
         flatbuffers::span<const uint8_t, 16>(bytes));
     const auto path = artifact.open();
     return CopyBytes(env, path.native().data(), path.native().size());
+  } catch (const std::exception& error) {
+    ThrowEffectError(env, error.what());
+    return nullptr;
   } catch (...) {
     ThrowEffectError(env, "The host could not open the Artifact");
     return nullptr;
@@ -350,9 +356,9 @@ class Jvm {
          reinterpret_cast<void*>(&Send)},
         {const_cast<char*>("recv"), const_cast<char*>("(J[I[B[B)[B"),
          reinterpret_cast<void*>(&Recv)},
-        {const_cast<char*>("artifactDir"), const_cast<char*>("([B)[B"),
+        {const_cast<char*>("artifactDir"), const_cast<char*>("([BZ)[B"),
          reinterpret_cast<void*>(&ArtifactDir)},
-        {const_cast<char*>("artifactUpload"), const_cast<char*>("([B)[B"),
+        {const_cast<char*>("artifactUpload"), const_cast<char*>("([BZ)[B"),
          reinterpret_cast<void*>(&ArtifactUpload)},
         {const_cast<char*>("artifactOpen"), const_cast<char*>("([B)[B"),
          reinterpret_cast<void*>(&ArtifactOpen)},
@@ -406,9 +412,7 @@ auto CheckOutputs(CardResultT& result, std::span<const JavaOutput> catalog)
     if (expected == catalog.end() || !seen.insert(port->name).second) {
       Reject(FailureKind::output_invalid, "Unexpected output " + port->name);
     }
-    port->artifacts.clear();
-    if (!expected->collect(Buffer({port->bytes.data(), port->bytes.size()}),
-                           port->artifacts)) {
+    if (!expected->valid(Buffer({port->bytes.data(), port->bytes.size()}))) {
       Reject(FailureKind::output_invalid, "Invalid output " + port->name);
     }
   }

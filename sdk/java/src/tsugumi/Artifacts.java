@@ -3,20 +3,38 @@ package tsugumi;
 import java.nio.file.Path;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
-/** Filesystem access for capability IDs embedded in Card data. */
+/**
+ * Filesystem access for the Artifact IDs in Card data. Knowing an ID is enough
+ * to open its sealed Artifact.
+ */
 public final class Artifacts {
     private Artifacts() {}
 
     public record Directory(ArtifactT artifact, Path path) {}
 
+    /** A new kept Artifact and its writable directory. */
     public static Directory dir() {
+        return dir(true);
+    }
+
+    /**
+     * A new Artifact and its writable directory. Without keep, the Artifact
+     * exists only while its run runs.
+     */
+    public static Directory dir(boolean keep) {
         var id = new byte[16];
-        var path = Effects.artifactDir(id);
+        var path = Effects.artifactDir(id, keep);
         return new Directory(create(id), Path.of(new String(path, UTF_8)));
     }
 
+    /** A new kept Artifact holding a copy of the file or directory. */
     public static ArtifactT upload(Path source) {
-        return create(Effects.artifactUpload(source.toString().getBytes(UTF_8)));
+        return upload(source, true);
+    }
+
+    /** A new Artifact holding a copy; without keep it exists only while its run runs. */
+    public static ArtifactT upload(Path source, boolean keep) {
+        return create(Effects.artifactUpload(source.toString().getBytes(UTF_8), keep));
     }
 
     static Path open(ArtifactT artifact) {

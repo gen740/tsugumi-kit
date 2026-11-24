@@ -10,8 +10,9 @@ import (
 
 func run(_ tsugumi.Inputs) (tsugumi.Output, error) {
 	name := "normalized.txt"
-	text := strings.Join(strings.Fields(tsugumi.Parameters().Value), " ") + "\n"
-	artifact, dir, err := tsugumi.Dir()
+	params := tsugumi.Parameters()
+	text := strings.Join(strings.Fields(params.Value), " ") + "\n"
+	artifact, dir, err := tsugumi.Dir(tsugumi.Keep(params.KeepOutput))
 	if err != nil {
 		return tsugumi.Output{}, err
 	}

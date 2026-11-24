@@ -16,15 +16,15 @@ import (
 
 func run(input tsugumi.Inputs) (tsugumi.Output, error) {
 	var output tsugumi.Output
-	var granted *tsugumi.Artifact
+	var forwarded *tsugumi.Artifact
 	number := int64(20)
 	if member := input.Arrival().Number; member != nil {
 		number = member.Value
-		granted = member.File
+		forwarded = member.File
 	} else {
-		granted = input.Arrival().Text.File
+		forwarded = input.Arrival().Text.File
 	}
-	opened, err := granted.Open()
+	opened, err := forwarded.Open()
 	if err != nil {
 		return output, err
 	}
@@ -56,7 +56,7 @@ func run(input tsugumi.Inputs) (tsugumi.Output, error) {
 	if err != nil {
 		return output, err
 	}
-	choice, _, err := tsugumi.Dir()
+	choice, _, err := tsugumi.Dir(tsugumi.Keep(false))
 	if err != nil {
 		return output, err
 	}
@@ -107,7 +107,7 @@ func run(input tsugumi.Inputs) (tsugumi.Output, error) {
 	output.Listing = &outputs.ListingT{
 		Value:  params.Offset + number,
 		Nested: &outputs.ChildT{File: nested},
-		Files:  []*tsugumi.Artifact{upload, granted},
+		Files:  []*tsugumi.Artifact{upload, forwarded},
 		Choice: &outputs.ChoiceT{Type: outputs.ChoiceFile, Value: choice},
 	}
 	return output, nil

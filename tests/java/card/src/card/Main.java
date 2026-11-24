@@ -32,18 +32,18 @@ public final class Main {
 
     public static Card.Output run(Card.Input input) throws Exception {
         long number;
-        ArtifactT granted;
+        ArtifactT forwarded;
         switch (input.arrival()) {
             case Card.Input_arrival.Number member -> {
                 number = member.value().getValue();
-                granted = member.value().getFile();
+                forwarded = member.value().getFile();
             }
             case Card.Input_arrival.Text member -> {
                 number = 20;
-                granted = member.value().getFile();
+                forwarded = member.value().getFile();
             }
         }
-        var opened = granted.open();
+        var opened = forwarded.open();
         var items = input.batch().getItems();
         var params = Card.params();
         if (!opened.equals(input.direct().open()) || !Files.isDirectory(opened)
@@ -110,11 +110,11 @@ public final class Main {
         child.setFile(created.artifact());
         var choice = new ChoiceUnion();
         choice.setType(Choice.File);
-        choice.setValue(Artifacts.dir().artifact());
+        choice.setValue(Artifacts.dir(false).artifact());
         var listing = new ListingT();
         listing.setValue(Offset.add(params.offset(), number));
         listing.setNested(child);
-        listing.setFiles(new ArtifactT[]{uploaded, granted});
+        listing.setFiles(new ArtifactT[]{uploaded, forwarded});
         listing.setChoice(choice);
         return new Card.Output(listing, null);
     }

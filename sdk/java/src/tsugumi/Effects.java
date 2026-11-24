@@ -15,8 +15,8 @@ public final class Effects {
     static native byte[] routeRegister(byte[] session);
     static native void routeUnregister(byte[] route);
     static native byte[] recv(long timeoutMs, int[] status, byte[] route, byte[] session);
-    static native byte[] artifactDir(byte[] id);
-    static native byte[] artifactUpload(byte[] path);
+    static native byte[] artifactDir(byte[] id, boolean keep);
+    static native byte[] artifactUpload(byte[] path, boolean keep);
     static native byte[] artifactOpen(byte[] id);
     static native void send(byte[] session, byte[] bytes, boolean framed);
 }

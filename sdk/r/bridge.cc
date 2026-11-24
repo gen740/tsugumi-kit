@@ -2,6 +2,7 @@
 
 #include <cstdlib>
 #include <cstring>
+#include <exception>
 #include <memory>
 
 #include "adapter.hh"
@@ -185,9 +186,9 @@ extern "C" auto tsugumi_r_recv(int64_t timeout_ms,
   }
 }
 
-extern "C" auto tsugumi_r_artifact_dir(uint8_t* id) -> char* {
+extern "C" auto tsugumi_r_artifact_dir(int keep, uint8_t* id) -> char* {
   try {
-    const auto [artifact, path] = card::Artifact::dir();
+    const auto [artifact, path] = card::Artifact::dir(keep != 0);
     std::memcpy(id, artifact.id->bytes()->Data(), 16);
     return strdup(path.c_str());
   } catch (...) {
@@ -195,10 +196,10 @@ extern "C" auto tsugumi_r_artifact_dir(uint8_t* id) -> char* {
   }
 }
 
-extern "C" auto tsugumi_r_artifact_upload(const char* path, uint8_t* id)
-    -> int {
+extern "C" auto tsugumi_r_artifact_upload(const char* path, int keep,
+                                          uint8_t* id) -> int {
   try {
-    const auto artifact = card::Artifact::upload(path);
+    const auto artifact = card::Artifact::upload(path, keep != 0);
     std::memcpy(id, artifact.id->bytes()->Data(), 16);
     return 0;
   } catch (...) {
@@ -206,13 +207,20 @@ extern "C" auto tsugumi_r_artifact_upload(const char* path, uint8_t* id)
   }
 }
 
-extern "C" auto tsugumi_r_artifact_open(const uint8_t* id) -> char* {
+// Sets *path to the directory, or on failure to the message or nullptr.
+extern "C" auto tsugumi_r_artifact_open(const uint8_t* id, char** path)
+    -> int {
   try {
     card::Artifact artifact;
     artifact.id = std::make_unique<tsugumi::ArtifactId>(
         flatbuffers::span<const uint8_t, 16>(id, 16));
-    return strdup(artifact.open().c_str());
+    *path = strdup(artifact.open().c_str());
+    return *path ? 0 : -1;
+  } catch (const std::exception& failure) {
+    *path = strdup(failure.what());
+    return -1;
   } catch (...) {
-    return nullptr;
+    *path = nullptr;
+    return -1;
   }
 }

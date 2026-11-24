@@ -24,7 +24,7 @@ export default function main(input, ctx) {
   const file = join(directory, "value.txt");
   writeFileSync(file, "test");
   const upload = Artifact.upload(file);
-  const [choice] = Artifact.dir();
+  const [choice] = Artifact.dir({ keep: false });
   const id = prefix => Uint8Array.of(prefix, ...new Uint8Array(15));
   const { route, session } = viewOpen("listing", ViewMode.WINDOW, 640, 480);
   assert.deepEqual(route, id(0x22));

@@ -5,13 +5,14 @@ import { artifactEffect } from "./effects.js";
 // Extend the generated object itself so unpacking also yields an Artifact.
 export const Artifact = ArtifactT;
 
-Artifact.dir = function () {
-  const [id, directory] = artifactEffect("dir");
+// keep: false makes an Artifact that exists only while its run runs.
+Artifact.dir = function ({ keep = true } = {}) {
+  const [id, directory] = artifactEffect("dir", undefined, keep);
   return [new Artifact(new ArtifactIdT(Array.from(id))), directory];
 };
 
-Artifact.upload = function (path) {
-  const [id] = artifactEffect("upload", path);
+Artifact.upload = function (path, { keep = true } = {}) {
+  const [id] = artifactEffect("upload", path, keep);
   return new Artifact(new ArtifactIdT(Array.from(id)));
 };
 

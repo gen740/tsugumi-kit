@@ -3,7 +3,7 @@ use tsugumi::{Artifact, Failure, FailureKind, Inputs, Output, PARAMS, Result, se
 fn run(_input: Inputs) -> Result<Output> {
     let path = "numbered.txt";
     let value = PARAMS.value;
-    let (artifact, directory) = Artifact::dir()?;
+    let (artifact, directory) = Artifact::dir_with_keep(PARAMS.keep_output)?;
     let text: String = value
         .lines()
         .enumerate()

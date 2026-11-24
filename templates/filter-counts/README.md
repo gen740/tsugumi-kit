@@ -11,7 +11,7 @@ channel,counts
 3,17
 ```
 
-With the default `minimum` of 10, `filter.filtered` is a new CSV file containing the header and rows `2,10` and `3,17`. The Card shows a live table and line chart of the first ten matching rows and forwards the original Artifact on `filter.original`. If no rows match, the new file contains just the header.
+With the default `minimum` of 10, `filter.filtered` is a new CSV file containing the header and rows `2,10` and `3,17`. The Card shows a live table and line chart of the first ten matching rows and forwards the original Artifact on `filter.original`. If no rows match, the new file contains just the header. Set `keep_output` to `false` in `filter/params.nix` to remove the new file when its run ends.
 
 The Card's `default.nix` declares the C++ SDK's bundled HTML views with `views = sdk.views`, including the `table` and `line-chart` views used for the preview.
 
