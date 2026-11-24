@@ -15,7 +15,7 @@ let
   '';
   generate =
     {
-      inputs ? null,
+      inputs,
       outputs,
       params ? { },
     }:
@@ -96,7 +96,7 @@ let
   mkGoCard =
     {
       src,
-      inputs ? null,
+      inputs,
       outputs,
       params ? { },
       name ? "tsugumi-go-card",

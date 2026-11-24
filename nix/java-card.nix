@@ -32,7 +32,7 @@ let
       '';
   generate =
     {
-      inputs ? null,
+      inputs,
       outputs,
       params ? { },
     }:
@@ -54,7 +54,7 @@ let
   javaCard =
     {
       src,
-      inputs ? null,
+      inputs,
       outputs,
       params ? { },
       jars ? [ ],

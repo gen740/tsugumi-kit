@@ -15,7 +15,7 @@
 let
   generate =
     {
-      inputs ? null,
+      inputs,
       outputs,
       params ? { },
     }:
@@ -38,7 +38,7 @@ let
   pythonCard =
     {
       src,
-      inputs ? null,
+      inputs,
       outputs,
       params ? { },
       python ? python3,

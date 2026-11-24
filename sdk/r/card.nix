@@ -21,7 +21,7 @@
 let
   generate =
     {
-      inputs ? null,
+      inputs,
       outputs,
       params ? { },
     }:
@@ -43,7 +43,7 @@ let
   rCard =
     {
       src,
-      inputs ? null,
+      inputs,
       outputs,
       params ? { },
       name ? "tsugumi-r-card",

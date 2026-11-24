@@ -32,7 +32,7 @@ let
   sdk = import <tsugumi-kit/sdk/js> { inherit pkgs; };
   common = {
     inherit params;
-    inputs = if builtins.pathExists ./_inputs.fbs then ./_inputs.fbs else null;
+    inputs = ./_inputs.fbs;
     outputs = ./_outputs.fbs;
   };
 in

@@ -20,9 +20,10 @@ filter-counts/
 `params.nix` holds the Card's params. A Card without params has no
 `params.nix`; Tsugumi treats a missing file as `{ }`.
 
-For a wired project template, keep the generated `_inputs.fbs` in the
-destination Card definition. Tsugumi regenerates it from the project's
-wiring and upstream output types. The file is absent for unwired Cards.
+Keep the generated `_inputs.fbs` with a Code Card template for direct SDK
+builds. Tsugumi regenerates the schema from the destination project's wiring
+and upstream output types. The schema has an empty `Inputs` table when no
+inputs are connected.
 
 A Card declares its views alongside `run` and `exports` in `default.nix`.
 Set `views = sdk.views;` for the bundled views, or append your own entries

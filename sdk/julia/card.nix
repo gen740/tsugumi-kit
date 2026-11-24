@@ -68,7 +68,7 @@ let
   '';
   generate =
     {
-      inputs ? null,
+      inputs,
       outputs,
       params ? { },
     }:
@@ -89,7 +89,7 @@ let
   juliaCard =
     {
       src,
-      inputs ? null,
+      inputs,
       outputs,
       params ? { },
       entry ? "main.jl",

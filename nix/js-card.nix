@@ -40,7 +40,7 @@ let
       '';
   generate =
     {
-      inputs ? null,
+      inputs,
       outputs,
       params ? { },
     }:
@@ -76,7 +76,7 @@ let
   jsCard =
     {
       src,
-      inputs ? null,
+      inputs,
       outputs,
       params ? { },
       tools ? [ ],

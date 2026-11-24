@@ -14,7 +14,7 @@ let
   sdk = import <tsugumi-kit/sdk/cpp> { inherit pkgs; };
   common = {
     inherit params;
-    inputs = if builtins.pathExists ./_inputs.fbs then ./_inputs.fbs else null;
+    inputs = ./_inputs.fbs;
     outputs = ./_outputs.fbs;
   };
 in
@@ -27,8 +27,8 @@ in
 
 In the definition function, `inputs` holds upstream Nix exports keyed by
 Card ID. The builder's `inputs` argument is the generated schema path.
-Tsugumi leaves this file absent when a Card has no connected inputs. Builders
-accept an omitted builder argument or `null` for that case.
+Tsugumi generates this file for each Code and Input Card. It contains an empty
+`Inputs` table when the Card has no connected inputs.
 
 Pass the evaluated `params` attrset. Each value is a bool, signed 64-bit
 integer, double, string, or non-empty homogeneous list of one of those types.

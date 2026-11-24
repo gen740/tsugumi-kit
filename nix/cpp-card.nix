@@ -15,7 +15,7 @@
 let
   generate =
     {
-      inputs ? null,
+      inputs,
       outputs,
       params ? { },
     }:
@@ -39,7 +39,7 @@ in
   cppCard =
     {
       src,
-      inputs ? null,
+      inputs,
       outputs,
       params ? { },
       buildInputs ? [ ],

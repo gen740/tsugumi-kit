@@ -12,7 +12,7 @@ let
   cpp = ../sdk/cpp;
   generate =
     {
-      inputs ? null,
+      inputs,
       outputs,
       params ? { },
     }:
@@ -33,7 +33,7 @@ let
   rubyCard =
     {
       src,
-      inputs ? null,
+      inputs,
       outputs,
       params ? { },
       name ? "tsugumi-ruby-card",

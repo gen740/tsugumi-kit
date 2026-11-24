@@ -10,7 +10,7 @@ let
   inherit (pkgs) lib;
   generate =
     {
-      inputs ? null,
+      inputs,
       outputs,
       params ? { },
     }:
@@ -31,7 +31,7 @@ let
   csharpCard =
     {
       src,
-      inputs ? null,
+      inputs,
       outputs,
       params ? { },
       name ? "tsugumi-csharp-card",

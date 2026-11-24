@@ -9,7 +9,7 @@
 let
   generate =
     {
-      inputs ? null,
+      inputs,
       outputs,
       params ? { },
       embed ? false,
@@ -38,7 +38,7 @@ let
   rustCard =
     {
       src,
-      inputs ? null,
+      inputs,
       outputs,
       params ? { },
       name ? "tsugumi-rust-card",
