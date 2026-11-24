@@ -1,0 +1,4 @@
+namespace dawn_example;
+
+table Outputs {}
+root_type Outputs;

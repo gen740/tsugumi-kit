@@ -61,3 +61,32 @@ Use `card::cancelled()` and `card::remaining_ms()` inside the call.
 Throw `tsugumi::Failure` with a `Tsugumi::Data::FailureKind` to return a
 structured failure. A definition can also pass `buildInputs`, `cxxflags`
 and `tools` directly to the run builder.
+
+### Dawn views
+
+Append a freestanding WebAssembly view to the Card's `views`:
+
+```nix
+views = sdk.views ++ [
+  (sdk.dawnView { name = "clear"; src = ./views; })
+];
+```
+
+`sdk.dawnView` compiles the directory's C sources into `view.wasm` and
+accepts optional `cflags`. Include `<tsugumi/tsugumi_view.h>` for the
+required callbacks, the allowed WebGPU functions and the message helpers.
+The builder supplies the pinned WebGPU header. Only the `webgpu` and
+`tsugumi` import modules are available. Implement
+`tsugumi_view_message` to receive bytes and call `tsugumi_view_read` inside
+that callback. Use `tsugumi_view_send` for replies. Each message is limited
+to `TSUGUMI_MESSAGE_MAX` (16 MiB).
+
+The view has no WASI, libc or `malloc`. Use static buffers or a bump
+allocator backed by `__builtin_wasm_memory_grow`. The builder enables
+`-mbulk-memory` (also the default for clang 21's generic wasm32 CPU), so
+inlined memory copies and fills can use `memory.copy` and `memory.fill`.
+For explicit copies or fills, use compiler builtins in place of libc
+`memcpy` and `memset`.
+
+See the [Dawn view template](../templates/dawn-view/) for a complete Card
+and view.

@@ -81,6 +81,23 @@
             done
             touch "$out"
           '';
+        dawnViewTemplate =
+          let
+            fixture = import ../tests/card-eval.nix { inherit pkgs; };
+            definition = fixture.call ../templates/dawn-view/definitions/color { };
+            view = lib.findFirst (view: view.name == "clear") null definition.views;
+          in
+          assert view.type == "dawn";
+          pkgs.runCommand "tsugumi-dawn-view-template-check" { nativeBuildInputs = [ pkgs.wabt ]; } ''
+            test -s "${definition.run}/lib/main.so"
+            wasm-validate "${view.blob}"
+            wasm-objdump -x "${view.blob}" > exports
+            grep -Fq -- '-> "memory"' exports
+            for export in abi start resize draw message pointer; do
+              grep -Fq -- "-> \"tsugumi_view_$export\"" exports
+            done
+            touch "$out"
+          '';
         cppAbi = pkgs.callPackage ./cpp-check.nix { inherit kit; };
         cppAbiProjectPkgs =
           assert projectKit.cppRuntime.drvPath != kit.cppRuntime.drvPath;

@@ -29,12 +29,15 @@ Set `views = sdk.views;` for the bundled views, or append your own entries
 with `views = sdk.views ++ [ { name = "notes"; type = "html"; blob = ./notes.html; } ];`.
 Each `blob` is one self-contained HTML file for `"html"` or one Wasm binary
 for `"dawn"`. A Card sends opaque bytes to the view by name at runtime.
-Both C++ templates include the bundled HTML views. The CSV filter uses
+The temperature and CSV templates include the bundled HTML views. The CSV filter uses
 `LineChart` to preview counts by channel. For a Card that calls external
 executables, pass `tools = [ pkgs.coreutils ];` inside the builder call and
 import `pkgs` with `import <nixpkgs> { }` inside `default.nix`.
 
 [Display a value](cpp-sdk.md#display) · [Runtime tools](../README.md#runtime-tools)
+
+The [Dawn view template](../templates/dawn-view/) adds a Wasm view with
+`sdk.dawnView`. Its C++ Card sends an RGB colour and receives click coordinates.
 
 The Go and Rust starters use the bundled `text` view from their SDK.
 Each takes a string from `settings` and returns a one-file Artifact.
