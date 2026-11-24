@@ -62,8 +62,11 @@ be omitted.
 parameters. Parameter values affect the run build. The API derivation
 depends on parameter types.
 
-`tsugumi.Send(view, bytes)` takes a declared view name and a byte slice.
-`tsugumi.SendValue(value)` encodes strings, numbers, `Markdown`, `Scalar`,
+`tsugumi.ViewOpen(name, mode, width, height)` returns a route, a session,
+and an error. `tsugumi.Send(session, bytes)` sends one raw byte slice.
+Use `RouteRegister(session)` to create a route and `RouteUnregister(route)`
+to release it. `tsugumi.SendValue(value)` opens a panel and encodes strings,
+numbers, `Markdown`, `Scalar`,
 `Table`, `Image`, `Points`, `LineChart`, `Plotly`, and `VegaLite` for
 their corresponding views. Local argument and encoding errors are returned
 before calling the host. A nonzero host status produces a transport error
@@ -73,11 +76,13 @@ The SDK bundles the `line-chart` and `points` HTML views.
 Declare the matching views in your Card's `default.nix` with
 `views = sdk.views ++ [ ... ];`.
 The bundled `markdown` view displays scalar values.
-See the [view protocol](cpp-sdk.md#display-a-value).
+See the [view protocol](sdk-contract.md#display-and-effects).
 
-The SDK frames and splits sends at the ABI message limit.
-`tsugumi.Recv(view, timeoutMS)` returns the bytes and a status of
-`Message`, `Timeout`, or `CancelledReceive`. A negative timeout waits
+`SendValueTo(session, value)` sends an SDK-framed value to an existing
+session. `tsugumi.Recv(timeoutMS)` returns a `ViewEvent`, a `ReceiveStatus`
+and an error. Status `Received` carries a message or close event with
+`Route`, `Session` and `Data`. The other statuses are `Timeout` and
+`CancelledReceive`. A negative timeout waits
 without a deadline. A goroutine may send and receive between calls. Run background work inside `tsugumi.Guard(func() error { ... })`
 in that goroutine to turn a panic into an error. Handle the error there or
 send it back to `run` over a channel. An unhandled goroutine panic terminates

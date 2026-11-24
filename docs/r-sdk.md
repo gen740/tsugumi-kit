@@ -79,8 +79,10 @@ host seals created directories when the call returns.
 
 ## Effects
 
-`send(view, bytes)` takes a declared view name and a raw vector.
-`send(value)` encodes text, a number, a data frame or a matrix.
+`view_open(name)` returns a list with `route` and `session`.
+Use `route_register(session)` and `route_unregister(route)` to manage routes.
+`send(session, bytes)` sends one raw vector. `send(value)` opens a panel
+and encodes text, a number, a data frame or a matrix.
 The constructors `markdown(text)`, `scalar(value, label)`,
 `image(bytes, media_type, alt)`, `points(x, y, z, colors)`,
 `line_chart(series)`, `plotly(spec)` and `vega_lite(spec)` select other
@@ -88,16 +90,15 @@ views. Local argument and encoding errors raise an R error before calling
 the host. If the host cannot accept the message, `send` raises
 `"display rejected"`.
 
-`recv(view, timeout_ms)` returns a list with `status` and `bytes`. A
-negative timeout waits without a deadline. Status is `"message"`,
-`"timeout"` or `"cancelled"`. The SDK frames sends in messages of at
-most 16 MiB.
+`recv(timeout_ms)` returns a list with `kind`, `route`, `session` and
+`data`. Kind is `"message"`, `"close"`, `"timeout"` or `"cancelled"`.
+A negative timeout waits without a deadline. The SDK frames typed values.
 
 The SDK bundles the `line-chart` and `points` HTML views.
 Declare the matching views in your Card's `default.nix` with
 `views = sdk.views ++ [ ... ];`.
 The bundled `text` view displays values sent with `send("text")`.
-See the [view protocol](cpp-sdk.md#display-a-value).
+See the [view protocol](sdk-contract.md#display-and-effects).
 
 Use `cancelled()` to poll the host and `remaining_ms()` to read its deadline
 budget in milliseconds. If the host's query fails, these return `TRUE` and
@@ -106,20 +107,25 @@ for the lifetime of the worker process. Call R effect functions from that thread
 
 Native R extensions can look up these C functions with
 `R_GetCCallable("tsugumi", name)` on the interpreter thread and invoke the saved
-pointers from their own threads:
+pointers from their own threads. Include `<tsugumi/abi/card_abi.h>` for the
+view types.
 
 | Name | C signature |
 | --- | --- |
-| `send` | `int (const char* view, const uint8_t* bytes, size_t size)` |
-| `recv` | `int (const char* view, int64_t timeout_ms, uint8_t** data, size_t* size)` |
+| `view_open` | `int (const char* view, uint32_t mode, uint32_t width, uint32_t height, tsugumi_route* route, tsugumi_view_session* session)` |
+| `route_register` | `int (const tsugumi_view_session* session, tsugumi_route* route)` |
+| `route_unregister` | `int (const tsugumi_route* route)` |
+| `send` | `int (const tsugumi_view_session* session, const uint8_t* bytes, size_t size)` |
+| `recv` | `int (int64_t timeout_ms, tsugumi_view_event* event)` |
 | `cancelled` | `bool (void)` |
 | `remaining_ms` | `double (void)` |
 
-The native send function returns zero on success. Keep the view name and
-bytes alive until it returns. Native threads can send and receive after `main` returns. On a
-receive, the return status is 0 for a message, 1 for timeout, 2 for
-cancellation and negative for an error. Initialize the output pointer
-to null and release the returned bytes with `free()`. Outside an invocation the queries return `true` and `0`.
+The native send function returns zero on success. Keep the session and bytes
+alive until it returns. Native threads can send and receive after `main`
+returns. Receive returns 0 for an event, 1 for timeout, 2 for cancellation,
+and a negative value for an error. Initialize the event to zero and release
+the returned bytes with `free((void*)event.data.data)`. Outside an invocation
+the queries return `true` and `0`.
 
 The builder accepts `tools` for runtime executables. See [Runtime tools](../README.md#runtime-tools).
 

@@ -57,59 +57,134 @@ type displayMessage struct {
 	bytes []byte
 }
 
-// Send sends opaque bytes to a declared view, including between run calls.
-func Send(view string, bytes []byte) error {
+// ViewSession identifies an open window. It can be passed to another Card.
+type ViewSession [16]byte
+
+// Route identifies a process mailbox for a window.
+type Route [16]byte
+
+type ViewMode uint32
+
+const (
+	Panel ViewMode = iota
+	Window
+	Fullscreen
+)
+
+// ViewOpen opens a declared view and returns the opener's route and session.
+// Window mode can specify both dimensions in logical pixels or leave both zero.
+func ViewOpen(view string, mode ViewMode, width, height uint32) (Route, ViewSession, error) {
+	var route Route
+	var session ViewSession
 	if strings.IndexByte(view, 0) >= 0 {
-		return fmt.Errorf("view name contains a NUL byte")
+		return route, session, fmt.Errorf("view name contains a NUL byte")
 	}
 	name := C.CString(view)
 	defer C.free(unsafe.Pointer(name))
-	if C.tsugumi_go_send(name, bytesPointer(bytes), C.size_t(len(bytes))) != 0 {
-		return fmt.Errorf("the host rejected the display")
+	if C.tsugumi_go_view_open(name, C.uint32_t(mode), C.uint32_t(width), C.uint32_t(height),
+		bytesPointer(route[:]), bytesPointer(session[:])) != 0 {
+		return Route{}, ViewSession{}, fmt.Errorf("the host rejected the view open")
+	}
+	return route, session, nil
+}
+
+// RouteRegister creates a route for this process on an existing window.
+func RouteRegister(session ViewSession) (Route, error) {
+	var route Route
+	if C.tsugumi_go_route_register(bytesPointer(session[:]), bytesPointer(route[:])) != 0 {
+		return Route{}, fmt.Errorf("the host rejected the route registration")
+	}
+	return route, nil
+}
+
+// RouteUnregister removes a route owned by this process.
+func RouteUnregister(route Route) error {
+	if C.tsugumi_go_route_unregister(bytesPointer(route[:])) != 0 {
+		return fmt.Errorf("the host rejected the route unregistration")
 	}
 	return nil
 }
 
-// ReceiveStatus describes the result of receiving from a view.
+// Send sends one opaque message to a window, including between run calls.
+func Send(session ViewSession, bytes []byte) error {
+	return sendBytes(session, bytes, 0)
+}
+
+func sendBytes(session ViewSession, bytes []byte, framed C.int) error {
+	if C.tsugumi_go_send(bytesPointer(session[:]), bytesPointer(bytes), C.size_t(len(bytes)), framed) != 0 {
+		return fmt.Errorf("the host rejected the view message")
+	}
+	return nil
+}
+
+type ViewEventKind uint32
+
+const (
+	Message ViewEventKind = iota
+	Close
+)
+
+// ViewEvent is delivered to one route. Data is empty on close.
+type ViewEvent struct {
+	Kind    ViewEventKind
+	Route   Route
+	Session ViewSession
+	Data    []byte
+}
+
+// ReceiveStatus describes the result of receiving from the process mailbox.
 type ReceiveStatus int
 
 const (
-	Message ReceiveStatus = iota
+	Received ReceiveStatus = iota
 	Timeout
 	CancelledReceive
 )
 
-// Recv waits for a view message, timeout, or cancellation. A negative timeout
-// waits without a deadline. The returned bytes are owned by Go.
-func Recv(view string, timeoutMS int64) ([]byte, ReceiveStatus, error) {
-	if strings.IndexByte(view, 0) >= 0 {
-		return nil, Message, fmt.Errorf("view name contains a NUL byte")
-	}
-	name := C.CString(view)
-	defer C.free(unsafe.Pointer(name))
+// Recv waits for a message or close event on any route of this process.
+// A negative timeout waits without a deadline. The returned bytes are owned by Go.
+func Recv(timeoutMS int64) (ViewEvent, ReceiveStatus, error) {
+	var event ViewEvent
+	var kind C.uint32_t
 	var data *C.uint8_t
 	var size C.size_t
-	status := C.tsugumi_go_recv(name, C.int64_t(timeoutMS), &data, &size)
+	status := C.tsugumi_go_recv(C.int64_t(timeoutMS), &kind,
+		bytesPointer(event.Route[:]), bytesPointer(event.Session[:]), &data, &size)
 	defer C.free(unsafe.Pointer(data))
 	switch status {
 	case 0:
-		return C.GoBytes(unsafe.Pointer(data), C.int(size)), Message, nil
+		event.Kind = ViewEventKind(kind)
+		event.Data = C.GoBytes(unsafe.Pointer(data), C.int(size))
+		return event, Received, nil
 	case 1:
-		return nil, Timeout, nil
+		return ViewEvent{}, Timeout, nil
 	case 2:
-		return nil, CancelledReceive, nil
+		return ViewEvent{}, CancelledReceive, nil
 	default:
-		return nil, Message, fmt.Errorf("the host rejected the display receive")
+		return ViewEvent{}, Received, fmt.Errorf("the host rejected the view receive")
 	}
 }
 
-// SendValue encodes a typed value for its corresponding view.
+// SendValue opens the bundled view for a typed value and sends the value to it.
 func SendValue(value any) error {
 	message, err := encodeDisplay(value)
 	if err != nil {
 		return err
 	}
-	return Send(message.view, message.bytes)
+	_, session, err := ViewOpen(message.view, Panel, 0, 0)
+	if err != nil {
+		return err
+	}
+	return sendBytes(session, message.bytes, 1)
+}
+
+// SendValueTo sends a typed value to an already open bundled HTML view.
+func SendValueTo(session ViewSession, value any) error {
+	message, err := encodeDisplay(value)
+	if err != nil {
+		return err
+	}
+	return sendBytes(session, message.bytes, 1)
 }
 
 func configuredMessage(name string, config any, binaryData ...[]byte) (displayMessage, error) {

@@ -20,72 +20,103 @@ struct fake_host {
   int granted;
   unsigned next_id;
   unsigned created;
-  unsigned chunks;
-#ifdef TSUGUMI_TEST_RAW_DISPLAY
-  unsigned raw_messages;
-#endif
-  unsigned sequence;
+  unsigned messages;
+  unsigned events;
+  int live_route;
   tsugumi_artifact_id ids[1 + max_created];
   char granted_path[1024];
   char paths[max_created][1024];
 };
 
-static uint32_t read_u32(const uint8_t* bytes) {
-  return (uint32_t)bytes[0] | (uint32_t)bytes[1] << 8 |
-         (uint32_t)bytes[2] << 16 | (uint32_t)bytes[3] << 24;
+static const tsugumi_view_session listing_session = {{0x11}};
+static const tsugumi_route opener_route = {{0x22}};
+static const tsugumi_route registered_route = {{0x33}};
+static const tsugumi_view_session background_session = {{0x44}};
+static const tsugumi_route background_route = {{0x55}};
+
+static int view_open(void* context, const char* view, uint32_t mode,
+                     uint32_t width, uint32_t height, tsugumi_route* route,
+                     tsugumi_view_session* session) {
+  struct fake_host* host = context;
+  if (strcmp(view, "listing") == 0) {
+    CHECK(host->in_call && mode == TSUGUMI_VIEW_WINDOW);
+    CHECK(width == 640 && height == 480);
+    *route = opener_route;
+    *session = listing_session;
+  } else {
+    CHECK(strcmp(view, "background") == 0);
+    CHECK(!host->in_call && mode == TSUGUMI_VIEW_PANEL);
+    CHECK(width == 0 && height == 0);
+    *route = background_route;
+    *session = background_session;
+  }
+  return 0;
 }
 
-static int send_display(void* context, const char* view, const uint8_t* data,
-                        size_t size) {
+static int route_register(void* context, const tsugumi_view_session* session,
+                          tsugumi_route* route) {
   struct fake_host* host = context;
-#ifdef TSUGUMI_TEST_RAW_DISPLAY
-  if (strcmp(view, "raw") == 0) {
-    CHECK(host->in_call && size == 3);
-    CHECK(data[0] == 0 && data[1] == 42 && data[2] == 255);
-    ++host->raw_messages;
-    return 0;
-  }
-#endif
-  CHECK(size >= 16 && size <= TSUGUMI_MESSAGE_MAX);
-  CHECK(read_u32(data) == 0x4d475354);
-  const uint32_t sequence = read_u32(data + 4);
-  const uint32_t index = read_u32(data + 8);
-  const uint32_t count = read_u32(data + 12);
+  CHECK(host->in_call && !host->live_route);
+  CHECK(memcmp(session, &listing_session, sizeof(*session)) == 0);
+  *route = registered_route;
+  host->live_route = 1;
+  return 0;
+}
+
+static int route_unregister(void* context, const tsugumi_route* route) {
+  struct fake_host* host = context;
+  CHECK(host->in_call && host->live_route);
+  CHECK(memcmp(route, &registered_route, sizeof(*route)) == 0);
+  host->live_route = 0;
+  return 0;
+}
+
+static int send_display(void* context, const tsugumi_view_session* session,
+                        const uint8_t* data, size_t size) {
+  struct fake_host* host = context;
+  if (size > TSUGUMI_MESSAGE_MAX) return -1;
   pthread_mutex_lock(&host->mutex);
-  if (strcmp(view, "background") == 0) {
+  if (memcmp(session, &background_session, sizeof(*session)) == 0) {
     CHECK(!host->in_call && host->background_received);
-    CHECK(size == 17 && count == 1 && index == 0 && data[16] == 42);
+    CHECK(size == 1 && data[0] == 42);
     host->background_sent = 1;
     pthread_cond_broadcast(&host->changed);
   } else {
-    CHECK(host->in_call && strcmp(view, "listing") == 0);
-    const unsigned chunk = host->chunks++;
-    CHECK(sequence == host->sequence + (chunk != 0));
-    CHECK(index == (chunk == 2) && count == (chunk == 0 ? 1u : 2u));
-    const size_t sizes[] = {17, TSUGUMI_MESSAGE_MAX, 37};
-    CHECK(chunk < 3 && size == sizes[chunk]);
-    for (size_t i = 16; i < size; ++i) CHECK(data[i] == 42);
+    CHECK(host->in_call &&
+          memcmp(session, &listing_session, sizeof(*session)) == 0);
+    CHECK(host->messages < 2 &&
+          size == (host->messages++ ? TSUGUMI_MESSAGE_MAX : 1));
+    for (size_t i = 0; i < size; ++i) CHECK(data[i] == 42);
   }
   pthread_mutex_unlock(&host->mutex);
   return 0;
 }
 
-static int recv_display(void* context, const char* view, tsugumi_bytes* out,
+static int recv_display(void* context, tsugumi_view_event* out,
                         int64_t timeout_ms) {
   struct fake_host* host = context;
   static const uint8_t payload[] = {42};
-  if (strcmp(view, "background") == 0) {
-    pthread_mutex_lock(&host->mutex);
-    while (host->in_call) pthread_cond_wait(&host->changed, &host->mutex);
-    host->background_received = 1;
-    pthread_mutex_unlock(&host->mutex);
-  } else {
-    CHECK(host->in_call && strcmp(view, "request") == 0);
-    if (timeout_ms == 0) return 1;
-    if (timeout_ms > 0) return 2;
+  if (timeout_ms == 0) return 1;
+  if (timeout_ms > 0) return 2;
+  const tsugumi_bytes message = {payload, sizeof(payload)};
+  switch (host->events++) {
+    case 0:
+      CHECK(host->in_call && host->live_route);
+      *out =
+          (tsugumi_view_event){0, registered_route, listing_session, message};
+      return 0;
+    case 1:
+      CHECK(host->in_call && !host->live_route);
+      *out = (tsugumi_view_event){1, opener_route, listing_session, {NULL, 0}};
+      return 0;
+    default:
+      pthread_mutex_lock(&host->mutex);
+      while (host->in_call) pthread_cond_wait(&host->changed, &host->mutex);
+      host->background_received = 1;
+      pthread_mutex_unlock(&host->mutex);
+      *out = (tsugumi_view_event){0, opener_route, listing_session, message};
+      return 0;
   }
-  *out = (tsugumi_bytes){payload, sizeof(payload)};
-  return 0;
 }
 
 static int cancelled(void* context) {
@@ -137,8 +168,15 @@ int main(int argc, char** argv) {
   CHECK(entry);
   check_version(entry);
   const tsugumi_effects effects = {
-      send_display, recv_display,    cancelled,
-      remaining_ms, artifact_create, artifact_open,
+      .view_open = view_open,
+      .route_register = route_register,
+      .route_unregister = route_unregister,
+      .send = send_display,
+      .recv = recv_display,
+      .cancelled = cancelled,
+      .remaining_ms = remaining_ms,
+      .artifact_create = artifact_create,
+      .artifact_open = artifact_open,
   };
   struct fake_host host = {
       .mutex = PTHREAD_MUTEX_INITIALIZER,
@@ -155,10 +193,9 @@ int main(int argc, char** argv) {
     host.background_received = 0;
     host.background_sent = 0;
     host.created = 0;
-    host.chunks = 0;
-#ifdef TSUGUMI_TEST_RAW_DISPLAY
-    host.raw_messages = 0;
-#endif
+    host.messages = 0;
+    host.events = 0;
+    host.live_route = 0;
     host.in_call = 1;
     tsugumi_call call = {TSUGUMI_ABI_VERSION, make_input(scenario), &host,
                          &effects};
@@ -177,16 +214,13 @@ int main(int argc, char** argv) {
     if (scenario <= VALID_TEXT) {
       while (!host.background_sent)
         pthread_cond_wait(&host.changed, &host.mutex);
-      CHECK(host.chunks == 3 && host.created == max_created);
-#ifdef TSUGUMI_TEST_RAW_DISPLAY
-      CHECK(host.raw_messages == 1);
-#endif
-      host.sequence += 2;
+      CHECK(host.messages == 2 && host.events == 3 &&
+            host.created == max_created);
     }
     pthread_mutex_unlock(&host.mutex);
   }
   puts(
       "Card ABI checked: Merge, required and optional outputs, artifacts, "
-      "framed send and process-lifetime recv");
+      "sessions, routes, messages, close and process-lifetime effects");
   return 0;
 }

@@ -3,6 +3,7 @@ package tsugumi;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.List;
+import java.util.Objects;
 import java.util.StringJoiner;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
@@ -27,25 +28,67 @@ public final class Display {
         }
     }
 
-    public enum ReceiveStatus { MESSAGE, TIMEOUT, CANCELLED }
-    public record Received(ReceiveStatus status, byte[] bytes) {}
+    public enum ViewMode { PANEL, WINDOW, FULLSCREEN }
+    public record OpenedView(byte[] route, byte[] session) {}
 
-    /** Wait for a message, timeout or cancellation, including between calls. */
-    public static Received recv(String view, long timeoutMs) {
-        if (view.indexOf(0) >= 0) {
-            throw new IllegalArgumentException("View names cannot contain a NUL byte");
-        }
-        var status = new int[1];
-        byte[] bytes = Effects.recv(view.getBytes(UTF_8), timeoutMs, status);
-        return new Received(ReceiveStatus.values()[status[0]], bytes);
+    public enum ReceiveStatus { MESSAGE, CLOSE, TIMEOUT, CANCELLED }
+    public record Received(ReceiveStatus status, byte[] bytes, byte[] route, byte[] session) {}
+
+    public static OpenedView viewOpen(String view) {
+        return viewOpen(view, ViewMode.PANEL, 0, 0);
     }
 
-    /** Send the given payload to a view, including from a background thread. */
-    public static void send(String view, byte[] bytes) {
+    /** Open a declared view, with an optional initial size for WINDOW. */
+    public static OpenedView viewOpen(String view, ViewMode mode, long width, long height) {
         if (view.indexOf(0) >= 0) {
             throw new IllegalArgumentException("View names cannot contain a NUL byte");
         }
-        Effects.send(view.getBytes(UTF_8), java.util.Objects.requireNonNull(bytes));
+        if (width < 0 || width > 0xffffffffL || height < 0 || height > 0xffffffffL) {
+            throw new IllegalArgumentException("Expected unsigned 32-bit dimensions");
+        }
+        var route = new byte[16];
+        var session = new byte[16];
+        Effects.viewOpen(view.getBytes(UTF_8), mode.ordinal(), width, height, route, session);
+        return new OpenedView(route, session);
+    }
+
+    private static byte[] requireId(byte[] id) {
+        if (Objects.requireNonNull(id).length != 16) {
+            throw new IllegalArgumentException("Expected a 16-byte view ID");
+        }
+        return id;
+    }
+
+    public static byte[] routeRegister(byte[] session) {
+        return Effects.routeRegister(requireId(session));
+    }
+
+    public static void routeUnregister(byte[] route) {
+        Effects.routeUnregister(requireId(route));
+    }
+
+    /** Wait for an event addressed to any route registered by this process. */
+    public static Received recv(long timeoutMs) {
+        var status = new int[1];
+        var route = new byte[16];
+        var session = new byte[16];
+        byte[] bytes = Effects.recv(timeoutMs, status, route, session);
+        var kind = ReceiveStatus.values()[status[0]];
+        var event = kind == ReceiveStatus.MESSAGE || kind == ReceiveStatus.CLOSE;
+        return new Received(kind, bytes, event ? route : null, event ? session : null);
+    }
+
+    /** Send the given payload directly to a window, including between calls. */
+    public static void send(byte[] session, byte[] bytes) {
+        Effects.send(requireId(session), Objects.requireNonNull(bytes), false);
+    }
+
+    private static void sendFramed(byte[] session, byte[] bytes) {
+        Effects.send(requireId(session), bytes, true);
+    }
+
+    private static void openAndSend(String view, byte[] bytes) {
+        sendFramed(viewOpen(view).session(), bytes);
     }
 
     public static void send(String text) {
@@ -69,17 +112,21 @@ public final class Display {
             rows.add(strings(row));
         }
         String config = "{\"columns\":" + strings(value.columns()) + ",\"rows\":" + rows + "}";
-        send("table", config.getBytes(UTF_8));
+        openAndSend("table", config.getBytes(UTF_8));
     }
 
     public static void send(Image value) {
         String config = "{\"alt\":" + quote(value.alt())
                 + ",\"media_type\":" + quote(value.mediaType()) + "}";
         var frame = frame(config, value.bytes().length);
-        send("image", frame.put(value.bytes()).array());
+        openAndSend("image", frame.put(value.bytes()).array());
     }
 
     public static void send(Points value) {
+        send(value, null);
+    }
+
+    public static void send(Points value, byte[] session) {
         int count = value.x().length;
         int colors = value.colors().length;
         if (value.y().length != count || value.z().length != count || (colors != 0 && colors != count)) {
@@ -90,10 +137,14 @@ public final class Display {
         for (float y : value.y()) frame.putFloat(y);
         for (float z : value.z()) frame.putFloat(z);
         for (int rgb : value.colors()) frame.putInt(rgb);
-        send("points", frame.array());
+        sendFramed(session == null ? viewOpen("points").session() : session, frame.array());
     }
 
     public static void send(LineChart value) {
+        send(value, null);
+    }
+
+    public static void send(LineChart value, byte[] session) {
         var items = new StringJoiner(",", "[", "]");
         long count = 0;
         for (var series : value.series()) {
@@ -112,7 +163,7 @@ public final class Display {
         for (var series : value.series()) {
             for (double y : series.y()) putFinite(frame, y);
         }
-        send("line-chart", frame.array());
+        sendFramed(session == null ? viewOpen("line-chart").session() : session, frame.array());
     }
 
     private static void putFinite(ByteBuffer frame, double value) {
@@ -123,7 +174,7 @@ public final class Display {
     }
 
     private static void sendText(String view, String value) {
-        send(view, ("{\"text\":" + quote(value) + "}").getBytes(UTF_8));
+        openAndSend(view, ("{\"text\":" + quote(value) + "}").getBytes(UTF_8));
     }
 
     private static String strings(List<?> values) {

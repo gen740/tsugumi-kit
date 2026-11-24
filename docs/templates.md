@@ -32,7 +32,9 @@ A Card declares its views alongside `run` and `exports` in `default.nix`.
 Set `views = sdk.views;` for the bundled views, or append your own entries
 with `views = sdk.views ++ [ { name = "notes"; type = "html"; blob = ./notes.html; } ];`.
 Each `blob` is one self-contained HTML file for `"html"` or one Wasm binary
-for `"dawn"`. A Card sends opaque bytes to the view by name at runtime.
+for `"dawn"`. The Card opens a declared view by name, then sends bytes to
+the returned session. A typed send in the starters opens its bundled HTML
+view in panel mode.
 The temperature and CSV templates include the bundled HTML views. The CSV filter uses
 `LineChart` to preview counts by channel. For a Card that calls external
 executables, pass `tools = [ pkgs.coreutils ];` inside the builder call and

@@ -10,9 +10,13 @@ public final class Effects {
     /** Remaining milliseconds, -1 for no deadline, or 0 between calls. */
     public static native long remainingMs();
 
-    static native byte[] recv(byte[] view, long timeoutMs, int[] status);
+    static native void viewOpen(byte[] view, int mode, long width, long height,
+                                byte[] route, byte[] session);
+    static native byte[] routeRegister(byte[] session);
+    static native void routeUnregister(byte[] route);
+    static native byte[] recv(long timeoutMs, int[] status, byte[] route, byte[] session);
     static native byte[] artifactDir(byte[] id);
     static native byte[] artifactUpload(byte[] path);
     static native byte[] artifactOpen(byte[] id);
-    static native void send(byte[] view, byte[] bytes);
+    static native void send(byte[] session, byte[] bytes, boolean framed);
 }

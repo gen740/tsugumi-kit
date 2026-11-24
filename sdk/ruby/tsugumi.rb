@@ -50,7 +50,18 @@ module Tsugumi
   require TsugumiHost::PARAMS_FILE
   private_constant :PARAMS
 
-  def self.recv(view, timeout_ms = -1) = TsugumiHost.recv(view, timeout_ms)
+  PANEL = 0
+  WINDOW = 1
+  FULLSCREEN = 2
+
+  # Return the opener's route and the new session as 16-byte Strings.
+  def self.view_open(view, mode = PANEL, width = 0, height = 0)
+    TsugumiHost.view_open(view, mode, width, height)
+  end
+
+  def self.route_register(session) = TsugumiHost.route_register(session)
+  def self.route_unregister(route) = TsugumiHost.route_unregister(route)
+  def self.recv(timeout_ms = -1) = TsugumiHost.recv(timeout_ms)
 
   Markdown = Struct.new(:text)
   Scalar = Struct.new(:value, :label)
@@ -66,25 +77,36 @@ module Tsugumi
   def self.bytes(value) = [value].pack('m0')
   def self.decode_bytes(value) = value.unpack1('m0')
 
+  # Send opaque bytes to a session, or open the bundled view for a typed value.
   def self.send(value, *bytes)
-    return TsugumiHost.send_bytes(value, *bytes) unless bytes.empty?
+    return TsugumiHost.send_bytes(value, *bytes, false) unless bytes.empty?
 
-    message = case value
-              when String then configured('text', {text: value})
-              when Markdown then configured('markdown', {text: value.text})
-              when Numeric then scalar_view(value)
-              when Scalar then scalar_view(value.value, value.label)
-              when Table then table_view(value)
-              when Image
-                configured('image', {media_type: value.media_type || 'image/png', alt: value.alt || ''},
-                           value.bytes)
-              when Points then points_view(value)
-              when LineChart then chart_view(value.series)
-              when Plotly then configured('plotly', value.config)
-              when VegaLite then configured('vega-lite', value.config)
-              else raise ArgumentError, "cannot display #{value.class}"
-              end
-    TsugumiHost.send_bytes(*message)
+    view, payload = display_value(value)
+    _, session = view_open(view)
+    TsugumiHost.send_bytes(session, payload, true)
+  end
+
+  # Send a typed value to an already open bundled HTML view.
+  def self.send_value(session, value)
+    _, payload = display_value(value)
+    TsugumiHost.send_bytes(session, payload, true)
+  end
+
+  def self.display_value(value)
+    case value
+    when String then configured('text', {text: value})
+    when Markdown then configured('markdown', {text: value.text})
+    when Numeric then scalar_view(value)
+    when Scalar then scalar_view(value.value, value.label)
+    when Table then table_view(value)
+    when Image
+      configured('image', {media_type: value.media_type || 'image/png', alt: value.alt || ''}, value.bytes)
+    when Points then points_view(value)
+    when LineChart then chart_view(value.series)
+    when Plotly then configured('plotly', value.config)
+    when VegaLite then configured('vega-lite', value.config)
+    else raise ArgumentError, "cannot display #{value.class}"
+    end
   end
 
   def self.configured(name, config, *parts)
@@ -229,6 +251,6 @@ module Tsugumi
     JSON.generate({failure: failure(error, directory, prefix, 'output_invalid')})
   end
 
-  private_class_method :scalar_view, :table_view, :points_view, :chart_view,
+  private_class_method :display_value, :scalar_view, :table_view, :points_view, :chart_view,
                        :load_card, :failure, :json_value
 end

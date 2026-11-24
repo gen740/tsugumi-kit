@@ -16,25 +16,6 @@
 
 #include "display.hh"
 
-extern "C" auto tsugumi_julia_recv(const char* view, int64_t timeout_ms,
-                                   uint8_t** data, size_t* size) -> int {
-  try {
-    const auto message = card::display::recv(view, timeout_ms);
-    using card::display::ReceiveStatus;
-    if (message.status == ReceiveStatus::kTimeout) return 1;
-    if (message.status == ReceiveStatus::kCancelled) return 2;
-    *size = message.bytes.size();
-    *data = nullptr;
-    if (*size == 0) return 0;
-    *data = static_cast<uint8_t*>(std::malloc(*size));
-    if (!*data) return -1;
-    std::memcpy(*data, message.bytes.data(), *size);
-    return 0;
-  } catch (...) {
-    return -1;
-  }
-}
-
 extern "C" auto tsugumi_julia_artifact_dir(uint8_t* id) -> char* {
   try {
     const auto [artifact, path] = card::Artifact::dir();
@@ -150,12 +131,67 @@ extern "C" auto EmitDisplay(const char* kind, const char* payload,
   }
 }
 
-extern "C" auto Send(const char* view, const uint8_t* bytes,
+extern "C" auto OpenView(const char* view, uint32_t mode, uint32_t width,
+                         uint32_t height, tsugumi_route* route,
+                         tsugumi_view_session* session) noexcept -> int {
+  try {
+    const auto opened = card::display::view_open(view, mode, width, height);
+    *route = opened.route;
+    *session = opened.session;
+    return 0;
+  } catch (...) {
+    return -1;
+  }
+}
+
+extern "C" auto RegisterRoute(const tsugumi_view_session* session,
+                              tsugumi_route* route) noexcept -> int {
+  try {
+    *route = card::display::route_register(*session);
+    return 0;
+  } catch (...) {
+    return -1;
+  }
+}
+
+extern "C" auto UnregisterRoute(const tsugumi_route* route) noexcept -> int {
+  try {
+    card::display::route_unregister(*route);
+    return 0;
+  } catch (...) {
+    return -1;
+  }
+}
+
+extern "C" auto Send(const tsugumi_view_session* session, const uint8_t* bytes,
                      size_t size) noexcept -> int {
   try {
-    return abi::SendDisplay(view, {bytes, size});
+    return card::display::send(*session, {bytes, size});
   } catch (...) {
-    return 1;
+    return -1;
+  }
+}
+
+extern "C" auto Receive(int64_t timeout_ms, tsugumi_view_event* event) noexcept
+    -> int {
+  try {
+    const auto received = card::display::recv(timeout_ms);
+    using card::display::ReceiveStatus;
+    if (received.status == ReceiveStatus::kTimeout) return 1;
+    if (received.status == ReceiveStatus::kCancelled) return 2;
+    uint8_t* data = nullptr;
+    if (!received.bytes.empty()) {
+      data = static_cast<uint8_t*>(std::malloc(received.bytes.size()));
+      if (!data) return -1;
+      std::memcpy(data, received.bytes.data(), received.bytes.size());
+    }
+    *event = {received.status == ReceiveStatus::kClose ? 1u : 0u,
+              received.route,
+              received.session,
+              {data, received.bytes.size()}};
+    return 0;
+  } catch (...) {
+    return -1;
   }
 }
 
@@ -274,20 +310,23 @@ class Interpreter {
     CheckJulia("Initializing Julia");
 
     // Use addresses for ccall so the bridge remains private to main.so.
-    char bridge[512];
+    char bridge[768];
     const int length = std::snprintf(
         bridge, sizeof(bridge),
         "const TSUGUMI_JULIA_HOST = (emit=Ptr{Cvoid}(%p), send=Ptr{Cvoid}(%p), "
         "cancelled=Ptr{Cvoid}(%p), remaining_ms=Ptr{Cvoid}(%p), "
         "recv=Ptr{Cvoid}(%p), dir=Ptr{Cvoid}(%p), upload=Ptr{Cvoid}(%p), "
-        "open=Ptr{Cvoid}(%p))",
+        "open=Ptr{Cvoid}(%p), view_open=Ptr{Cvoid}(%p), "
+        "route_register=Ptr{Cvoid}(%p), route_unregister=Ptr{Cvoid}(%p))",
         reinterpret_cast<void*>(EmitDisplay), reinterpret_cast<void*>(Send),
         reinterpret_cast<void*>(IsCancelled),
-        reinterpret_cast<void*>(RemainingMs),
-        reinterpret_cast<void*>(tsugumi_julia_recv),
+        reinterpret_cast<void*>(RemainingMs), reinterpret_cast<void*>(Receive),
         reinterpret_cast<void*>(tsugumi_julia_artifact_dir),
         reinterpret_cast<void*>(tsugumi_julia_artifact_upload),
-        reinterpret_cast<void*>(tsugumi_julia_artifact_open));
+        reinterpret_cast<void*>(tsugumi_julia_artifact_open),
+        reinterpret_cast<void*>(OpenView),
+        reinterpret_cast<void*>(RegisterRoute),
+        reinterpret_cast<void*>(UnregisterRoute));
     if (length < 0 || static_cast<size_t>(length) >= sizeof(bridge))
       throw std::runtime_error("Could not initialize the Julia bridge");
     jl_eval_string(bridge);

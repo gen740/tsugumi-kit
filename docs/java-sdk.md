@@ -90,7 +90,7 @@ vectors and unions in each output.
 
 ## Display a value
 
-`Display.send` publishes live messages. Declare the views alongside `run`
+Sending a typed value opens its bundled view as a panel. Declare the views alongside `run`
 in `default.nix`, with `views = sdk.views;`.
 
 | Value | View | Data |
@@ -115,16 +115,16 @@ Line series require equal-length finite axes. Points require axes of equal
 length and either zero colors or one color per point. The points view skips
 non-finite positions.
 
-Use `Display.send(String view, byte[] bytes)` for a custom view. Add its
+Use `Display.viewOpen(name)` to open a declared custom view, then
+`Display.send(opened.session(), bytes)` to send a raw `byte[]` message. Add its
 `{ name; type; blob; }` entry with `views = sdk.views ++ [ ... ];`.
-The view defines its payload format. Argument and encoding errors throw before
-the SDK calls the host. The SDK throws `IllegalStateException` if the host
-cannot accept the message. The SDK frames and splits sends at the ABI message
-limit. `Display.recv(view, timeoutMs)` returns a message, timeout or
-cancellation. A negative timeout waits without a deadline. Card threads may
-send and receive between invocations.
-Messages are live and do not enter history. See the
-[view protocol](cpp-sdk.md#display-a-value).
+Use `Display.routeRegister(session)` and `Display.routeUnregister(route)`
+to manage routes. The SDK frames typed values. `Points` and `LineChart`
+sends also accept an existing session. `Display.recv(timeoutMs)` returns
+a `Received` with status `MESSAGE`, `CLOSE`, `TIMEOUT` or `CANCELLED`.
+Message and close events carry the route and session. A negative timeout
+waits without a deadline. Card threads can send and receive between
+invocations. See the [view protocol](sdk-contract.md#display-and-effects).
 
 ## Cancellation and failures
 

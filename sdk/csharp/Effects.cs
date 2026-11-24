@@ -19,8 +19,10 @@ public sealed record Series(string Id, string Label, double[] X, double[] Y);
 public sealed record LineChart(Series[] Series);
 public sealed record Plotly(string Config);
 public sealed record VegaLite(string Config);
-public enum ReceiveStatus { Message, Timeout, Cancelled }
-public sealed record Received(ReceiveStatus Status, byte[] Bytes);
+public enum ViewMode : uint { Panel, Window, Fullscreen }
+public sealed record OpenedView(byte[] Route, byte[] Session);
+public enum ReceiveStatus { Message, Close, Timeout, Cancelled }
+public sealed record Received(ReceiveStatus Status, byte[] Bytes, byte[]? Route, byte[]? Session);
 
 [StructLayout(LayoutKind.Sequential)]
 internal unsafe struct NativeBytes
@@ -34,8 +36,11 @@ internal unsafe struct NativeBytes
 [StructLayout(LayoutKind.Sequential)]
 internal unsafe struct NativeEffects
 {
-    internal delegate* unmanaged[Cdecl]<byte*, byte*, nuint, int> Send;
-    internal delegate* unmanaged[Cdecl]<byte*, long, NativeBytes*, int> Recv;
+    internal delegate* unmanaged[Cdecl]<byte*, uint, uint, uint, byte*, byte*, int> ViewOpen;
+    internal delegate* unmanaged[Cdecl]<byte*, byte*, int> RouteRegister;
+    internal delegate* unmanaged[Cdecl]<byte*, int> RouteUnregister;
+    internal delegate* unmanaged[Cdecl]<byte*, byte*, nuint, int, int> Send;
+    internal delegate* unmanaged[Cdecl]<long, byte*, byte*, NativeBytes*, int> Recv;
     internal delegate* unmanaged[Cdecl]<int> Cancelled;
     internal delegate* unmanaged[Cdecl]<long> Remaining;
     internal delegate* unmanaged[Cdecl]<byte*, NativeBytes*, int> ArtifactDir;
@@ -62,29 +67,72 @@ public static class Effects
         return Encoding.UTF8.GetBytes(view + "\0");
     }
 
-    public static unsafe int Send(string view, ReadOnlySpan<byte> bytes)
+    public static unsafe OpenedView ViewOpen(string view, ViewMode mode = ViewMode.Panel,
+                                             uint width = 0, uint height = 0)
     {
-        if (effects == null)
-            throw new InvalidOperationException("Display is not initialized");
+        var route = new byte[16];
+        var session = new byte[16];
         fixed (byte* name = ViewName(view))
-        fixed (byte* data = bytes)
-            return effects->Send(name, data, (nuint)bytes.Length);
+        fixed (byte* routePtr = route)
+        fixed (byte* sessionPtr = session)
+            if (effects == null || effects->ViewOpen(name, (uint)mode, width, height, routePtr, sessionPtr) != 0)
+                throw new InvalidOperationException("The host could not open the view");
+        return new(route, session);
     }
 
-    public static unsafe Received Recv(string view, long timeoutMilliseconds = -1)
+    private static void ValidateViewId(ReadOnlySpan<byte> id)
+    {
+        if (id.Length != 16)
+            throw new ArgumentException("Expected a 16-byte view ID", nameof(id));
+    }
+
+    public static unsafe byte[] RouteRegister(ReadOnlySpan<byte> session)
+    {
+        ValidateViewId(session);
+        var route = new byte[16];
+        fixed (byte* sessionPtr = session)
+        fixed (byte* routePtr = route)
+            if (effects == null || effects->RouteRegister(sessionPtr, routePtr) != 0)
+                throw new InvalidOperationException("The host could not register the route");
+        return route;
+    }
+
+    public static unsafe void RouteUnregister(ReadOnlySpan<byte> route)
+    {
+        ValidateViewId(route);
+        fixed (byte* routePtr = route)
+            if (effects == null || effects->RouteUnregister(routePtr) != 0)
+                throw new InvalidOperationException("The host could not unregister the route");
+    }
+
+    public static int Send(ReadOnlySpan<byte> session, ReadOnlySpan<byte> bytes) =>
+        SendBytes(session, bytes, framed: false);
+
+    private static unsafe int SendBytes(ReadOnlySpan<byte> session, ReadOnlySpan<byte> bytes, bool framed)
+    {
+        ValidateViewId(session);
+        if (effects == null)
+            throw new InvalidOperationException("View effects are not initialized");
+        fixed (byte* sessionPtr = session)
+        fixed (byte* data = bytes)
+            return effects->Send(sessionPtr, data, (nuint)bytes.Length, framed ? 1 : 0);
+    }
+
+    public static unsafe Received Recv(long timeoutMilliseconds = -1)
     {
         if (effects == null)
-            throw new InvalidOperationException("Display is not initialized");
+            throw new InvalidOperationException("View effects are not initialized");
         NativeBytes received = default;
-        int status;
-        fixed (byte* name = ViewName(view))
-            status = effects->Recv(name, timeoutMilliseconds, &received);
+        byte* route = stackalloc byte[16];
+        byte* session = stackalloc byte[16];
+        var status = (ReceiveStatus)effects->Recv(timeoutMilliseconds, route, session, &received);
         return status switch
         {
-            0 => new(ReceiveStatus.Message, received.Span.ToArray()),
-            1 => new(ReceiveStatus.Timeout, []),
-            2 => new(ReceiveStatus.Cancelled, []),
-            _ => throw new InvalidOperationException("The host could not receive a view message"),
+            ReceiveStatus.Message or ReceiveStatus.Close =>
+                new(status, received.Span.ToArray(), new ReadOnlySpan<byte>(route, 16).ToArray(),
+                    new ReadOnlySpan<byte>(session, 16).ToArray()),
+            ReceiveStatus.Timeout or ReceiveStatus.Cancelled => new(status, [], null, null),
+            _ => throw new InvalidOperationException("The host could not receive a view event"),
         };
     }
 
@@ -124,9 +172,9 @@ public static class Effects
     };
 
     private static int SendJson(string view, string config) =>
-        Send(view, Encoding.UTF8.GetBytes(config));
+        SendBytes(ViewOpen(view).Session, Encoding.UTF8.GetBytes(config), framed: true);
 
-    private static int SendBinary(string view, string config, params byte[][] parts)
+    private static int SendBinary(string view, byte[]? session, string config, params byte[][] parts)
     {
         var metadata = Encoding.UTF8.GetBytes(config);
         var payload = new byte[checked(sizeof(uint) + metadata.Length + parts.Sum(part => part.Length))];
@@ -138,7 +186,7 @@ public static class Effects
             part.CopyTo(payload, offset);
             offset += part.Length;
         }
-        return Send(view, payload);
+        return SendBytes(session ?? ViewOpen(view).Session, payload, framed: true);
     }
 
     public static int Send(string text) =>
@@ -164,13 +212,13 @@ public static class Effects
         }, ViewJson));
 
     public static int Send(Image image) =>
-        SendBinary("image", JsonSerializer.Serialize(new
+        SendBinary("image", null, JsonSerializer.Serialize(new
         {
             alt = image.Alt,
             media_type = image.MediaType,
         }, ViewJson), image.Bytes);
 
-    public static int Send(Points points)
+    public static int Send(Points points, byte[]? session = null)
     {
         var count = points.X.Length;
         var colors = points.Colors ?? [];
@@ -178,14 +226,14 @@ public static class Effects
             (colors.Length != 0 && colors.Length != count))
             throw new ArgumentException("Point coordinates and colors must have matching lengths", nameof(points));
 
-        return SendBinary("points", JsonSerializer.Serialize(new { count }, ViewJson),
+        return SendBinary("points", session, JsonSerializer.Serialize(new { count }, ViewJson),
             LittleEndian(points.X, sizeof(float), BinaryPrimitives.WriteSingleLittleEndian),
             LittleEndian(points.Y, sizeof(float), BinaryPrimitives.WriteSingleLittleEndian),
             LittleEndian(points.Z, sizeof(float), BinaryPrimitives.WriteSingleLittleEndian),
             LittleEndian(colors, sizeof(uint), BinaryPrimitives.WriteUInt32LittleEndian));
     }
 
-    public static int Send(LineChart chart)
+    public static int Send(LineChart chart, byte[]? session = null)
     {
         var offset = 0;
         var series = new List<ChartSeries>();
@@ -199,7 +247,7 @@ public static class Effects
         }
         var x = chart.Series.SelectMany(row => row.X).ToArray();
         var y = chart.Series.SelectMany(row => row.Y).ToArray();
-        return SendBinary("line-chart", JsonSerializer.Serialize(new { series }, ViewJson),
+        return SendBinary("line-chart", session, JsonSerializer.Serialize(new { series }, ViewJson),
             LittleEndian(x, sizeof(double), BinaryPrimitives.WriteDoubleLittleEndian),
             LittleEndian(y, sizeof(double), BinaryPrimitives.WriteDoubleLittleEndian));
     }

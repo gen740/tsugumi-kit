@@ -23,13 +23,126 @@ static ruby_bytes bytes(VALUE value) {
   return (ruby_bytes){RSTRING_PTR(value), (size_t)RSTRING_LEN(value)};
 }
 
-static VALUE send_bytes(VALUE self, VALUE view, VALUE payload) {
+static void read_view_id(VALUE value, uint8_t* id) {
+  Check_Type(value, T_STRING);
+  if (RSTRING_LEN(value) != 16)
+    rb_raise(rb_eArgError, "Expected a 16-byte view session or route");
+  memcpy(id, RSTRING_PTR(value), 16);
+}
+
+static uint32_t view_number(VALUE value) {
+  if (!RB_INTEGER_TYPE_P(value))
+    rb_raise(rb_eTypeError, "Expected an integer view mode or dimension");
+  const unsigned long long number = NUM2ULL(value);
+  if (number > UINT32_MAX)
+    rb_raise(rb_eRangeError, "View mode or dimension is out of range");
+  return (uint32_t)number;
+}
+
+struct open_request {
+  const char* view;
+  uint32_t mode;
+  uint32_t width;
+  uint32_t height;
+  uint8_t route[16];
+  uint8_t session[16];
+  int status;
+};
+
+static void* open_without_gvl(void* opaque) {
+  struct open_request* request = opaque;
+  request->status =
+      tsugumi_ruby_view_open(request->view, request->mode, request->width,
+                             request->height, request->route, request->session);
+  return NULL;
+}
+
+static VALUE view_open(VALUE self, VALUE view, VALUE mode, VALUE width,
+                       VALUE height) {
   (void)self;
   Check_Type(view, T_STRING);
+  VALUE name = rb_str_new_frozen(view);
+  struct open_request request = {
+      .view = StringValueCStr(name),
+      .mode = view_number(mode),
+      .width = view_number(width),
+      .height = view_number(height),
+      .status = -1,
+  };
+  rb_thread_call_without_gvl(open_without_gvl, &request, NULL, NULL);
+  RB_GC_GUARD(name);
+  if (request.status) rb_raise(rb_eRuntimeError, "view open was rejected");
+  return rb_ary_new_from_args(2, rb_str_new((const char*)request.route, 16),
+                              rb_str_new((const char*)request.session, 16));
+}
+
+struct route_request {
+  uint8_t session[16];
+  uint8_t route[16];
+  int status;
+};
+
+static void* register_without_gvl(void* opaque) {
+  struct route_request* request = opaque;
+  request->status =
+      tsugumi_ruby_route_register(request->session, request->route);
+  return NULL;
+}
+
+static VALUE route_register(VALUE self, VALUE session) {
+  (void)self;
+  struct route_request request = {.status = -1};
+  read_view_id(session, request.session);
+  rb_thread_call_without_gvl(register_without_gvl, &request, NULL, NULL);
+  if (request.status)
+    rb_raise(rb_eRuntimeError, "view route registration was rejected");
+  return rb_str_new((const char*)request.route, 16);
+}
+
+static void* unregister_without_gvl(void* opaque) {
+  struct route_request* request = opaque;
+  request->status = tsugumi_ruby_route_unregister(request->route);
+  return NULL;
+}
+
+static VALUE route_unregister(VALUE self, VALUE route) {
+  (void)self;
+  struct route_request request = {.status = -1};
+  read_view_id(route, request.route);
+  rb_thread_call_without_gvl(unregister_without_gvl, &request, NULL, NULL);
+  if (request.status)
+    rb_raise(rb_eRuntimeError, "view route unregistration was rejected");
+  return Qnil;
+}
+
+struct send_request {
+  uint8_t session[16];
+  ruby_bytes payload;
+  int framed;
+  int status;
+};
+
+static void* send_without_gvl(void* opaque) {
+  struct send_request* request = opaque;
+  request->status =
+      tsugumi_ruby_send(request->session, request->payload, request->framed);
+  return NULL;
+}
+
+static VALUE send_bytes(VALUE self, VALUE session, VALUE payload,
+                        VALUE framed) {
+  (void)self;
   Check_Type(payload, T_STRING);
-  const char* name = StringValueCStr(view);
-  if (tsugumi_ruby_send(name, bytes(payload)))
-    rb_raise(rb_eRuntimeError, "display was rejected");
+  VALUE stable = rb_str_new_frozen(payload);
+  struct send_request request = {
+      .payload = bytes(stable),
+      .framed = RTEST(framed),
+      .status = -1,
+  };
+  read_view_id(session, request.session);
+  rb_thread_call_without_gvl(send_without_gvl, &request, NULL, NULL);
+  RB_GC_GUARD(stable);
+  if (request.status) rb_raise(rb_eRuntimeError, "view message was rejected");
   return Qnil;
 }
 
@@ -50,37 +163,47 @@ static VALUE remaining_ms(VALUE self) {
 }
 
 struct receive_request {
-  const char* view;
   int64_t timeout_ms;
-  uint8_t* data;
-  size_t size;
+  ruby_view_event event;
   int status;
 };
 
 static void* receive_without_gvl(void* opaque) {
   struct receive_request* request = opaque;
-  request->status = tsugumi_ruby_recv(request->view, request->timeout_ms,
-                                      &request->data, &request->size);
+  request->status = tsugumi_ruby_recv(request->timeout_ms, &request->event);
   return NULL;
 }
 
-static VALUE receive_bytes(VALUE self, VALUE view, VALUE timeout) {
+static VALUE receive_result(VALUE opaque) {
+  struct receive_request* request = (struct receive_request*)opaque;
+  rb_thread_call_without_gvl(receive_without_gvl, request, NULL, NULL);
+  if (request->status < 0)
+    rb_raise(rb_eRuntimeError, "view receive was rejected");
+  if (request->status != 0) {
+    const char* kind = request->status == 1 ? "timeout" : "cancelled";
+    return rb_ary_new_from_args(4, ID2SYM(rb_intern(kind)), Qnil, Qnil, Qnil);
+  }
+
+  const ruby_view_event* event = &request->event;
+  const char* kind = event->kind == 0 ? "message" : "close";
+  return rb_ary_new_from_args(
+      4, ID2SYM(rb_intern(kind)), rb_str_new((const char*)event->route, 16),
+      rb_str_new((const char*)event->session, 16),
+      rb_str_new((const char*)event->data, event->size));
+}
+
+static VALUE free_receive_data(VALUE opaque) {
+  struct receive_request* request = (struct receive_request*)opaque;
+  free(request->event.data);
+  return Qnil;
+}
+
+static VALUE receive_bytes(VALUE self, VALUE timeout) {
   (void)self;
-  VALUE name = rb_str_new_frozen(view);
-  struct receive_request request = {StringValueCStr(name), NUM2LL(timeout),
-                                    NULL, 0, -1};
-  rb_thread_call_without_gvl(receive_without_gvl, &request, NULL, NULL);
-  RB_GC_GUARD(name);
-  if (request.status < 0)
-    rb_raise(rb_eRuntimeError, "display receive was rejected");
-  const char* status = request.status == 0   ? "message"
-                       : request.status == 1 ? "timeout"
-                                             : "cancelled";
-  VALUE payload = request.status == 0 ? rb_str_new((const char*)request.data,
-                                                   (long)request.size)
-                                      : Qnil;
-  free(request.data);
-  return rb_ary_new_from_args(2, ID2SYM(rb_intern(status)), payload);
+  struct receive_request request = {.timeout_ms = NUM2LL(timeout),
+                                    .status = -1};
+  return rb_ensure(receive_result, (VALUE)&request, free_receive_data,
+                   (VALUE)&request);
 }
 
 static VALUE artifact_dir(VALUE self) {
@@ -117,8 +240,11 @@ static VALUE artifact_open(VALUE self, VALUE id) {
 static VALUE initialize(VALUE unused) {
   (void)unused;
   VALUE host = rb_define_module("TsugumiHost");
-  rb_define_singleton_method(host, "send_bytes", send_bytes, 2);
-  rb_define_singleton_method(host, "recv", receive_bytes, 2);
+  rb_define_singleton_method(host, "view_open", view_open, 4);
+  rb_define_singleton_method(host, "route_register", route_register, 1);
+  rb_define_singleton_method(host, "route_unregister", route_unregister, 1);
+  rb_define_singleton_method(host, "send_bytes", send_bytes, 3);
+  rb_define_singleton_method(host, "recv", receive_bytes, 1);
   rb_define_singleton_method(host, "artifact_dir", artifact_dir, 0);
   rb_define_singleton_method(host, "artifact_upload", artifact_upload, 1);
   rb_define_singleton_method(host, "artifact_open", artifact_open, 1);

@@ -7,12 +7,12 @@ import { CardResult, CardResultT } from "./tsugumi/card/card-result.js";
 import { CardFailureT } from "./tsugumi/card/card-failure.js";
 import { FailureKind } from "./tsugumi/data/failure-kind.js";
 import { inputPorts, outputChecks, outputPorts } from "./bindings.js";
-import { cancelled, remainingMs, recv, send } from "./effects.js";
+import { cancelled, remainingMs, recv, routeRegister, routeUnregister, send, viewOpen } from "./effects.js";
 import "./artifact.js";
 import { display } from "./display.js";
 import { Failure } from "./failure.js";
 
-const ctx = Object.freeze({ send, recv, display, cancelled, remainingMs });
+const ctx = Object.freeze({ viewOpen, routeRegister, routeUnregister, send, recv, display, cancelled, remainingMs });
 
 function pack(value) {
   const builder = new Builder();

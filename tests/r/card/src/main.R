@@ -27,11 +27,26 @@ main <- function(input) {
   writeLines("test", file)
   uploaded <- artifact_upload(file)
   choice <- artifact_dir()
-  stopifnot(identical(recv("request"), list(status = "message", bytes = as.raw(42))),
-            identical(recv("request", 0), list(status = "timeout", bytes = NULL)),
-            identical(recv("request", 1), list(status = "cancelled", bytes = NULL)))
-  send("listing", as.raw(42))
-  send("listing", rep(as.raw(42), 2^24 + 5))
+  view <- view_open("listing", VIEW_WINDOW, 640L, 480L)
+  route <- route_register(view$session)
+  stopifnot(identical(view, list(route = c(as.raw(0x22), raw(15L)),
+                                 session = c(as.raw(0x11), raw(15L)))),
+            identical(route, c(as.raw(0x33), raw(15L))),
+            identical(recv(), list(kind = "message", route = route,
+                                    session = view$session, data = as.raw(42))),
+            identical(recv(0), list(kind = "timeout", route = NULL,
+                                     session = NULL, data = NULL)),
+            identical(recv(1), list(kind = "cancelled", route = NULL,
+                                     session = NULL, data = NULL)))
+  route_unregister(route)
+  send(view$session, as.raw(42))
+  send(view$session, rep(as.raw(42), 2^24))
+  stopifnot(isTRUE(tryCatch({
+    send(view$session, rep(as.raw(42), 2^24 + 5))
+    FALSE
+  }, error = function(error) TRUE)),
+  identical(recv(), list(kind = "close", route = view$route,
+                         session = view$session, data = raw(0L))))
   .Call("start_effects", PACKAGE = effects[["name"]])
   list(listing = list(
     nested = list(file = nested$artifact), files = list(uploaded, granted),

@@ -46,20 +46,26 @@ when packing the output.
 ## Display
 
 Return `views = sdk.views;` to declare the bundled HTML views.
-Use `tsugumi.display.send(value)` for a bundled view, or
-`tsugumi.display.send(view, bytes)` for custom data. The SDK also exposes
+Use `tsugumi.display.send(value)` to open a bundled view as a panel.
+To send to an existing session, use `display.send(session, value)` for
+an SDK-framed typed value or `display.send(session, bytes)` for raw data.
+The SDK also exposes
 the bundled value classes from `tsugumi`, including `LineChart`,
 `LineSeries`, `Points` and `Plotly`.
 
 ```python
 from tsugumi import display
 
-display.send("Processing complete")
-status, data = display.recv("controls", 500)
+opened = display.view_open("controls")
+display.send(opened.session, b"ready")
+event = display.recv(500)
 ```
 
-The returned status is `"message"`, `"timeout"` or `"cancelled"`.
-Data is `bytes` for a message and `None` for the other statuses.
+`view_open` returns the opener route and session. Use `route_register(session)`
+to create a route for an existing session and `route_unregister(route)` to
+release it. `recv` returns a `ViewEvent` with `kind`, `route`, `session` and
+`data`. Message and close events carry the 16-byte IDs and `bytes` data.
+Close has empty data. Timeout and cancellation have `None` in those fields.
 Display effects remain available to Python threads after `run` returns.
 Use `tsugumi.cancelled()` and `tsugumi.remaining_ms()` inside the call.
 Raise `tsugumi.Failure("output_invalid", message)` to return a typed failure.

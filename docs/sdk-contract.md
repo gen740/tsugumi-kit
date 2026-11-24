@@ -88,21 +88,56 @@ definition's top level. Use a self-contained HTML file for HTML and a Wasm
 binary for Dawn. Use the vendored `abi/tsugumi_view.h` for the Dawn view
 ABI, callback declarations and pinned WebGPU imports.
 
-`display.send(view, bytes)` emits chunks with a 16-byte little-endian header
-of four unsigned 32-bit integers. In order, write magic `0x4D475354`,
-a sequence per view per process, the zero-based chunk index, and the chunk
-count. Each payload is at most `TSUGUMI_MESSAGE_MAX - 16` bytes. Send an
-empty payload as one header and serialize chunks for each view. The bundled
-HTML views reassemble the frames received via their MessagePort before
-rendering the data. A Dawn view receives each Card ABI message directly.
-In C++, use `card::display::send_raw(view, bytes)` for one unframed message.
+Call `view_open` with a declared name to open a view and receive a session
+and an opener route. The initial presentation can be a panel, a window or
+fullscreen. Window sizing uses logical pixels. Specify both dimensions or
+use `0, 0` to let the UI choose. Panel and fullscreen require `0, 0`.
+Unknown names and modes, and invalid dimension pairs, are errors.
 
-`display.recv(view, timeout)` returns a message, timeout, or cancellation.
-The timeout is in milliseconds and a negative value waits without a deadline.
-Copy received bytes before the next receive on that thread. Send and receive
-are process-lifetime effects and can run on Card threads between calls.
-The other effects are scoped to the active call. Keep the effects table order
-in `abi/card_abi.h`.
+A session identifies one open view. `send` addresses that session and
+carries up to `TSUGUMI_MESSAGE_MAX` bytes (16 MiB) per ABI message.
+Send waits cancellably if the next hop lacks room for a maximum-size message.
+A route identifies one Card process's mailbox for that session. A Card that
+receives a session ID can send to it and call `route_register` to create its
+own route. Both IDs are 16-byte capabilities scoped to the project. Share
+them only with recipients that should be able to use them.
+
+`recv` waits on all routes in the process and reports a message or close
+event with its route and session, a timeout, or cancellation. A negative
+timeout waits without a deadline. Copy borrowed ABI bytes before the next
+receive on the same thread. The view effects are available between calls.
+Routes last until `route_unregister` or process exit. A view stays open when
+its last route goes away. Closing the view queues one close event for each
+live route, and later sends to the session are dropped. Messages to dead
+routes are dropped. View traffic is live and stays out of run history. Use
+outputs or logs to keep results.
+
+### HTML view API
+
+```js
+tsugumi.onmessage = bytes => {
+  // bytes is a Uint8Array containing one Card ABI message.
+  handleMessage(bytes)
+}
+tsugumi.send(replyBytes)         // To the opener's route.
+tsugumi.send(replyBytes, route)  // To a 16-byte Uint8Array route for this view.
+```
+
+The bundled HTML views expect SDK frames. The 20-byte header has the
+little-endian `uint32` magic `0x4D475354`, an 8-byte transfer ID, and a
+little-endian `uint32` chunk index and count. Each chunk carries up to
+`TSUGUMI_MESSAGE_MAX - 20` payload bytes. An empty payload uses one frame
+with just the header. A multipart value uses a random transfer ID and
+sends its chunks in index order. The view assembles interleaved values by
+transfer ID and keeps up to 16 incomplete transfers.
+
+### Dawn view API
+
+Dawn receives each Card ABI message as sent. In C++, use
+`card::display::send_raw(session, bytes)` for one unframed message.
+Read incoming data with `tsugumi_view_read` inside `tsugumi_view_message`.
+Reply with `tsugumi_view_send(route, data, size)`. Pass 16 zero bytes for
+the opener's route or the ID of another route registered to this view.
 
 ## Check every SDK
 
@@ -112,9 +147,12 @@ in that language following `tests/card/src/main.cc` or
 `tests/python/src/main.py`. It covers both Merge cases, Collect with a
 member, a direct Artifact, nested Artifact listing in a table, vector and
 union, forwarding, grant refusal, required and optional outputs, malformed
-inputs, send framing, and receive statuses. It also exercises send and
-receive after the entry point returns. The two fixture schema files and
-params are in `tests/contract/`. Use the input and API checks alongside the
+inputs, opening a session, registering and unregistering a route, raw bytes
+per message, receive statuses, and close events with their session and route
+IDs. It also exercises send and receive after the entry point returns.
+`tests/view-reassembly.mjs` exercises HTML framing independently.
+The two fixture schema files and params are in `tests/contract/`.
+Use the input and API checks alongside the
 language check and enable the language in `nix/pending-sdk-checks.nix`.
 
 ```sh

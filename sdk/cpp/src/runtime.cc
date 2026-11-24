@@ -30,8 +30,8 @@ namespace {
 
 auto SendJson(const char* view, const nlohmann::json& config) -> int {
   const auto text = config.dump();
-  return tsugumi::abi::SendDisplay(view,
-                                    {text_bytes(text).data(), text.size()});
+  return tsugumi::abi::SendDisplay(view_open(view).session,
+                                   {text_bytes(text).data(), text.size()});
 }
 
 auto Frame(const nlohmann::json& config) -> std::vector<uint8_t> {
@@ -56,13 +56,6 @@ auto AppendSamples(std::vector<uint8_t>& bytes, std::span<const T> samples)
 }
 
 }  // namespace
-
-auto send(std::string_view view, std::span<const uint8_t> bytes) -> int {
-  if (view.find('\0') != std::string_view::npos)
-    throw std::invalid_argument("View names cannot contain a NUL byte");
-  return tsugumi::abi::SendDisplay(std::string(view).c_str(),
-                                    {bytes.data(), bytes.size()});
-}
 
 auto send(std::string_view text) -> int {
   return SendJson("text", {{"text", text}});
@@ -91,10 +84,15 @@ auto send(Table table) -> int {
 auto send(Image image) -> int {
   auto bytes = Frame({{"media_type", image.media_type}, {"alt", image.alt}});
   bytes.insert(bytes.end(), image.bytes.begin(), image.bytes.end());
-  return send("image", bytes);
+  return tsugumi::abi::SendDisplay(view_open("image").session,
+                                   {bytes.data(), bytes.size()});
 }
 
 auto send(Points points) -> int {
+  return send(view_open("points").session, points);
+}
+
+auto send(const tsugumi_view_session& session, Points points) -> int {
   const auto count = points.x.size();
   if (points.y.size() != count || points.z.size() != count ||
       (!points.colors.empty() && points.colors.size() != count)) {
@@ -106,10 +104,14 @@ auto send(Points points) -> int {
   AppendSamples(bytes, points.y);
   AppendSamples(bytes, points.z);
   AppendSamples(bytes, points.colors);
-  return send("points", bytes);
+  return tsugumi::abi::SendDisplay(session, {bytes.data(), bytes.size()});
 }
 
 auto send(LineChart chart) -> int {
+  return send(view_open("line-chart").session, chart);
+}
+
+auto send(const tsugumi_view_session& session, LineChart chart) -> int {
   const auto finite = [](double value) { return std::isfinite(value); };
   auto series = nlohmann::json::array();
   size_t offset = 0;
@@ -128,7 +130,7 @@ auto send(LineChart chart) -> int {
   auto bytes = Frame({{"series", series}});
   for (const auto& row : chart.series) AppendSamples(bytes, row.x);
   for (const auto& row : chart.series) AppendSamples(bytes, row.y);
-  return send("line-chart", bytes);
+  return tsugumi::abi::SendDisplay(session, {bytes.data(), bytes.size()});
 }
 
 }  // namespace card::display

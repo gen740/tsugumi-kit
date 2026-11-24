@@ -15,12 +15,26 @@
   result
 }
 
+VIEW_PANEL <- 0L
+VIEW_WINDOW <- 1L
+VIEW_FULLSCREEN <- 2L
+
+view_open <- function(view, mode = VIEW_PANEL, width = 0L, height = 0L) {
+  result <- .Call("tsugumi_r_view_open", view, mode, width, height)
+  setNames(result, c("route", "session"))
+}
+
+route_register <- function(session) {
+  .Call("tsugumi_r_route_register", session)
+}
+
+route_unregister <- function(route) {
+  .Call("tsugumi_r_route_unregister", route)
+  invisible(NULL)
+}
+
 send <- function(value, bytes) {
   if (!missing(bytes)) {
-    if (!is.character(value) || length(value) != 1L || is.na(value) ||
-        !is.raw(bytes)) {
-      stop("send expects a view name and a raw vector")
-    }
     .Call("tsugumi_r_send", value, bytes)
     return(invisible(NULL))
   }
@@ -83,10 +97,9 @@ vega_lite <- function(spec) .tsugumi_view("vega-lite", spec)
 cancelled <- function() .Call("tsugumi_r_cancelled")
 remaining_ms <- function() .Call("tsugumi_r_remaining_ms")
 
-recv <- function(view, timeout_ms = -1) {
-  stopifnot(is.character(view), length(view) == 1L, !is.na(view))
-  result <- .Call("tsugumi_r_recv", view, timeout_ms)
-  setNames(result, c("status", "bytes"))
+recv <- function(timeout_ms = -1) {
+  result <- .Call("tsugumi_r_recv", timeout_ms)
+  setNames(result, c("kind", "route", "session", "data"))
 }
 
 .artifact <- function(id) {

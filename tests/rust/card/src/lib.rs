@@ -45,17 +45,36 @@ fn run(input: Inputs<'_>) -> Result<Output> {
     std::fs::write(&file, "test")?;
     let upload = Artifact::upload(file)?;
 
-    if tsugumi::recv("request", -1)? != Received::Message(vec![42])
-        || tsugumi::recv("request", 0)? != Received::Timeout
-        || tsugumi::recv("request", 1)? != Received::Cancelled
+    let (opener, session) = tsugumi::view_open("listing", tsugumi::ViewMode::Window, 640, 480)?;
+    let route = tsugumi::route_register(&session)?;
+    if tsugumi::recv(-1)?
+        != (Received::Message {
+            route,
+            session,
+            data: vec![42],
+        })
+        || tsugumi::recv(0)? != Received::Timeout
+        || tsugumi::recv(1)? != Received::Cancelled
     {
         return Err(unexpected("Unexpected receive status"));
     }
-    tsugumi::send("listing", &[42])?;
-    tsugumi::send("listing", &vec![42; (1 << 24) + 5])?;
+    tsugumi::route_unregister(&route)?;
+    tsugumi::send(&session, &[42])?;
+    tsugumi::send(&session, &vec![42; 1 << 24])?;
+    if tsugumi::send(&session, &vec![42; (1 << 24) + 5]).is_ok()
+        || tsugumi::recv(-1)?
+            != (Received::Close {
+                route: opener,
+                session,
+            })
+    {
+        return Err(unexpected("Unexpected send or close status"));
+    }
     std::thread::spawn(|| {
-        if let Ok(Received::Message(reply)) = tsugumi::recv("background", -1) {
-            let _ = tsugumi::send("background", &reply);
+        if let Ok(Received::Message { data, .. }) = tsugumi::recv(-1) {
+            let (_, session) = tsugumi::view_open("background", tsugumi::ViewMode::Panel, 0, 0)
+                .expect("Open background view");
+            let _ = tsugumi::send(&session, &data);
         }
     });
 

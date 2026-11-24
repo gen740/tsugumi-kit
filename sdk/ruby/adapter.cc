@@ -7,13 +7,54 @@
 #include "bridge.h"
 #include "json_codec.hh"
 
-extern "C" auto tsugumi_ruby_send(const char* view, ruby_bytes bytes) -> int {
+extern "C" auto tsugumi_ruby_view_open(const char* view, uint32_t mode,
+                                       uint32_t width, uint32_t height,
+                                       uint8_t* route, uint8_t* session)
+    -> int {
   try {
-    return tsugumi::abi::SendDisplay(
-        view, {reinterpret_cast<const uint8_t*>(bytes.data), bytes.size});
+    const auto opened = card::display::view_open(view, mode, width, height);
+    std::memcpy(route, opened.route.bytes, sizeof(opened.route.bytes));
+    std::memcpy(session, opened.session.bytes, sizeof(opened.session.bytes));
+    return 0;
   } catch (...) {
-    // Never unwind through MRI's C callback.
-    return 1;
+    return -1;
+  }
+}
+
+extern "C" auto tsugumi_ruby_route_register(const uint8_t* session,
+                                            uint8_t* route) -> int {
+  try {
+    tsugumi_view_session id{};
+    std::memcpy(id.bytes, session, sizeof(id.bytes));
+    const auto registered = card::display::route_register(id);
+    std::memcpy(route, registered.bytes, sizeof(registered.bytes));
+    return 0;
+  } catch (...) {
+    return -1;
+  }
+}
+
+extern "C" auto tsugumi_ruby_route_unregister(const uint8_t* route) -> int {
+  try {
+    tsugumi_route id{};
+    std::memcpy(id.bytes, route, sizeof(id.bytes));
+    card::display::route_unregister(id);
+    return 0;
+  } catch (...) {
+    return -1;
+  }
+}
+
+extern "C" auto tsugumi_ruby_send(const uint8_t* session, ruby_bytes bytes,
+                                  int framed) -> int {
+  try {
+    tsugumi_view_session id{};
+    std::memcpy(id.bytes, session, sizeof(id.bytes));
+    const auto* data = reinterpret_cast<const uint8_t*>(bytes.data);
+    if (framed) return tsugumi::abi::SendDisplay(id, {data, bytes.size});
+    return card::display::send(id, {data, bytes.size});
+  } catch (...) {
+    return -1;
   }
 }
 
@@ -81,19 +122,22 @@ auto FailureResult(const Json& failure) -> CardResultT {
 
 }  // namespace tsugumi::ruby
 
-extern "C" auto tsugumi_ruby_recv(const char* view, int64_t timeout_ms,
-                                  uint8_t** data, size_t* size) -> int {
+extern "C" auto tsugumi_ruby_recv(int64_t timeout_ms, ruby_view_event* event)
+    -> int {
   try {
-    const auto message = card::display::recv(view, timeout_ms);
+    const auto received = card::display::recv(timeout_ms);
     using card::display::ReceiveStatus;
-    if (message.status == ReceiveStatus::kTimeout) return 1;
-    if (message.status == ReceiveStatus::kCancelled) return 2;
-    *size = message.bytes.size();
-    *data = nullptr;
-    if (*size == 0) return 0;
-    *data = static_cast<uint8_t*>(std::malloc(*size));
-    if (!*data) return -1;
-    std::memcpy(*data, message.bytes.data(), *size);
+    if (received.status == ReceiveStatus::kTimeout) return 1;
+    if (received.status == ReceiveStatus::kCancelled) return 2;
+    event->kind = received.status == ReceiveStatus::kClose ? 1u : 0u;
+    std::memcpy(event->route, received.route.bytes, sizeof(event->route));
+    std::memcpy(event->session, received.session.bytes, sizeof(event->session));
+    event->size = received.bytes.size();
+    event->data = nullptr;
+    if (event->size == 0) return 0;
+    event->data = static_cast<uint8_t*>(std::malloc(event->size));
+    if (!event->data) return -1;
+    std::memcpy(event->data, received.bytes.data(), event->size);
     return 0;
   } catch (...) {
     return -1;

@@ -24,29 +24,6 @@ auto ThrowEffectError(JNIEnv* env, const char* message) -> void {
   if (type) env->ThrowNew(type, message);
 }
 
-auto Send(JNIEnv* env, jclass, jbyteArray view, jbyteArray payload) noexcept
-    -> void {
-  try {
-    const auto view_size = env->GetArrayLength(view);
-    std::string name(view_size, '\0');
-    env->GetByteArrayRegion(view, 0, view_size,
-                            reinterpret_cast<jbyte*>(name.data()));
-    if (env->ExceptionCheck()) return;
-    const auto size = env->GetArrayLength(payload);
-    std::vector<uint8_t> bytes(size);
-    if (size) {
-      env->GetByteArrayRegion(payload, 0, size,
-                              reinterpret_cast<jbyte*>(bytes.data()));
-      if (env->ExceptionCheck()) return;
-    }
-    if (SendDisplay(name.c_str(), {bytes.data(), bytes.size()}) != 0) {
-      ThrowEffectError(env, "The host could not accept the view message");
-    }
-  } catch (...) {
-    ThrowEffectError(env, "Cannot send the view message");
-  }
-}
-
 auto ReadString(JNIEnv* env, jbyteArray data) -> std::string {
   const auto size = env->GetArrayLength(data);
   std::string result(size, '\0');
@@ -65,24 +42,111 @@ auto CopyBytes(JNIEnv* env, const void* data, size_t size) -> jbyteArray {
   const auto length = static_cast<jsize>(size);
   auto result = env->NewByteArray(length);
   if (result && length) {
-    env->SetByteArrayRegion(result, 0, length,
-                            static_cast<const jbyte*>(data));
+    env->SetByteArrayRegion(result, 0, length, static_cast<const jbyte*>(data));
   }
   return result;
 }
 
-auto Recv(JNIEnv* env, jclass, jbyteArray view, jlong timeout,
-          jintArray status) noexcept -> jbyteArray {
+template <class Id>
+auto ReadViewId(JNIEnv* env, jbyteArray array, Id& id) -> bool {
+  if (env->GetArrayLength(array) != static_cast<jsize>(sizeof(id.bytes))) {
+    ThrowEffectError(env, "Expected a 16-byte view ID");
+    return false;
+  }
+  env->GetByteArrayRegion(array, 0, sizeof(id.bytes),
+                          reinterpret_cast<jbyte*>(id.bytes));
+  return !env->ExceptionCheck();
+}
+
+auto ViewOpen(JNIEnv* env, jclass, jbyteArray view, jint mode, jlong width,
+              jlong height, jbyteArray route, jbyteArray session) noexcept
+    -> void {
   try {
     const auto name = ReadString(env, view);
-    if (env->ExceptionCheck()) return nullptr;
-    const auto received = card::display::recv(name, timeout);
+    if (env->ExceptionCheck()) return;
+    const auto opened = card::display::view_open(
+        name, static_cast<uint32_t>(mode), static_cast<uint32_t>(width),
+        static_cast<uint32_t>(height));
+    env->SetByteArrayRegion(route, 0, sizeof(opened.route.bytes),
+                            reinterpret_cast<const jbyte*>(opened.route.bytes));
+    if (!env->ExceptionCheck())
+      env->SetByteArrayRegion(
+          session, 0, sizeof(opened.session.bytes),
+          reinterpret_cast<const jbyte*>(opened.session.bytes));
+  } catch (const std::exception& error) {
+    ThrowEffectError(env, error.what());
+  }
+}
+
+auto RouteRegister(JNIEnv* env, jclass, jbyteArray id) noexcept -> jbyteArray {
+  try {
+    tsugumi_view_session session{};
+    if (!ReadViewId(env, id, session)) return nullptr;
+    const auto route = card::display::route_register(session);
+    return CopyBytes(env, route.bytes, sizeof(route.bytes));
+  } catch (const std::exception& error) {
+    ThrowEffectError(env, error.what());
+    return nullptr;
+  }
+}
+
+auto RouteUnregister(JNIEnv* env, jclass, jbyteArray id) noexcept -> void {
+  try {
+    tsugumi_route route{};
+    if (ReadViewId(env, id, route)) card::display::route_unregister(route);
+  } catch (const std::exception& error) {
+    ThrowEffectError(env, error.what());
+  }
+}
+
+auto Send(JNIEnv* env, jclass, jbyteArray id, jbyteArray payload,
+          jboolean framed) noexcept -> void {
+  try {
+    tsugumi_view_session session{};
+    if (!ReadViewId(env, id, session)) return;
+    const auto size = env->GetArrayLength(payload);
+    if (!framed && static_cast<size_t>(size) > TSUGUMI_MESSAGE_MAX) {
+      ThrowEffectError(env, "View message exceeds the size limit");
+      return;
+    }
+    std::vector<uint8_t> bytes(size);
+    if (size) {
+      env->GetByteArrayRegion(payload, 0, size,
+                              reinterpret_cast<jbyte*>(bytes.data()));
+      if (env->ExceptionCheck()) return;
+    }
+    const int status = framed
+                           ? SendDisplay(session, {bytes.data(), bytes.size()})
+                           : card::display::send(session, bytes);
+    if (status != 0)
+      ThrowEffectError(env, "The host could not accept the view message");
+  } catch (const std::exception& error) {
+    ThrowEffectError(env, error.what());
+  }
+}
+
+auto Recv(JNIEnv* env, jclass, jlong timeout, jintArray status,
+          jbyteArray route, jbyteArray session) noexcept -> jbyteArray {
+  try {
+    const auto received = card::display::recv(timeout);
     const jint code = static_cast<jint>(received.status);
     env->SetIntArrayRegion(status, 0, 1, &code);
     if (env->ExceptionCheck()) return nullptr;
+    using card::display::ReceiveStatus;
+    if (received.status == ReceiveStatus::kMessage ||
+        received.status == ReceiveStatus::kClose) {
+      env->SetByteArrayRegion(
+          route, 0, sizeof(received.route.bytes),
+          reinterpret_cast<const jbyte*>(received.route.bytes));
+      if (env->ExceptionCheck()) return nullptr;
+      env->SetByteArrayRegion(
+          session, 0, sizeof(received.session.bytes),
+          reinterpret_cast<const jbyte*>(received.session.bytes));
+      if (env->ExceptionCheck()) return nullptr;
+    }
     return CopyBytes(env, received.bytes.data(), received.bytes.size());
-  } catch (...) {
-    ThrowEffectError(env, "The host could not receive a view message");
+  } catch (const std::exception& error) {
+    ThrowEffectError(env, error.what());
     return nullptr;
   }
 }
@@ -276,9 +340,15 @@ class Jvm {
     jclass effects = env->FindClass("tsugumi/Effects");
     if (!effects) return false;
     const JNINativeMethod methods[] = {
-        {const_cast<char*>("send"), const_cast<char*>("([B[B)V"),
+        {const_cast<char*>("viewOpen"), const_cast<char*>("([BIJJ[B[B)V"),
+         reinterpret_cast<void*>(ViewOpen)},
+        {const_cast<char*>("routeRegister"), const_cast<char*>("([B)[B"),
+         reinterpret_cast<void*>(RouteRegister)},
+        {const_cast<char*>("routeUnregister"), const_cast<char*>("([B)V"),
+         reinterpret_cast<void*>(RouteUnregister)},
+        {const_cast<char*>("send"), const_cast<char*>("([B[BZ)V"),
          reinterpret_cast<void*>(&Send)},
-        {const_cast<char*>("recv"), const_cast<char*>("([BJ[I)[B"),
+        {const_cast<char*>("recv"), const_cast<char*>("(J[I[B[B)[B"),
          reinterpret_cast<void*>(&Recv)},
         {const_cast<char*>("artifactDir"), const_cast<char*>("([B)[B"),
          reinterpret_cast<void*>(&ArtifactDir)},

@@ -92,18 +92,22 @@ See [Runtime tools](../README.md#runtime-tools) for `PATH` and shell behavior.
 | `new LineChart(series)` | `line-chart` | Series with `id`, `label` and equal-length finite `x` and `y` arrays |
 | `new Points(x, y, z, colors?)` | `points` | Equal-length position arrays and optional packed `0xRRGGBB` colors |
 
-Call `ctx.display.send(value)` to publish a value. For custom views, declare
-the view alongside `sdk.views` and call `ctx.send(viewName, bytes)` with
+Call `ctx.display.send(value)` to open a bundled view as a panel. Pass a
+session as the second argument to update an existing bundled view. For
+custom views, declare the view alongside `sdk.views` and use
+`ctx.viewOpen(name)` to obtain its route and session. Call `ctx.send(session, bytes)` with
 opaque `Uint8Array` data. Both return the host status, where zero indicates
 acceptance and a nonzero value means the host could not accept the message.
-The host forwards view names to the UI, which reports undeclared views.
+Use `ctx.routeRegister(session)` to create a route and
+`ctx.routeUnregister(route)` to release it.
 Argument and encoding errors throw JavaScript exceptions before the SDK
 calls the host. These functions can also be imported from `@tsugumi/card`.
-The [bundled HTML views](cpp-sdk.md#display-a-value) define their private encodings.
+The [bundled HTML views](sdk-contract.md#html-view-api) use SDK-framed typed values.
 
-Use `ctx.recv(view, timeoutMs)` to receive bytes and a `status` of
-`"message"`, `"timeout"` or `"cancelled"`. A negative timeout waits
-without a deadline. The SDK frames sends in messages of at most 16 MiB.
+Use `ctx.recv(timeoutMs)` to receive an object with `bytes` and a `status`
+of `"message"`, `"close"`, `"timeout"` or `"cancelled"`. Message and close
+events also carry `route` and `session`. A negative timeout waits without
+a deadline.
 Send and receive work on Node worker threads after the Card returns.
 `ctx.cancelled()` and `ctx.remainingMs()` report the active call's state.
 Throw `Failure` to report a structured Card failure.
