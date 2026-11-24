@@ -21,6 +21,9 @@ struct fake_host {
   unsigned next_id;
   unsigned created;
   unsigned chunks;
+#ifdef TSUGUMI_TEST_RAW_DISPLAY
+  unsigned raw_messages;
+#endif
   unsigned sequence;
   tsugumi_artifact_id ids[1 + max_created];
   char granted_path[1024];
@@ -35,6 +38,14 @@ static uint32_t read_u32(const uint8_t* bytes) {
 static int send_display(void* context, const char* view, const uint8_t* data,
                         size_t size) {
   struct fake_host* host = context;
+#ifdef TSUGUMI_TEST_RAW_DISPLAY
+  if (strcmp(view, "raw") == 0) {
+    CHECK(host->in_call && size == 3);
+    CHECK(data[0] == 0 && data[1] == 42 && data[2] == 255);
+    ++host->raw_messages;
+    return 0;
+  }
+#endif
   CHECK(size >= 16 && size <= TSUGUMI_MESSAGE_MAX);
   CHECK(read_u32(data) == 0x4d475354);
   const uint32_t sequence = read_u32(data + 4);
@@ -145,6 +156,9 @@ int main(int argc, char** argv) {
     host.background_sent = 0;
     host.created = 0;
     host.chunks = 0;
+#ifdef TSUGUMI_TEST_RAW_DISPLAY
+    host.raw_messages = 0;
+#endif
     host.in_call = 1;
     tsugumi_call call = {TSUGUMI_ABI_VERSION, make_input(scenario), &host,
                          &effects};
@@ -164,6 +178,9 @@ int main(int argc, char** argv) {
       while (!host.background_sent)
         pthread_cond_wait(&host.changed, &host.mutex);
       CHECK(host.chunks == 3 && host.created == max_created);
+#ifdef TSUGUMI_TEST_RAW_DISPLAY
+      CHECK(host.raw_messages == 1);
+#endif
       host.sequence += 2;
     }
     pthread_mutex_unlock(&host.mutex);

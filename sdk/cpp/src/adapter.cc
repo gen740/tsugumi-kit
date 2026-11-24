@@ -249,6 +249,16 @@ auto remaining_ms() -> int64_t {
 
 namespace card::display {
 
+auto send_raw(std::string_view view, std::span<const uint8_t> bytes) -> int {
+  if (view.find('\0') != std::string_view::npos)
+    throw std::invalid_argument("View names cannot contain a NUL byte");
+  if (bytes.size() > TSUGUMI_MESSAGE_MAX) return -1;
+  const auto effect = tsugumi::abi::GetDisplayEffect();
+  return effect.send ? effect.send(effect.host, std::string(view).c_str(),
+                                   bytes.data(), bytes.size())
+                     : -1;
+}
+
 auto recv(std::string_view view, int64_t timeout_ms) -> Received {
   if (view.find('\0') != std::string_view::npos)
     throw std::invalid_argument("View names cannot contain a NUL byte");

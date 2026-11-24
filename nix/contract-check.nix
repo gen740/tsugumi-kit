@@ -36,7 +36,8 @@ pkgs.runCommandCC "tsugumi-${name}-contract-check"
     flatc --cpp --gen-object-api --scoped-enums -I "$fixtures" \
       "$fixtures/_inputs.fbs" "$fixtures/_outputs.fbs"
     for file in fake_host legacy; do
-      $CC -std=c11 -Wall -Wextra -Werror -I"$include" -c "$tests/$file.c"
+      $CC -std=c11 -Wall -Wextra -Werror ${pkgs.lib.optionalString (name == "cpp") "-DTSUGUMI_TEST_RAW_DISPLAY"} \
+        -I"$include" -c "$tests/$file.c"
     done
     $CXX -std=c++2c -Wall -Wextra -Werror -I. -I"$include" \
       "$tests/wire.cc" fake_host.o legacy.o -pthread -ldl -o fake-host

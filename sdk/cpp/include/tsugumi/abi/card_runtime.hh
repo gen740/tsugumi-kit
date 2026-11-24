@@ -128,6 +128,8 @@ struct Received {
 
 auto recv(std::string_view view, int64_t timeout_ms = -1) -> Received;
 auto send(std::string_view view, std::span<const uint8_t> bytes) -> int;
+// Send one view ABI message without the SDK's HTML framing.
+auto send_raw(std::string_view view, std::span<const uint8_t> bytes) -> int;
 auto send(std::string_view text) -> int;
 auto send(Markdown markdown) -> int;
 auto send(double value) -> int;

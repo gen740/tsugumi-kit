@@ -46,7 +46,7 @@ Artifact IDs when packing the output.
 
 Return `views = sdk.views;` in the definition to declare the bundled HTML
 views. Send a typed display value with `card::display::send`. The overload
-`send(view, bytes)` sends arbitrary bytes to a declared view. It returns
+`send(view, bytes)` sends SDK-framed bytes to an HTML view. It returns
 zero on success. `card::display::recv(view, timeout_ms)` returns a
 `Received` with owned bytes and a `ReceiveStatus` of `kMessage`,
 `kTimeout` or `kCancelled`.
@@ -78,8 +78,10 @@ required callbacks, the allowed WebGPU functions and the message helpers.
 The builder supplies the pinned WebGPU header. Only the `webgpu` and
 `tsugumi` import modules are available. Implement
 `tsugumi_view_message` to receive bytes and call `tsugumi_view_read` inside
-that callback. Use `tsugumi_view_send` for replies. Each message is limited
-to `TSUGUMI_MESSAGE_MAX` (16 MiB).
+that callback. Use `tsugumi_view_send` for replies. On the Card side,
+`card::display::send_raw(view, bytes)` sends one message directly to the
+view. It returns zero on success. Each message is limited to
+`TSUGUMI_MESSAGE_MAX` (16 MiB).
 
 The view has no WASI, libc or `malloc`. Use static buffers or a bump
 allocator backed by `__builtin_wasm_memory_grow`. The builder enables

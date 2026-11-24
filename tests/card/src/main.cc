@@ -48,6 +48,11 @@ auto run(const Card::Inputs& input) -> Card::Output {
     if (card::display::send("listing", std::vector<uint8_t>(size, 42)) != 0)
       throw std::runtime_error("Unexpected send status");
   };
+  const std::vector<uint8_t> raw{0, 42, 255};
+  if (card::display::send_raw("raw", raw) != 0 ||
+      card::display::send_raw("raw", std::vector<uint8_t>((1u << 24) + 1)) >= 0) {
+    throw std::runtime_error("Unexpected raw send status");
+  }
   send(1);
   send((1u << 24) + 5);
   std::thread background([] {

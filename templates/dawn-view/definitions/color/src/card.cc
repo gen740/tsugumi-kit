@@ -4,6 +4,7 @@
 #include <bit>
 #include <cstdio>
 #include <cstring>
+#include <stdexcept>
 #include <thread>
 
 auto run(const Card::Inputs&) -> Card::Output {
@@ -14,7 +15,9 @@ auto run(const Card::Inputs&) -> Card::Output {
       std::array{static_cast<float>(Card::params.red),
                  static_cast<float>(Card::params.green),
                  static_cast<float>(Card::params.blue)});
-  card::display::send("clear", rgb);
+  if (card::display::send_raw("clear", rgb) != 0) {
+    throw std::runtime_error("Could not send the colour");
+  }
 
   // Join before returning so the click is logged with this invocation.
   std::jthread click([] {

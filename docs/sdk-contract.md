@@ -106,7 +106,8 @@ ports when it emits the build output.
 
 Return `views = [ { name; type = "html" | "dawn"; blob; } ]` at the
 definition's top level. Use a self-contained HTML file for HTML and a Wasm
-binary for Dawn. TODO(open): Dawn host and pinned WebGPU imports.
+binary for Dawn. Use the vendored `abi/tsugumi_view.h` for the Dawn view
+ABI, callback declarations and pinned WebGPU imports.
 
 `display.send(view, bytes)` emits chunks with a 16-byte little-endian header
 of four unsigned 32-bit integers. In order, write magic `0x4D475354`,
@@ -114,7 +115,8 @@ a sequence per view per process, the zero-based chunk index, and the chunk
 count. Each payload is at most `TSUGUMI_MESSAGE_MAX - 16` bytes. Send an
 empty payload as one header and serialize chunks for each view. The bundled
 HTML views reassemble the frames received via their MessagePort before
-rendering the data.
+rendering the data. A Dawn view receives each Card ABI message directly.
+In C++, use `card::display::send_raw(view, bytes)` for one unframed message.
 
 `display.recv(view, timeout)` returns a message, timeout, or cancellation.
 The timeout is in milliseconds and a negative value waits without a deadline.
