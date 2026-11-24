@@ -25,11 +25,18 @@ export class Failure extends Error {
   readonly cell?: string;
 }
 
-export function send(view: string, bytes: Uint8Array): number;
-export function recv(view: string, timeoutMs?: number): Readonly<{
-  status: "message" | "timeout" | "cancelled";
-  bytes: Uint8Array;
-}>;
+export const ViewMode: Readonly<{ PANEL: 0; WINDOW: 1; FULLSCREEN: 2 }>;
+export type ViewMode = typeof ViewMode[keyof typeof ViewMode];
+export type OpenedView = Readonly<{ route: Uint8Array; session: Uint8Array }>;
+export type ViewEvent = Readonly<
+  | { status: "message" | "close"; route: Uint8Array; session: Uint8Array; bytes: Uint8Array }
+  | { status: "timeout" | "cancelled"; bytes: Uint8Array }
+>;
+export function viewOpen(view: string, mode?: ViewMode, width?: number, height?: number): OpenedView;
+export function routeRegister(session: Uint8Array): Uint8Array;
+export function routeUnregister(route: Uint8Array): void;
+export function send(session: Uint8Array, bytes: Uint8Array): number;
+export function recv(timeoutMs?: number): ViewEvent;
 export function cancelled(): boolean;
 export function remainingMs(): number;
 
@@ -52,10 +59,13 @@ export class Points {
 
 export const display: Readonly<{
   recv: typeof recv;
-  send(value: string | Text | Markdown | Table | Image | LineChart | Points): number;
+  send(value: string | Text | Markdown | Table | Image | LineChart | Points, session?: Uint8Array): number;
 }>;
 
 export interface CardContext {
+  readonly viewOpen: typeof viewOpen;
+  readonly routeRegister: typeof routeRegister;
+  readonly routeUnregister: typeof routeUnregister;
   readonly send: typeof send;
   readonly recv: typeof recv;
   readonly display: typeof display;

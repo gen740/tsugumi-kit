@@ -117,28 +117,68 @@ extern "C" auto tsugumi_r_display(const char* request, int* status) noexcept
   }
 }
 
-extern "C" auto tsugumi_r_send(const char* view, const uint8_t* bytes,
-                               size_t size) noexcept -> int {
+extern "C" auto tsugumi_r_view_open(const char* view, uint32_t mode,
+                                    uint32_t width, uint32_t height,
+                                    tsugumi_route* route,
+                                    tsugumi_view_session* session) noexcept
+    -> int {
   try {
-    return tsugumi::abi::SendDisplay(view, {bytes, size});
+    const auto opened = card::display::view_open(view, mode, width, height);
+    *route = opened.route;
+    *session = opened.session;
+    return 0;
   } catch (...) {
-    return 1;
+    return -1;
   }
 }
 
-extern "C" auto tsugumi_r_recv(const char* view, int64_t timeout_ms,
-                               uint8_t** data, size_t* size) -> int {
+extern "C" auto tsugumi_r_route_register(const tsugumi_view_session* session,
+                                         tsugumi_route* route) noexcept -> int {
   try {
-    const auto message = card::display::recv(view, timeout_ms);
+    *route = card::display::route_register(*session);
+    return 0;
+  } catch (...) {
+    return -1;
+  }
+}
+
+extern "C" auto tsugumi_r_route_unregister(const tsugumi_route* route) noexcept
+    -> int {
+  try {
+    card::display::route_unregister(*route);
+    return 0;
+  } catch (...) {
+    return -1;
+  }
+}
+
+extern "C" auto tsugumi_r_send(const tsugumi_view_session* session,
+                               const uint8_t* bytes, size_t size) noexcept
+    -> int {
+  try {
+    return card::display::send(*session, {bytes, size});
+  } catch (...) {
+    return -1;
+  }
+}
+
+extern "C" auto tsugumi_r_recv(int64_t timeout_ms,
+                               tsugumi_view_event* event) noexcept -> int {
+  try {
+    const auto received = card::display::recv(timeout_ms);
     using card::display::ReceiveStatus;
-    if (message.status == ReceiveStatus::kTimeout) return 1;
-    if (message.status == ReceiveStatus::kCancelled) return 2;
-    *size = message.bytes.size();
-    *data = nullptr;
-    if (*size == 0) return 0;
-    *data = static_cast<uint8_t*>(std::malloc(*size));
-    if (!*data) return -1;
-    std::memcpy(*data, message.bytes.data(), *size);
+    if (received.status == ReceiveStatus::kTimeout) return 1;
+    if (received.status == ReceiveStatus::kCancelled) return 2;
+    uint8_t* data = nullptr;
+    if (!received.bytes.empty()) {
+      data = static_cast<uint8_t*>(std::malloc(received.bytes.size()));
+      if (!data) return -1;
+      std::memcpy(data, received.bytes.data(), received.bytes.size());
+    }
+    *event = {received.status == ReceiveStatus::kClose ? 1u : 0u,
+              received.route,
+              received.session,
+              {data, received.bytes.size()}};
     return 0;
   } catch (...) {
     return -1;

@@ -63,22 +63,23 @@ and invalid output objects produce `output_invalid`.
 affects the run build and preserves the generated API when its type is
 unchanged.
 
-`tsugumi::send(view, bytes)` takes a declared view name and a byte slice.
-`tsugumi::send_value(value)` supports text, `f64`, `Scalar`, `Markdown`,
+`tsugumi::view_open(name, mode, width, height)` returns `(Route, ViewSession)`.
+`tsugumi::send(&session, bytes)` sends one raw byte slice.
+Use `route_register(&session)` and `route_unregister(&route)` to manage
+routes. `tsugumi::send_value(value)` opens a panel and supports text, `f64`, `Scalar`, `Markdown`,
 `Table`, `Image`, `Points`, `LineChart`, `Plotly`, and `VegaLite` values.
 Both functions return `tsugumi::Result<()>`. Local argument and encoding
 errors return a `Failure` with kind `invalid_request` before calling the host.
 A nonzero host status returns `worker_failed` and includes the transport status.
-The core forwards the view name and the UI looks up the corresponding declared view.
 
 The SDK bundles the `line-chart` and `points` HTML views.
 Declare the matching views in your Card's `default.nix` with
 `views = sdk.views ++ [ ... ];`.
 The bundled `markdown` view displays scalar values.
-See the [view protocol](cpp-sdk.md#display-a-value).
+See the [view protocol](sdk-contract.md#display-and-effects).
 
-The SDK frames and splits sends at the ABI message limit.
-`tsugumi::recv(view, timeout_ms)` returns `Received::Message(bytes)`,
+The SDK frames typed values. `tsugumi::recv(timeout_ms)` returns
+`Received::Message { route, session, data }`, `Received::Close { route, session }`,
 `Received::Timeout`, or `Received::Cancelled`. A negative timeout waits
 without a deadline. A Card-owned thread can send and receive after `run`
 returns. Between calls

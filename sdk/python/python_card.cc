@@ -8,7 +8,9 @@
 
 #include <dlfcn.h>
 
+#include <algorithm>
 #include <memory>
+#include <span>
 #include <string>
 
 namespace tsugumi::abi {
@@ -41,28 +43,6 @@ class ReleaseGil {
   PyThreadState* state_;
 };
 
-auto Send(PyObject*, PyObject* args) -> PyObject* {
-  const char* view;
-  const char* data;
-  Py_ssize_t size;
-  if (!PyArg_ParseTuple(args, "sy#", &view, &data, &size)) return nullptr;
-  int status;
-  try {
-    // The callback can block while a different Card thread needs the GIL.
-    const ReleaseGil release;
-    status = tsugumi::abi::SendDisplay(
-        view,
-        {reinterpret_cast<const uint8_t*>(data), static_cast<size_t>(size)});
-  } catch (...) {
-    status = 1;
-  }
-  if (status) {
-    PyErr_SetString(PyExc_RuntimeError, "The host rejected the display");
-    return nullptr;
-  }
-  Py_RETURN_NONE;
-}
-
 template <class Query, class Convert>
 auto QueryHost(Query query, Convert convert, const char* error) -> PyObject* {
   try {
@@ -80,29 +60,123 @@ auto QueryHost(Query query, Convert convert, const char* error) -> PyObject* {
   }
 }
 
-auto Receive(PyObject*, PyObject* args) -> PyObject* {
+template <class Id>
+auto ReadViewId(const char* data, Py_ssize_t size, Id& id) -> bool {
+  if (size != static_cast<Py_ssize_t>(sizeof(id.bytes))) {
+    PyErr_SetString(PyExc_ValueError, "Expected a 16-byte view ID");
+    return false;
+  }
+  std::copy_n(reinterpret_cast<const uint8_t*>(data), size, id.bytes);
+  return true;
+}
+
+auto OpenView(PyObject*, PyObject* args) -> PyObject* {
   const char* view;
-  long long timeout;
-  if (!PyArg_ParseTuple(args, "sL", &view, &timeout)) return nullptr;
+  unsigned int mode, width, height;
+  if (!PyArg_ParseTuple(args, "sIII", &view, &mode, &width, &height))
+    return nullptr;
   return QueryHost(
-      [&] { return card::display::recv(view, timeout); },
+      [&] { return card::display::view_open(view, mode, width, height); },
+      [](const auto& opened) {
+        return Py_BuildValue(
+            "y#y#", reinterpret_cast<const char*>(opened.route.bytes),
+            static_cast<Py_ssize_t>(sizeof(opened.route.bytes)),
+            reinterpret_cast<const char*>(opened.session.bytes),
+            static_cast<Py_ssize_t>(sizeof(opened.session.bytes)));
+      },
+      "The host could not open the view");
+}
+
+auto RegisterRoute(PyObject*, PyObject* args) -> PyObject* {
+  const char* bytes;
+  Py_ssize_t size;
+  tsugumi_view_session session{};
+  if (!PyArg_ParseTuple(args, "y#", &bytes, &size) ||
+      !ReadViewId(bytes, size, session))
+    return nullptr;
+  return QueryHost([&] { return card::display::route_register(session); },
+                   [](const tsugumi_route& route) {
+                     return PyBytes_FromStringAndSize(
+                         reinterpret_cast<const char*>(route.bytes),
+                         sizeof(route.bytes));
+                   },
+                   "The host could not register the route");
+}
+
+auto UnregisterRoute(PyObject*, PyObject* args) -> PyObject* {
+  const char* bytes;
+  Py_ssize_t size;
+  tsugumi_route route{};
+  if (!PyArg_ParseTuple(args, "y#", &bytes, &size) ||
+      !ReadViewId(bytes, size, route))
+    return nullptr;
+  return QueryHost(
+      [&] {
+        card::display::route_unregister(route);
+        return true;
+      },
+      [](bool) -> PyObject* { Py_RETURN_NONE; },
+      "The host could not unregister the route");
+}
+
+auto Send(PyObject*, PyObject* args) -> PyObject* {
+  const char* id;
+  const char* data;
+  Py_ssize_t id_size, size;
+  int framed;
+  tsugumi_view_session session{};
+  if (!PyArg_ParseTuple(args, "y#y#p", &id, &id_size, &data, &size, &framed) ||
+      !ReadViewId(id, id_size, session))
+    return nullptr;
+  return QueryHost(
+      [&] {
+        const std::span bytes(reinterpret_cast<const uint8_t*>(data),
+                              static_cast<size_t>(size));
+        return framed ? tsugumi::abi::SendDisplay(session,
+                                                  {bytes.data(), bytes.size()})
+                      : card::display::send_raw(session, bytes);
+      },
+      [](int status) -> PyObject* {
+        if (status != 0) {
+          PyErr_SetString(PyExc_RuntimeError,
+                          "The host rejected the view send");
+          return nullptr;
+        }
+        Py_RETURN_NONE;
+      },
+      "The host rejected the view send");
+}
+
+auto Receive(PyObject*, PyObject* args) -> PyObject* {
+  long long timeout;
+  if (!PyArg_ParseTuple(args, "L", &timeout)) return nullptr;
+  return QueryHost(
+      [&] { return card::display::recv(timeout); },
       [](const card::display::Received& result) -> PyObject* {
+        using card::display::ReceiveStatus;
         switch (result.status) {
-          case card::display::ReceiveStatus::kMessage:
+          case ReceiveStatus::kMessage:
+          case ReceiveStatus::kClose:
             return Py_BuildValue(
-                "sy#", "message",
+                "sy#y#y#",
+                result.status == ReceiveStatus::kMessage ? "message" : "close",
+                reinterpret_cast<const char*>(result.route.bytes),
+                static_cast<Py_ssize_t>(sizeof(result.route.bytes)),
+                reinterpret_cast<const char*>(result.session.bytes),
+                static_cast<Py_ssize_t>(sizeof(result.session.bytes)),
                 result.bytes.empty()
                     ? ""
                     : reinterpret_cast<const char*>(result.bytes.data()),
                 static_cast<Py_ssize_t>(result.bytes.size()));
-          case card::display::ReceiveStatus::kTimeout:
-            return Py_BuildValue("sO", "timeout", Py_None);
-          case card::display::ReceiveStatus::kCancelled:
-            return Py_BuildValue("sO", "cancelled", Py_None);
+          case ReceiveStatus::kTimeout:
+            return Py_BuildValue("sOOO", "timeout", Py_None, Py_None, Py_None);
+          case ReceiveStatus::kCancelled:
+            return Py_BuildValue("sOOO", "cancelled", Py_None, Py_None,
+                                 Py_None);
         }
         return nullptr;
       },
-      "The host rejected the display receive");
+      "The host rejected the view receive");
 }
 
 auto ArtifactCreate(PyObject*, PyObject*) -> PyObject* {
@@ -153,6 +227,9 @@ auto RemainingMs(PyObject*, PyObject*) -> PyObject* {
 }
 
 PyMethodDef methods[] = {
+    {"view_open", OpenView, METH_VARARGS, nullptr},
+    {"route_register", RegisterRoute, METH_VARARGS, nullptr},
+    {"route_unregister", UnregisterRoute, METH_VARARGS, nullptr},
     {"send", Send, METH_VARARGS, nullptr},
     {"recv", Receive, METH_VARARGS, nullptr},
     {"artifact_create", ArtifactCreate, METH_NOARGS, nullptr},

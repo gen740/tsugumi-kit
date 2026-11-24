@@ -25,9 +25,16 @@
 extern bool tsugumi_r_cancelled(void);
 extern double tsugumi_r_remaining_ms(void);
 extern bool tsugumi_r_display(const char* request, int* status);
-extern int tsugumi_r_send(const char* view, const uint8_t* bytes, size_t size);
-int tsugumi_r_recv(const char* view, int64_t timeout_ms, uint8_t** data,
-                   size_t* size);
+extern int tsugumi_r_view_open(const char* view, uint32_t mode, uint32_t width,
+                               uint32_t height, tsugumi_route* route,
+                               tsugumi_view_session* session);
+extern int tsugumi_r_route_register(const tsugumi_view_session* session,
+                                    tsugumi_route* route);
+extern int tsugumi_r_route_unregister(const tsugumi_route* route);
+extern int tsugumi_r_send(const tsugumi_view_session* session,
+                          const uint8_t* bytes, size_t size);
+/* On success, free event->data.data after consuming it. */
+extern int tsugumi_r_recv(int64_t timeout_ms, tsugumi_view_event* event);
 char* tsugumi_r_artifact_dir(uint8_t* id);
 int tsugumi_r_artifact_upload(const char* path, uint8_t* id);
 char* tsugumi_r_artifact_open(const uint8_t* id);
@@ -62,42 +69,118 @@ static SEXP emit(SEXP request) {
   return R_NilValue;
 }
 
-static SEXP send_bytes(SEXP view, SEXP bytes) {
+static void read_view_id(SEXP value, uint8_t (*id)[16]) {
+  if (TYPEOF(value) != RAWSXP || XLENGTH(value) != (R_xlen_t)sizeof(*id))
+    Rf_error("Expected a 16-byte view ID");
+  memcpy(*id, RAW(value), sizeof(*id));
+}
+
+static SEXP view_bytes(const uint8_t* bytes, size_t size) {
+  SEXP result = Rf_allocVector(RAWSXP, (R_xlen_t)size);
+  if (size) memcpy(RAW(result), bytes, size);
+  return result;
+}
+
+static uint32_t view_option(SEXP value) {
+  if ((TYPEOF(value) != INTSXP && TYPEOF(value) != REALSXP) ||
+      XLENGTH(value) != 1)
+    Rf_error("Expected an unsigned 32-bit view option");
+  const double option = Rf_asReal(value);
+  if (!R_FINITE(option) || option < 0 || option > UINT32_MAX ||
+      option != (double)(uint32_t)option)
+    Rf_error("Expected an unsigned 32-bit view option");
+  return (uint32_t)option;
+}
+
+static SEXP open_view(SEXP view, SEXP mode, SEXP width, SEXP height) {
   if (TYPEOF(view) != STRSXP || XLENGTH(view) != 1 ||
-      STRING_ELT(view, 0) == NA_STRING || TYPEOF(bytes) != RAWSXP)
-    Rf_error("send expects a view name and a raw vector");
+      STRING_ELT(view, 0) == NA_STRING)
+    Rf_error("Expected a view name");
+  const uint32_t where = view_option(mode);
+  const uint32_t w = view_option(width);
+  const uint32_t h = view_option(height);
   const char* name = Rf_translateCharUTF8(STRING_ELT(view, 0));
-  if (tsugumi_r_send(name, RAW(bytes), (size_t)XLENGTH(bytes)))
-    Rf_error("display rejected");
+  tsugumi_route route;
+  tsugumi_view_session session;
+  if (tsugumi_r_view_open(name, where, w, h, &route, &session))
+    Rf_error("View open was rejected");
+  SEXP result = PROTECT(Rf_allocVector(VECSXP, 2));
+  SET_VECTOR_ELT(result, 0, view_bytes(route.bytes, sizeof(route.bytes)));
+  SET_VECTOR_ELT(result, 1, view_bytes(session.bytes, sizeof(session.bytes)));
+  UNPROTECT(1);
+  return result;
+}
+
+static SEXP register_route(SEXP value) {
+  tsugumi_view_session session;
+  read_view_id(value, &session.bytes);
+  tsugumi_route route;
+  if (tsugumi_r_route_register(&session, &route))
+    Rf_error("Route registration was rejected");
+  return view_bytes(route.bytes, sizeof(route.bytes));
+}
+
+static SEXP unregister_route(SEXP value) {
+  tsugumi_route route;
+  read_view_id(value, &route.bytes);
+  if (tsugumi_r_route_unregister(&route))
+    Rf_error("Route unregistration was rejected");
+  return R_NilValue;
+}
+
+static SEXP send_bytes(SEXP value, SEXP bytes) {
+  tsugumi_view_session session;
+  read_view_id(value, &session.bytes);
+  if (TYPEOF(bytes) != RAWSXP) Rf_error("Expected a raw vector");
+  if (tsugumi_r_send(&session, RAW(bytes), (size_t)XLENGTH(bytes)))
+    Rf_error("View send was rejected");
   return R_NilValue;
 }
 
 /* R uses the registered arity when dispatching the erased function pointer. */
 static SEXP utf8(const char* text);
 
-static SEXP receive_bytes(SEXP view, SEXP timeout) {
+struct view_result {
+  int status;
+  tsugumi_view_event event;
+};
+
+static SEXP pack_view_event(void* opaque) {
+  const struct view_result* received = opaque;
+  const tsugumi_view_event* event = &received->event;
+  const int status = received->status;
+  SEXP result = PROTECT(Rf_allocVector(VECSXP, 4));
+  const char* kind = status == 0   ? (event->kind == 0 ? "message" : "close")
+                     : status == 1 ? "timeout"
+                                   : "cancelled";
+  SET_VECTOR_ELT(result, 0, utf8(kind));
+  if (status == 0) {
+    SET_VECTOR_ELT(result, 1,
+                   view_bytes(event->route.bytes, sizeof(event->route.bytes)));
+    SET_VECTOR_ELT(
+        result, 2,
+        view_bytes(event->session.bytes, sizeof(event->session.bytes)));
+    SET_VECTOR_ELT(result, 3, view_bytes(event->data.data, event->data.size));
+  }
+  UNPROTECT(1);
+  return result;
+}
+
+static void free_view_event(void* opaque) {
+  const struct view_result* received = opaque;
+  free((void*)received->event.data.data);
+}
+
+static SEXP receive_event(SEXP timeout) {
   const double millis = Rf_asReal(timeout);
   if (!R_FINITE(millis) || millis < -9007199254740991.0 ||
       millis > 9007199254740991.0 || millis != (double)(int64_t)millis)
     Rf_error("Expected a safe integer timeout");
-  uint8_t* data = NULL;
-  size_t size = 0;
-  const int status = tsugumi_r_recv(Rf_translateCharUTF8(STRING_ELT(view, 0)),
-                                    (int64_t)millis, &data, &size);
-  if (status < 0) Rf_error("display receive was rejected");
-  SEXP result = PROTECT(Rf_allocVector(VECSXP, 2));
-  SET_VECTOR_ELT(result, 0,
-                 utf8(status == 0   ? "message"
-                      : status == 1 ? "timeout"
-                                    : "cancelled"));
-  if (status == 0) {
-    SEXP payload = Rf_allocVector(RAWSXP, (R_xlen_t)size);
-    if (size) memcpy(RAW(payload), data, size);
-    SET_VECTOR_ELT(result, 1, payload);
-  }
-  free(data);
-  UNPROTECT(1);
-  return result;
+  struct view_result received = {0};
+  received.status = tsugumi_r_recv((int64_t)millis, &received.event);
+  if (received.status < 0) Rf_error("View receive was rejected");
+  return R_ExecWithCleanup(pack_view_event, &received, free_view_event,
+                           &received);
 }
 
 static SEXP artifact_dir(void) {
@@ -142,8 +225,11 @@ static const R_CallMethodDef methods[] = {
     {"tsugumi_r_cancelled", (DL_FUNC)&cancelled, 0},
     {"tsugumi_r_remaining_ms", (DL_FUNC)&remaining_ms, 0},
     {"tsugumi_r_emit", (DL_FUNC)&emit, 1},
+    {"tsugumi_r_view_open", (DL_FUNC)&open_view, 4},
+    {"tsugumi_r_route_register", (DL_FUNC)&register_route, 1},
+    {"tsugumi_r_route_unregister", (DL_FUNC)&unregister_route, 1},
     {"tsugumi_r_send", (DL_FUNC)&send_bytes, 2},
-    {"tsugumi_r_recv", (DL_FUNC)&receive_bytes, 2},
+    {"tsugumi_r_recv", (DL_FUNC)&receive_event, 1},
     {"tsugumi_r_artifact_dir", (DL_FUNC)&artifact_dir, 0},
     {"tsugumi_r_artifact_upload", (DL_FUNC)&artifact_upload, 1},
     {"tsugumi_r_artifact_open", (DL_FUNC)&artifact_open, 1},
@@ -151,6 +237,11 @@ static const R_CallMethodDef methods[] = {
 };
 
 static void register_effects(void) {
+  R_RegisterCCallable("tsugumi", "view_open", (DL_FUNC)&tsugumi_r_view_open);
+  R_RegisterCCallable("tsugumi", "route_register",
+                      (DL_FUNC)&tsugumi_r_route_register);
+  R_RegisterCCallable("tsugumi", "route_unregister",
+                      (DL_FUNC)&tsugumi_r_route_unregister);
   R_RegisterCCallable("tsugumi", "send", (DL_FUNC)&tsugumi_r_send);
   R_RegisterCCallable("tsugumi", "recv", (DL_FUNC)&tsugumi_r_recv);
   R_RegisterCCallable("tsugumi", "cancelled", (DL_FUNC)&tsugumi_r_cancelled);

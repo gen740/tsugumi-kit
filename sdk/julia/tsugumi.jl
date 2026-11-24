@@ -5,6 +5,7 @@ import Printf
 import Base64
 
 export Inputs, Artifact, dir, upload, params, send, recv, cancelled, remaining_ms, CardFailure
+export view_open, route_register, route_unregister, VIEW_PANEL, VIEW_WINDOW, VIEW_FULLSCREEN
 export Markdown, Scalar, Table, Image, Points, LineChart, Plotly, VegaLite
 
 struct CardFailure <: Exception
@@ -66,16 +67,58 @@ function decode_input(item::Dict)
     return Dict{String,Any}(key => decode_input(value) for (key, value) in item)
 end
 
-function recv(view::AbstractString, timeout_ms::Integer=-1)
-    bytes = Ref{Ptr{UInt8}}(C_NULL)
-    size = Ref{Csize_t}(0)
-    code = @ccall gc_safe=true $(HOST.recv)(view::Cstring, timeout_ms::Int64,
-                     bytes::Ref{Ptr{UInt8}}, size::Ref{Csize_t})::Cint
-    code == 1 && return (:timeout, nothing)
-    code == 2 && return (:cancelled, nothing)
-    code == 0 || error("display receive was rejected")
-    size[] == 0 && return (:message, UInt8[])
-    return (:message, unsafe_wrap(Vector{UInt8}, bytes[], size[]; own=true))
+const VIEW_PANEL = UInt32(0)
+const VIEW_WINDOW = UInt32(1)
+const VIEW_FULLSCREEN = UInt32(2)
+const ViewId = NTuple{16,UInt8}
+
+struct HostViewEvent
+    kind::UInt32
+    route::ViewId
+    session::ViewId
+    data::Ptr{UInt8}
+    size::Csize_t
+end
+
+function view_open(view::AbstractString, mode::Integer=VIEW_PANEL,
+                   width::Integer=0, height::Integer=0)
+    route = Ref{ViewId}()
+    session = Ref{ViewId}()
+    code = @ccall gc_safe=true $(HOST.view_open)(view::Cstring, mode::UInt32,
+                     width::UInt32, height::UInt32, route::Ref{ViewId},
+                     session::Ref{ViewId})::Cint
+    code == 0 || error("view open was rejected")
+    return (; route=route[], session=session[])
+end
+
+function route_register(session::ViewId)
+    target = Ref(session)
+    route = Ref{ViewId}()
+    code = @ccall gc_safe=true $(HOST.route_register)(target::Ref{ViewId},
+                     route::Ref{ViewId})::Cint
+    code == 0 || error("route registration was rejected")
+    return route[]
+end
+
+function route_unregister(route::ViewId)
+    target = Ref(route)
+    code = @ccall gc_safe=true $(HOST.route_unregister)(target::Ref{ViewId})::Cint
+    code == 0 || error("route unregistration was rejected")
+    return nothing
+end
+
+function recv(timeout_ms::Integer=-1)
+    result = Ref{HostViewEvent}()
+    code = @ccall gc_safe=true $(HOST.recv)(timeout_ms::Int64,
+                     result::Ref{HostViewEvent})::Cint
+    code == 1 && return (; kind=:timeout, route=nothing, session=nothing, data=nothing)
+    code == 2 && return (; kind=:cancelled, route=nothing, session=nothing, data=nothing)
+    code == 0 || error("view receive was rejected")
+    event = result[]
+    data = event.size == 0 ? UInt8[] :
+        unsafe_wrap(Vector{UInt8}, event.data, Int(event.size); own=true)
+    return (; kind=event.kind == 0 ? :message : :close,
+             route=event.route, session=event.session, data)
 end
 
 struct Markdown
@@ -117,10 +160,12 @@ end
 struct VegaLite
     config::Any
 end
-function send(view::AbstractString, bytes::AbstractVector{UInt8})
+function send(session::ViewId, bytes::AbstractVector{UInt8})
     data = convert(Vector{UInt8}, bytes)
-    code = @ccall gc_safe=true $(HOST.send)(view::Cstring, data::Ptr{UInt8}, length(data)::Csize_t)::Cint
-    code == 0 || error("display was rejected")
+    target = Ref(session)
+    code = @ccall gc_safe=true $(HOST.send)(target::Ref{ViewId}, data::Ptr{UInt8},
+                     length(data)::Csize_t)::Cint
+    code == 0 || error("view send was rejected")
     return nothing
 end
 
@@ -162,6 +207,7 @@ end
 
 module CardCode
 using ..Tsugumi: Inputs, Artifact, dir, upload, params, send, recv, cancelled, remaining_ms, CardFailure
+using ..Tsugumi: view_open, route_register, route_unregister, VIEW_PANEL, VIEW_WINDOW, VIEW_FULLSCREEN
 using ..Tsugumi: Markdown, Scalar, Table, Image, Points, LineChart, Plotly, VegaLite
 end
 

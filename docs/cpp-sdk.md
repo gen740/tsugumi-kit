@@ -45,15 +45,24 @@ Artifact IDs when packing the output.
 ## Display
 
 Return `views = sdk.views;` in the definition to declare the bundled HTML
-views. Send a typed display value with `card::display::send`. The overload
-`send(view, bytes)` sends SDK-framed bytes to an HTML view. It returns
-zero on success. `card::display::recv(view, timeout_ms)` returns a
-`Received` with owned bytes and a `ReceiveStatus` of `kMessage`,
-`kTimeout` or `kCancelled`.
+views. `card::display::send(value)` opens the matching bundled view as a
+panel and sends an SDK-framed value. The `Points` and `LineChart` overloads
+also accept a session for updates to an existing view.
+
+`view_open` returns a route and session. Use `send(session, bytes)` for
+one raw message, `route_register(session)` to subscribe to an existing
+session, and `route_unregister(route)` to release a route. `recv(timeout_ms)`
+returns a `Received` with status `kMessage`, `kClose`, `kTimeout` or
+`kCancelled`. Message and close events carry the route and session, and
+the returned bytes are owned by `Received`.
 
 ```cpp
-card::display::send(card::display::Markdown{"**Complete**"});
-const auto reply = card::display::recv("controls", 500);
+using namespace card::display;
+const auto view = view_open("controls");
+if (send(view.session, text_bytes("ready")) != 0) {
+  throw std::runtime_error("Could not send the view message");
+}
+const auto event = recv(500);
 ```
 
 Display effects remain available to Card threads after the call returns.
@@ -78,9 +87,10 @@ required callbacks, the allowed WebGPU functions and the message helpers.
 The builder supplies the pinned WebGPU header. Only the `webgpu` and
 `tsugumi` import modules are available. Implement
 `tsugumi_view_message` to receive bytes and call `tsugumi_view_read` inside
-that callback. Use `tsugumi_view_send` for replies. On the Card side,
-`card::display::send_raw(view, bytes)` sends one message directly to the
-view. It returns zero on success. Each message is limited to
+that callback. Pass a 16-byte route to `tsugumi_view_send(route, data, size)`
+for replies. Use a zero-filled route to reach the opener. On the Card side,
+`card::display::send_raw(session, bytes)` sends one message directly to
+the view. It returns zero on success. Each message is limited to
 `TSUGUMI_MESSAGE_MAX` (16 MiB).
 
 The view has no WASI, libc or `malloc`. Use static buffers or a bump

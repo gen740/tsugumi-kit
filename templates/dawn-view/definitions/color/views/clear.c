@@ -37,9 +37,10 @@ int32_t tsugumi_view_pointer(uint32_t kind, float x, float y, uint32_t buttons,
   (void)wheel_y;
   (void)modifiers;
   if (kind == 1) {
+    const uint8_t opener_route[16] = {0};
     const float click[] = {x, y};
     // The process may already have finished. Leave the colour on the canvas.
-    tsugumi_view_send((const uint8_t*)click, sizeof(click));
+    tsugumi_view_send(opener_route, (const uint8_t*)click, sizeof(click));
   }
   return 0;
 }

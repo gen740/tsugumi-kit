@@ -5,11 +5,52 @@ import math
 import struct
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from enum import IntEnum
 from functools import singledispatch
 from numbers import Real
+from operator import index
 from typing import Protocol
 
 import _tsugumi_host as _host
+
+
+class ViewMode(IntEnum):
+    PANEL = 0
+    WINDOW = 1
+    FULLSCREEN = 2
+
+
+@dataclass(frozen=True)
+class OpenedView:
+    route: bytes
+    session: bytes
+
+
+@dataclass(frozen=True)
+class ViewEvent:
+    kind: str
+    route: bytes | None
+    session: bytes | None
+    data: bytes | None
+
+
+def view_open(view: str, mode: ViewMode = ViewMode.PANEL, width: int = 0,
+              height: int = 0) -> OpenedView:
+    """Open a declared view and return its 16-byte route and session."""
+    mode, width, height = map(index, (mode, width, height))
+    if not all(0 <= field < 2**32 for field in (mode, width, height)):
+        raise ValueError("Expected unsigned 32-bit view mode and dimensions")
+    return OpenedView(*_host.view_open(view, mode, width, height))
+
+
+def route_register(session: bytes) -> bytes:
+    """Create a route in this process for an existing session."""
+    return _host.route_register(session)
+
+
+def route_unregister(route: bytes) -> None:
+    """Drop one route of this process."""
+    _host.route_unregister(route)
 
 
 @dataclass(frozen=True)
@@ -87,12 +128,22 @@ def _frame(name, config, *sections):
     return name, b"".join((struct.pack("<I", len(metadata)), metadata, *sections))
 
 
-def send(value, data=_MISSING):
-    """Send a typed value or send(view, bytes) to a declared view."""
-    if data is not _MISSING:
-        _host.send(value, bytes(memoryview(data)))
-    else:
-        _host.send(*_encode(value))
+def send(session, value=_MISSING):
+    """Send bytes or a bundled view value to a session.
+
+    With one typed value, open its bundled view in PANEL mode first.
+    """
+    if value is _MISSING:
+        name, data = _encode(session)
+        _host.send(view_open(name).session, data, True)
+        return
+    try:
+        data = memoryview(value).tobytes()
+    except TypeError:
+        _, data = _encode(value)
+        _host.send(session, data, True)
+        return
+    _host.send(session, data, False)
 
 
 @singledispatch
@@ -179,6 +230,6 @@ def _plotly_encoder():
     return PlotlyJSONEncoder
 
 
-def recv(view: str, timeout: int = -1) -> tuple[str, bytes | None]:
-    """Return (message, bytes), (timeout, None), or (cancelled, None)."""
-    return _host.recv(view, timeout)
+def recv(timeout: int = -1) -> ViewEvent:
+    """Receive a message, close, timeout, or cancellation on this process."""
+    return ViewEvent(*_host.recv(timeout))

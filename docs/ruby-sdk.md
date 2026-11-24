@@ -75,14 +75,18 @@ directory, set `sourcePrefix` to its path relative to the Card definition.
 
 ## Effects
 
-`Tsugumi.send(view, bytes)` takes a view name and a binary String.
-`Tsugumi.send(value)` encodes the typed values below. Argument and encoding
+`Tsugumi.view_open(name)` returns `[route, session]`. Use
+`Tsugumi.send(session, bytes)` to send one raw binary String and
+`Tsugumi.route_register(session)` or `Tsugumi.route_unregister(route)` to
+manage routes. `Tsugumi.send(value)` opens a panel and encodes the typed
+values below. `Tsugumi.send_value(session, value)` sends a typed value to
+an existing view. Argument and encoding
 errors raise before calling the host. The SDK raises `RuntimeError` if the
 host cannot accept the message.
 
 Declare the matching views alongside `run`. The Ruby SDK bundles text, markdown, table, image, line-chart, and points views.
 Scalars use the `markdown` view.
-[View protocol](cpp-sdk.md#display-a-value)
+[View protocol](sdk-contract.md#display-and-effects)
 
 | Value | Constructor |
 | --- | --- |
@@ -94,9 +98,9 @@ Scalars use the `markdown` view.
 | Line chart | `Tsugumi::LineChart.new([{id:, label:, x:, y:}, ...])` |
 | Plotly and Vega-Lite | `Tsugumi::Plotly.new(config)`, `Tsugumi::VegaLite.new(config)` |
 
-`Tsugumi.recv(view, timeout_ms)` returns `[status, bytes]`. Status is
-`:message`, `:timeout` or `:cancelled`. A negative timeout waits without
-a deadline. The SDK frames sends in messages of at most 16 MiB. Ruby
+`Tsugumi.recv(timeout_ms)` returns `[kind, route, session, data]`. Kind is
+`:message`, `:close`, `:timeout` or `:cancelled`. The final three values are
+`nil` on timeout or cancellation. A negative timeout waits without a deadline. Ruby
 threads can send and receive after `main` returns. `Tsugumi.cancelled`
 and `Tsugumi.remaining_ms` read the active call's state from any Ruby
 thread. Between calls they return `true` and `0`.

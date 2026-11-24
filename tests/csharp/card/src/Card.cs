@@ -10,6 +10,13 @@ using outputs;
 
 public static class Card
 {
+    private static byte[] Id(byte prefix)
+    {
+        var bytes = new byte[16];
+        bytes[0] = prefix;
+        return bytes;
+    }
+
     public static Output Run(Input input)
     {
         var (number, granted) = input.Arrival switch
@@ -35,20 +42,39 @@ public static class Card
         File.WriteAllText(file, JsonConvert.DeserializeObject<string>("\"test\"")!);
         var uploaded = Artifact.Upload(file);
 
-        var message = Effects.Recv("request", -1);
+        var view = Effects.ViewOpen("listing", ViewMode.Window, 640, 480);
+        var registered = Effects.RouteRegister(view.Session);
+        if (!view.Session.AsSpan().SequenceEqual(Id(0x11)) || !view.Route.AsSpan().SequenceEqual(Id(0x22)) ||
+            !registered.AsSpan().SequenceEqual(Id(0x33)))
+            throw new InvalidOperationException("Unexpected view IDs");
+        var message = Effects.Recv();
         if (message.Status != ReceiveStatus.Message || !message.Bytes.AsSpan().SequenceEqual(new byte[]{42}) ||
-            Effects.Recv("request", 0).Status != ReceiveStatus.Timeout ||
-            Effects.Recv("request", 1).Status != ReceiveStatus.Cancelled)
-            throw new InvalidOperationException("Unexpected receive status");
+            !message.Route.AsSpan().SequenceEqual(registered) || !message.Session.AsSpan().SequenceEqual(view.Session) ||
+            Effects.Recv(0).Status != ReceiveStatus.Timeout ||
+            Effects.Recv(1).Status != ReceiveStatus.Cancelled)
+            throw new InvalidOperationException("Unexpected receive status or address");
+        Effects.RouteUnregister(registered);
 
-        var bytes = new byte[(1 << 24) + 5];
+        var bytes = new byte[1 << 24];
         Array.Fill(bytes, (byte)42);
-        if (Effects.Send("listing", new byte[]{42}) != 0 || Effects.Send("listing", bytes) != 0)
+        if (Effects.Send(view.Session, new byte[]{42}) != 0 || Effects.Send(view.Session, bytes) != 0 ||
+            Effects.Send(view.Session, new byte[(1 << 24) + 5]) >= 0)
             throw new InvalidOperationException("Unexpected send status");
+        var close = Effects.Recv();
+        if (close.Status != ReceiveStatus.Close || close.Bytes.Length != 0 ||
+            !close.Route.AsSpan().SequenceEqual(view.Route) || !close.Session.AsSpan().SequenceEqual(view.Session))
+            throw new InvalidOperationException("Unexpected close event");
         new Thread(() =>
         {
-            var reply = Effects.Recv("background");
-            if (reply.Status == ReceiveStatus.Message) Effects.Send("background", reply.Bytes);
+            var reply = Effects.Recv();
+            if (reply.Status == ReceiveStatus.Message)
+            {
+                var background = Effects.ViewOpen("background");
+                if (!background.Route.AsSpan().SequenceEqual(Id(0x55)) ||
+                    !background.Session.AsSpan().SequenceEqual(Id(0x44)) ||
+                    Effects.Send(background.Session, reply.Bytes) != 0)
+                    throw new InvalidOperationException("Unexpected background view");
+            }
         }) { IsBackground = true }.Start();
 
         return new Output

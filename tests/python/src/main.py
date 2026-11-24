@@ -10,9 +10,9 @@ from outputs.Listing import ListingT
 
 
 def background():
-    status, data = tsugumi.display.recv("background")
-    if status == "message":
-        tsugumi.display.send("background", data)
+    event = tsugumi.recv()
+    if event.kind == "message":
+        tsugumi.send(tsugumi.view_open("background").session, event.data)
 
 
 def run(input: Input) -> Output:
@@ -31,11 +31,21 @@ def run(input: Input) -> Output:
     upload = Artifact.upload(file)
     choice, _ = Artifact.dir()
 
-    assert tsugumi.display.recv("request") == ("message", b"*")
-    assert tsugumi.display.recv("request", 0) == ("timeout", None)
-    assert tsugumi.display.recv("request", 1) == ("cancelled", None)
-    tsugumi.display.send("listing", b"*")
-    tsugumi.display.send("listing", b"*" * ((1 << 24) + 5))
+    view = tsugumi.view_open("listing", tsugumi.ViewMode.WINDOW, 640, 480)
+    route = tsugumi.route_register(view.session)
+    assert tsugumi.recv() == tsugumi.ViewEvent("message", route, view.session, b"*")
+    assert tsugumi.recv(0).kind == "timeout"
+    assert tsugumi.recv(1).kind == "cancelled"
+    tsugumi.route_unregister(route)
+    tsugumi.send(view.session, b"*")
+    tsugumi.send(view.session, b"*" * (1 << 24))
+    try:
+        tsugumi.send(view.session, b"*" * ((1 << 24) + 5))
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("Oversize message was accepted")
+    assert tsugumi.recv() == tsugumi.ViewEvent("close", view.route, view.session, b"")
     Thread(target=background, daemon=True).start()
     return Output(listing=ListingT(
         nested=ChildT(file=artifact),

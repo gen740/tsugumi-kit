@@ -31,14 +31,31 @@ def main(input)
   File.write(file, "test")
   upload = Tsugumi::Artifact.upload(file)
   choice, = Tsugumi::Artifact.dir
-  raise "wrong message" unless Tsugumi.recv("request") == [:message, "*"]
-  raise "wrong timeout" unless Tsugumi.recv("request", 0) == [:timeout, nil]
-  raise "wrong cancellation" unless Tsugumi.recv("request", 1) == [:cancelled, nil]
-  Tsugumi.send("listing", "*")
-  Tsugumi.send("listing", "*" * ((1 << 24) + 5))
+  opener, session = Tsugumi.view_open("listing", Tsugumi::WINDOW, 640, 480)
+  raise "wrong opened view" unless opener == "\x22".b.ljust(16, "\0") && session == "\x11".b.ljust(16, "\0")
+  route = Tsugumi.route_register(session)
+  raise "wrong route" unless route == "\x33".b.ljust(16, "\0")
+  raise "wrong message" unless Tsugumi.recv == [:message, route, session, "*"]
+  raise "wrong timeout" unless Tsugumi.recv(0) == [:timeout, nil, nil, nil]
+  raise "wrong cancellation" unless Tsugumi.recv(1) == [:cancelled, nil, nil, nil]
+  Tsugumi.route_unregister(route)
+  Tsugumi.send(session, "*")
+  Tsugumi.send(session, "*" * (1 << 24))
+  begin
+    Tsugumi.send(session, "*" * ((1 << 24) + 5))
+  rescue RuntimeError => error
+    raise unless error.message == "view message was rejected"
+  else
+    raise "oversize send succeeded"
+  end
+  raise "wrong close" unless Tsugumi.recv == [:close, opener, session, "".b]
   Thread.new do
-    status, bytes = Tsugumi.recv("background")
-    Tsugumi.send("background", bytes) if status == :message
+    kind, _, _, bytes = Tsugumi.recv
+    if kind == :message
+      route, session = Tsugumi.view_open("background")
+      raise "wrong background view" unless route == "\x55".b.ljust(16, "\0") && session == "\x44".b.ljust(16, "\0")
+      Tsugumi.send(session, bytes)
+    end
   end
 
   {listing: {nested: {file: artifact}, files: [upload, granted],

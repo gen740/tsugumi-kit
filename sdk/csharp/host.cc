@@ -13,19 +13,68 @@ using namespace tsugumi::abi;
 using Tsugumi::Card::CardResult;
 using Tsugumi::Card::CardResultT;
 
-auto Send(const char* view, const uint8_t* data, size_t size) noexcept -> int {
+auto ViewOpen(const char* view, uint32_t mode, uint32_t width, uint32_t height,
+              uint8_t* route, uint8_t* session) noexcept -> int {
   try {
-    return SendDisplay(view, {data, size});
+    const auto opened = card::display::view_open(view, mode, width, height);
+    std::memcpy(route, opened.route.bytes, sizeof(opened.route.bytes));
+    std::memcpy(session, opened.session.bytes, sizeof(opened.session.bytes));
+    return 0;
   } catch (...) {
-    return 1;
+    return -1;
   }
 }
 
-auto Recv(const char* view, int64_t timeout, tsugumi_bytes* bytes) noexcept
-    -> int {
+template <class Id>
+auto ReadViewId(const uint8_t* bytes) -> Id {
+  Id id{};
+  std::memcpy(id.bytes, bytes, sizeof(id.bytes));
+  return id;
+}
+
+auto RouteRegister(const uint8_t* session, uint8_t* out) noexcept -> int {
+  try {
+    const auto route = card::display::route_register(
+        ReadViewId<tsugumi_view_session>(session));
+    std::memcpy(out, route.bytes, sizeof(route.bytes));
+    return 0;
+  } catch (...) {
+    return -1;
+  }
+}
+
+auto RouteUnregister(const uint8_t* route) noexcept -> int {
+  try {
+    card::display::route_unregister(ReadViewId<tsugumi_route>(route));
+    return 0;
+  } catch (...) {
+    return -1;
+  }
+}
+
+auto Send(const uint8_t* id, const uint8_t* data, size_t size,
+          int framed) noexcept -> int {
+  try {
+    const auto session = ReadViewId<tsugumi_view_session>(id);
+    return framed ? SendDisplay(session, {data, size})
+                  : card::display::send(session, {data, size});
+  } catch (...) {
+    return -1;
+  }
+}
+
+auto Recv(int64_t timeout, uint8_t* route, uint8_t* session,
+          tsugumi_bytes* bytes) noexcept -> int {
   try {
     static thread_local std::vector<uint8_t> payload;
-    auto received = card::display::recv(view, timeout);
+    auto received = card::display::recv(timeout);
+    using card::display::ReceiveStatus;
+    if (received.status == ReceiveStatus::kMessage ||
+        received.status == ReceiveStatus::kClose) {
+      std::memcpy(route, received.route.bytes, sizeof(received.route.bytes));
+      std::memcpy(session, received.session.bytes,
+                  sizeof(received.session.bytes));
+    }
     payload = std::move(received.bytes);
     *bytes = {payload.data(), payload.size()};
     return static_cast<int>(received.status);
@@ -34,7 +83,8 @@ auto Recv(const char* view, int64_t timeout, tsugumi_bytes* bytes) noexcept
   }
 }
 
-auto ArtifactPath(const std::filesystem::path& path, tsugumi_bytes* out) -> void {
+auto ArtifactPath(const std::filesystem::path& path, tsugumi_bytes* out)
+    -> void {
   static thread_local std::string storage;
   storage = path.native();
   *out = {reinterpret_cast<const uint8_t*>(storage.data()), storage.size()};
@@ -80,6 +130,9 @@ auto RemainingMs() noexcept -> int64_t { return card::remaining_ms(); }
 // No worker structs cross into managed code. The sink copies while the
 // managed result is pinned, and no callback can unwind through the CLR.
 struct ManagedEffects {
+  decltype(&ViewOpen) view_open;
+  decltype(&RouteRegister) route_register;
+  decltype(&RouteUnregister) route_unregister;
   decltype(&Send) send;
   decltype(&Recv) recv;
   decltype(&Cancelled) cancelled;
@@ -89,10 +142,12 @@ struct ManagedEffects {
   decltype(&ArtifactOpen) artifact_open;
 };
 
-constexpr ManagedEffects effects{Send, Recv, Cancelled, RemainingMs,
-                                  ArtifactDir, ArtifactUpload, ArtifactOpen};
+constexpr ManagedEffects effects{
+    ViewOpen,  RouteRegister, RouteUnregister, Send,           Recv,
+    Cancelled, RemainingMs,   ArtifactDir,     ArtifactUpload, ArtifactOpen};
 using Sink = int (*)(void*, const uint8_t*, size_t);
-using Entry = int (*)(const uint8_t*, size_t, const ManagedEffects*, void*, Sink);
+using Entry = int (*)(const uint8_t*, size_t, const ManagedEffects*, void*,
+                      Sink);
 
 auto LoadCard() -> Entry {
   const auto library = ::dlopen(TSUGUMI_HOSTFXR, RTLD_NOW | RTLD_LOCAL);

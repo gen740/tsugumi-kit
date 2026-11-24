@@ -1,11 +1,11 @@
 #include "adapter.hh"
 
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <exception>
 #include <filesystem>
 #include <limits>
-#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -21,14 +21,13 @@ using Tsugumi::Card::CardResultT;
 // Kept until the next call. The worker invokes one call at a time.
 flatbuffers::DetachedBuffer result_buffer;
 
-struct DisplayEffect {
-  decltype(tsugumi_effects::send) send = nullptr;
-  decltype(tsugumi_effects::recv) recv = nullptr;
+struct ViewEffects {
+  tsugumi_effects effects{};
   void* host = nullptr;
 };
 
 // A deadline or cancellation query may block while another thread sends.
-DisplayEffect display_effect;
+ViewEffects view_effects;
 std::mutex display_mutex;
 std::mutex effects_mutex;
 const tsugumi_call* active_call = nullptr;
@@ -38,7 +37,7 @@ class CallEffects {
   explicit CallEffects(const tsugumi_call& call) {
     if (call.effects) {
       const std::lock_guard lock(display_mutex);
-      display_effect = {call.effects->send, call.effects->recv, call.host};
+      view_effects = {*call.effects, call.host};
     }
     const std::lock_guard lock(effects_mutex);
     active_call = &call;
@@ -94,44 +93,32 @@ auto Run(CardBody body, tsugumi_bytes input) -> CardResultT {
 
 }  // namespace
 
-auto GetDisplayEffect() -> DisplayEffect {
+auto GetViewEffects() -> ViewEffects {
   const std::lock_guard lock(display_mutex);
-  return display_effect;
+  return view_effects;
 }
 
-auto SendDisplay(const char* view, tsugumi_bytes bytes) -> int {
-  constexpr auto kHeader = 4 * sizeof(uint32_t);
+auto SendDisplay(const tsugumi_view_session& session, tsugumi_bytes bytes)
+    -> int {
+  constexpr auto kHeader = 5 * sizeof(uint32_t);
   constexpr auto kPayload = TSUGUMI_MESSAGE_MAX - kHeader;
   constexpr uint32_t kMagic = 0x4d475354;
-  struct View {
-    std::mutex mutex;
-    uint32_t next_sequence = 0;
-  };
-  static std::mutex views_mutex;
-  static std::map<std::string, View, std::less<>> views;
-
-  const auto effect = GetDisplayEffect();
-  if (!effect.send) return -1;
+  const auto [effects, host] = GetViewEffects();
+  if (!effects.send) return -1;
   const size_t count = bytes.size ? 1 + (bytes.size - 1) / kPayload : 1;
   if (count > std::numeric_limits<uint32_t>::max()) return -1;
-  View* state;
-  {
-    const std::lock_guard lock(views_mutex);
-    state = &views.try_emplace(view).first->second;
-  }
-  const std::lock_guard lock(state->mutex);
-  const auto sequence = state->next_sequence++;
   std::vector<uint8_t> chunk(kHeader + std::min(bytes.size, kPayload));
+  flatbuffers::WriteScalar(chunk.data(), kMagic);
+  // Several processes can send multipart values to the same session.
+  if (count > 1) arc4random_buf(chunk.data() + 4, 8);
+  flatbuffers::WriteScalar(chunk.data() + 16, static_cast<uint32_t>(count));
   for (size_t index = 0; index < count; ++index) {
     const size_t offset = index * kPayload;
     const size_t size = std::min(bytes.size - offset, kPayload);
-    flatbuffers::WriteScalar(chunk.data(), kMagic);
-    flatbuffers::WriteScalar(chunk.data() + 4, sequence);
-    flatbuffers::WriteScalar(chunk.data() + 8, static_cast<uint32_t>(index));
-    flatbuffers::WriteScalar(chunk.data() + 12, static_cast<uint32_t>(count));
+    flatbuffers::WriteScalar(chunk.data() + 12, static_cast<uint32_t>(index));
     if (size) std::memcpy(chunk.data() + kHeader, bytes.data + offset, size);
     const int status =
-        effect.send(effect.host, view, chunk.data(), kHeader + size);
+        effects.send(host, &session, chunk.data(), kHeader + size);
     if (status != 0) return status;
   }
   return 0;
@@ -249,37 +236,72 @@ auto remaining_ms() -> int64_t {
 
 namespace card::display {
 
-auto send_raw(std::string_view view, std::span<const uint8_t> bytes) -> int {
+auto view_open(std::string_view view, uint32_t mode, uint32_t width,
+               uint32_t height) -> OpenedView {
   if (view.find('\0') != std::string_view::npos)
     throw std::invalid_argument("View names cannot contain a NUL byte");
-  if (bytes.size() > TSUGUMI_MESSAGE_MAX) return -1;
-  const auto effect = tsugumi::abi::GetDisplayEffect();
-  return effect.send ? effect.send(effect.host, std::string(view).c_str(),
-                                   bytes.data(), bytes.size())
-                     : -1;
+  const auto [effects, host] = tsugumi::abi::GetViewEffects();
+  OpenedView opened{};
+  if (!effects.view_open ||
+      effects.view_open(host, std::string(view).c_str(), mode, width, height,
+                        &opened.route, &opened.session) != 0) {
+    throw std::runtime_error("The host could not open the view");
+  }
+  return opened;
 }
 
-auto recv(std::string_view view, int64_t timeout_ms) -> Received {
-  if (view.find('\0') != std::string_view::npos)
-    throw std::invalid_argument("View names cannot contain a NUL byte");
-  const auto effect = tsugumi::abi::GetDisplayEffect();
-  tsugumi_bytes bytes{};
-  const int status = effect.recv
-                         ? effect.recv(effect.host, std::string(view).c_str(),
-                                       &bytes, timeout_ms)
-                         : -1;
+auto route_register(const tsugumi_view_session& session) -> tsugumi_route {
+  const auto [effects, host] = tsugumi::abi::GetViewEffects();
+  tsugumi_route route{};
+  if (!effects.route_register ||
+      effects.route_register(host, &session, &route) != 0) {
+    throw std::runtime_error("The host could not register the route");
+  }
+  return route;
+}
+
+auto route_unregister(const tsugumi_route& route) -> void {
+  const auto [effects, host] = tsugumi::abi::GetViewEffects();
+  if (!effects.route_unregister || effects.route_unregister(host, &route) != 0)
+    throw std::runtime_error("The host could not unregister the route");
+}
+
+auto send_raw(const tsugumi_view_session& session,
+              std::span<const uint8_t> bytes) -> int {
+  if (bytes.size() > TSUGUMI_MESSAGE_MAX) return -1;
+  const auto [effects, host] = tsugumi::abi::GetViewEffects();
+  return effects.send ? effects.send(host, &session, bytes.data(), bytes.size())
+                      : -1;
+}
+
+auto send(const tsugumi_view_session& session, std::span<const uint8_t> bytes)
+    -> int {
+  return send_raw(session, bytes);
+}
+
+auto recv(int64_t timeout_ms) -> Received {
+  const auto [effects, host] = tsugumi::abi::GetViewEffects();
+  tsugumi_view_event event{};
+  const int status = effects.recv ? effects.recv(host, &event, timeout_ms) : -1;
   switch (status) {
     case 0: {
-      Received result{ReceiveStatus::kMessage, {}};
-      if (bytes.size) result.bytes.assign(bytes.data, bytes.data + bytes.size);
+      if (event.kind > 1)
+        throw std::runtime_error("The host returned an unknown view event");
+      Received result{
+          event.kind == 0 ? ReceiveStatus::kMessage : ReceiveStatus::kClose,
+          event.route,
+          event.session,
+          {}};
+      if (event.data.size)
+        result.bytes.assign(event.data.data, event.data.data + event.data.size);
       return result;
     }
     case 1:
-      return {ReceiveStatus::kTimeout, {}};
+      return {ReceiveStatus::kTimeout, {}, {}, {}};
     case 2:
-      return {ReceiveStatus::kCancelled, {}};
+      return {ReceiveStatus::kCancelled, {}, {}, {}};
     default:
-      throw std::runtime_error("The host rejected the display receive");
+      throw std::runtime_error("The host rejected the view receive");
   }
 }
 

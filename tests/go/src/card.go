@@ -60,25 +60,48 @@ func run(input tsugumi.Inputs) (tsugumi.Output, error) {
 	if err != nil {
 		return output, err
 	}
-	data, status, err := tsugumi.Recv("request", -1)
-	if err != nil || status != tsugumi.Message || !bytes.Equal(data, []byte{42}) {
+	opener, session, err := tsugumi.ViewOpen("listing", tsugumi.Window, 640, 480)
+	if err != nil || opener != (tsugumi.Route{0x22}) || session != (tsugumi.ViewSession{0x11}) {
+		return output, fmt.Errorf("unexpected opened view: %v", err)
+	}
+	route, err := tsugumi.RouteRegister(session)
+	if err != nil || route != (tsugumi.Route{0x33}) {
+		return output, fmt.Errorf("unexpected registered route: %v", err)
+	}
+	event, status, err := tsugumi.Recv(-1)
+	if err != nil || status != tsugumi.Received || event.Kind != tsugumi.Message ||
+		event.Route != route || event.Session != session || !bytes.Equal(event.Data, []byte{42}) {
 		return output, fmt.Errorf("unexpected receive message: %v", err)
 	}
-	if _, status, err := tsugumi.Recv("request", 0); err != nil || status != tsugumi.Timeout {
+	if _, status, err := tsugumi.Recv(0); err != nil || status != tsugumi.Timeout {
 		return output, fmt.Errorf("unexpected receive timeout: %v", err)
 	}
-	if _, status, err := tsugumi.Recv("request", 1); err != nil || status != tsugumi.CancelledReceive {
+	if _, status, err := tsugumi.Recv(1); err != nil || status != tsugumi.CancelledReceive {
 		return output, fmt.Errorf("unexpected receive cancellation: %v", err)
 	}
-	for _, size := range []int{1, (1 << 24) + 5} {
-		if err := tsugumi.Send("listing", bytes.Repeat([]byte{42}, size)); err != nil {
+	if err := tsugumi.RouteUnregister(route); err != nil {
+		return output, err
+	}
+	for _, size := range []int{1, 1 << 24} {
+		if err := tsugumi.Send(session, bytes.Repeat([]byte{42}, size)); err != nil {
 			return output, err
 		}
 	}
+	if err := tsugumi.Send(session, bytes.Repeat([]byte{42}, (1<<24)+5)); err == nil {
+		return output, fmt.Errorf("oversize send succeeded")
+	}
+	event, status, err = tsugumi.Recv(-1)
+	if err != nil || status != tsugumi.Received || event.Kind != tsugumi.Close ||
+		event.Route != opener || event.Session != session || len(event.Data) != 0 {
+		return output, fmt.Errorf("unexpected receive close: %v", err)
+	}
 	go func() {
-		reply, status, err := tsugumi.Recv("background", -1)
-		if err == nil && status == tsugumi.Message {
-			_ = tsugumi.Send("background", reply)
+		event, status, err := tsugumi.Recv(-1)
+		if err == nil && status == tsugumi.Received && event.Kind == tsugumi.Message {
+			route, session, err := tsugumi.ViewOpen("background", tsugumi.Panel, 0, 0)
+			if err == nil && route == (tsugumi.Route{0x55}) && session == (tsugumi.ViewSession{0x44}) {
+				_ = tsugumi.Send(session, event.Data)
+			}
 		}
 	}()
 	output.Listing = &outputs.ListingT{

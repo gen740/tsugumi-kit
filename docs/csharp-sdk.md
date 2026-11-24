@@ -71,8 +71,10 @@ Artifact. Call `artifact.Open()` to access the granted read-only directory.
 Return the same object to forward it. The SDK lists IDs from nested tables,
 vectors and unions in each output.
 
-`Effects.Send(view, bytes)` takes a view name and a
-`ReadOnlySpan<byte>`. The `Effects.Send(value)` overloads support text,
+`Effects.ViewOpen(name, mode, width, height)` returns an `OpenedView` with
+`Route` and `Session`. `Effects.Send(session, bytes)` sends one raw message.
+Use `Effects.RouteRegister(session)` and `Effects.RouteUnregister(route)`
+to manage routes. The `Effects.Send(value)` overloads open a panel and support text,
 scalar values, markdown, tables, images, points, line charts, Plotly and
 Vega-Lite. Local argument and encoding errors throw before the host is called.
 The return value is zero when the host accepts the update. A nonzero status
@@ -82,11 +84,12 @@ The C# SDK bundles the `line-chart` and `points` HTML views.
 Declare the matching views in your Card's `default.nix` with
 `views = sdk.views ++ [ ... ];`.
 The bundled `markdown` view displays scalar values.
-See the [view protocol](cpp-sdk.md#display-a-value).
+See the [view protocol](sdk-contract.md#display-and-effects).
 
-The SDK frames and splits sends at the ABI message limit.
-`Effects.Recv(view, timeoutMilliseconds)` reports a message, timeout or
-cancellation. A negative timeout waits without a deadline. Background
+The SDK frames typed values. `Points` and `LineChart` sends also accept an
+existing session. `Effects.Recv(timeoutMilliseconds)` returns a `Received`
+with status `Message`, `Close`, `Timeout` or `Cancelled`. Message and close
+events carry `Route` and `Session`. A negative timeout waits without a deadline. Background
 threads can send and receive between calls.
 `Effects.Cancelled()` and `Effects.RemainingMilliseconds()` can be queried
 from any thread. Between calls they return `true` and `0`, respectively.

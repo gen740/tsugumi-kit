@@ -28,39 +28,6 @@ auto ThrowError(v8::Isolate* isolate, const char* message) -> void {
       v8::String::NewFromUtf8(isolate, message).ToLocalChecked()));
 }
 
-auto Send(const CallbackInfo& args) -> void {
-  auto* isolate = args.GetIsolate();
-  if (!args[0]->IsString() || !args[1]->IsUint8Array()) {
-    ThrowError(isolate, "Expected a view name and Uint8Array");
-    return;
-  }
-  try {
-    const v8::String::Utf8Value view(isolate, args[0]);
-    if (!*view) {
-      ThrowError(isolate, "Cannot encode the display view name");
-      return;
-    }
-    if (std::memchr(*view, 0, view.length())) {
-      ThrowError(isolate, "Expected a view name without NUL bytes");
-      return;
-    }
-    const auto array = args[1].As<v8::Uint8Array>();
-    if (array->HasBuffer() && array->Buffer()->WasDetached()) {
-      ThrowError(isolate, "Display data has a detached buffer");
-      return;
-    }
-    std::vector<uint8_t> bytes(array->ByteLength());
-    if (!bytes.empty() &&
-        array->CopyContents(bytes.data(), bytes.size()) != bytes.size()) {
-      ThrowError(isolate, "Cannot copy the display data");
-      return;
-    }
-    args.GetReturnValue().Set(SendDisplay(*view, {bytes.data(), bytes.size()}));
-  } catch (...) {
-    ThrowError(isolate, "Cannot prepare the display message");
-  }
-}
-
 auto Cancelled(const CallbackInfo& args) -> void {
   try {
     args.GetReturnValue().Set(card::cancelled());
@@ -97,17 +64,110 @@ auto CopyBytes(v8::Isolate* isolate, std::span<const uint8_t> bytes)
   return v8::Uint8Array::New(buffer, 0, bytes.size());
 }
 
+template <class Id>
+auto ReadViewId(Value value) -> Id {
+  Id id{};
+  if (!value->IsUint8Array())
+    throw std::invalid_argument("Expected a 16-byte view ID");
+  const auto bytes = value.As<v8::Uint8Array>();
+  if (bytes->ByteLength() != sizeof(id.bytes) ||
+      bytes->CopyContents(id.bytes, sizeof(id.bytes)) != sizeof(id.bytes))
+    throw std::invalid_argument("Expected a 16-byte view ID");
+  return id;
+}
+
+auto ViewOpen(const CallbackInfo& args) -> void {
+  auto* isolate = args.GetIsolate();
+  const auto context = isolate->GetCurrentContext();
+  try {
+    if (!args[1]->IsUint32() || !args[2]->IsUint32() || !args[3]->IsUint32())
+      throw std::invalid_argument(
+          "Expected an unsigned 32-bit mode and dimensions");
+    const auto opened = card::display::view_open(
+        ViewName(isolate, args[0]), args[1].As<v8::Uint32>()->Value(),
+        args[2].As<v8::Uint32>()->Value(), args[3].As<v8::Uint32>()->Value());
+    const auto result = v8::Object::New(isolate);
+    result
+        ->Set(context, Text(isolate, "route"),
+              CopyBytes(isolate, opened.route.bytes))
+        .Check();
+    result
+        ->Set(context, Text(isolate, "session"),
+              CopyBytes(isolate, opened.session.bytes))
+        .Check();
+    args.GetReturnValue().Set(result);
+  } catch (const std::exception& error) {
+    ThrowError(isolate, error.what());
+  }
+}
+
+auto RouteRegister(const CallbackInfo& args) -> void {
+  auto* isolate = args.GetIsolate();
+  try {
+    const auto route = card::display::route_register(
+        ReadViewId<tsugumi_view_session>(args[0]));
+    args.GetReturnValue().Set(CopyBytes(isolate, route.bytes));
+  } catch (const std::exception& error) {
+    ThrowError(isolate, error.what());
+  }
+}
+
+auto RouteUnregister(const CallbackInfo& args) -> void {
+  try {
+    card::display::route_unregister(ReadViewId<tsugumi_route>(args[0]));
+  } catch (const std::exception& error) {
+    ThrowError(args.GetIsolate(), error.what());
+  }
+}
+
+auto Send(const CallbackInfo& args) -> void {
+  auto* isolate = args.GetIsolate();
+  try {
+    const auto session = ReadViewId<tsugumi_view_session>(args[0]);
+    if (!args[1]->IsUint8Array())
+      throw std::invalid_argument("Expected Uint8Array view data");
+    const auto array = args[1].As<v8::Uint8Array>();
+    if (array->HasBuffer() && array->Buffer()->WasDetached())
+      throw std::invalid_argument("View data has a detached buffer");
+    const bool framed = args[2]->IsTrue();
+    if (!framed && array->ByteLength() > TSUGUMI_MESSAGE_MAX) {
+      args.GetReturnValue().Set(-1);
+      return;
+    }
+    std::vector<uint8_t> bytes(array->ByteLength());
+    if (!bytes.empty() &&
+        array->CopyContents(bytes.data(), bytes.size()) != bytes.size())
+      throw std::runtime_error("Cannot copy the view data");
+    args.GetReturnValue().Set(
+        framed ? SendDisplay(session, {bytes.data(), bytes.size()})
+               : card::display::send(session, bytes));
+  } catch (const std::exception& error) {
+    ThrowError(isolate, error.what());
+  }
+}
+
 auto Receive(const CallbackInfo& args) -> void {
   auto* isolate = args.GetIsolate();
   const auto context = isolate->GetCurrentContext();
   try {
-    const auto timeout = args[1]->IntegerValue(context).FromMaybe(-1);
-    const auto message =
-        card::display::recv(ViewName(isolate, args[0]), timeout);
+    const auto timeout = args[0]->IntegerValue(context).FromMaybe(-1);
+    const auto message = card::display::recv(timeout);
     using card::display::ReceiveStatus;
-    const char* status = "message";
-    if (message.status == ReceiveStatus::kTimeout) status = "timeout";
-    if (message.status == ReceiveStatus::kCancelled) status = "cancelled";
+    const char* status = "";
+    switch (message.status) {
+      case ReceiveStatus::kMessage:
+        status = "message";
+        break;
+      case ReceiveStatus::kClose:
+        status = "close";
+        break;
+      case ReceiveStatus::kTimeout:
+        status = "timeout";
+        break;
+      case ReceiveStatus::kCancelled:
+        status = "cancelled";
+        break;
+    }
     const auto result = v8::Object::New(isolate);
     result->Set(context, Text(isolate, "status"), Text(isolate, status))
         .Check();
@@ -115,6 +175,17 @@ auto Receive(const CallbackInfo& args) -> void {
         ->Set(context, Text(isolate, "bytes"),
               CopyBytes(isolate, message.bytes))
         .Check();
+    if (message.status == ReceiveStatus::kMessage ||
+        message.status == ReceiveStatus::kClose) {
+      result
+          ->Set(context, Text(isolate, "route"),
+                CopyBytes(isolate, message.route.bytes))
+          .Check();
+      result
+          ->Set(context, Text(isolate, "session"),
+                CopyBytes(isolate, message.session.bytes))
+          .Check();
+    }
     args.GetReturnValue().Set(result);
   } catch (const std::exception& error) {
     ThrowError(isolate, error.what());
@@ -167,6 +238,9 @@ auto BindEffects(v8::Local<v8::Object> exports, Value,
         ->Set(context, key, v8::Function::New(context, method).ToLocalChecked())
         .Check();
   };
+  set("viewOpen", ViewOpen);
+  set("routeRegister", RouteRegister);
+  set("routeUnregister", RouteUnregister);
   set("send", Send);
   set("recv", Receive);
   set("artifact", Artifact);

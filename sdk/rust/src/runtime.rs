@@ -1,9 +1,9 @@
 use std::collections::HashMap;
-use std::ffi::{CStr, c_int, c_void};
+use std::ffi::{CStr, c_char, c_int, c_void};
 use std::os::unix::ffi::OsStrExt;
 use std::panic::{AssertUnwindSafe, Location, catch_unwind};
 use std::path::{Component, Path, PathBuf};
-use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
+use std::sync::{Mutex, MutexGuard};
 
 use flatbuffers::{
     FlatBufferBuilder, Follow, ForwardsUOffset, Verifiable, Verifier, VerifierOptions,
@@ -252,10 +252,35 @@ impl Bytes {
     }
 }
 
-type SendEffect =
-    unsafe extern "C" fn(*mut c_void, *const std::ffi::c_char, *const u8, usize) -> c_int;
-type RecvEffect =
-    unsafe extern "C" fn(*mut c_void, *const std::ffi::c_char, *mut Bytes, i64) -> c_int;
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[repr(transparent)]
+pub struct ViewSession(pub [u8; 16]);
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[repr(transparent)]
+pub struct Route(pub [u8; 16]);
+
+#[repr(C)]
+struct ViewEvent {
+    kind: u32,
+    route: Route,
+    session: ViewSession,
+    data: Bytes,
+}
+
+type ViewOpenEffect = unsafe extern "C" fn(
+    *mut c_void,
+    *const c_char,
+    u32,
+    u32,
+    u32,
+    *mut Route,
+    *mut ViewSession,
+) -> c_int;
+type RegisterEffect = unsafe extern "C" fn(*mut c_void, *const ViewSession, *mut Route) -> c_int;
+type UnregisterEffect = unsafe extern "C" fn(*mut c_void, *const Route) -> c_int;
+type SendEffect = unsafe extern "C" fn(*mut c_void, *const ViewSession, *const u8, usize) -> c_int;
+type RecvEffect = unsafe extern "C" fn(*mut c_void, *mut ViewEvent, i64) -> c_int;
 type CancelEffect = unsafe extern "C" fn(*mut c_void) -> c_int;
 type DeadlineEffect = unsafe extern "C" fn(*mut c_void) -> i64;
 type CreateArtifact = unsafe extern "C" fn(*mut c_void, *mut ArtifactId, *mut Bytes) -> c_int;
@@ -265,6 +290,9 @@ type OpenArtifact = unsafe extern "C" fn(*mut c_void, *const ArtifactId, *mut By
 #[derive(Clone, Copy)]
 #[repr(C)]
 pub struct Effects {
+    view_open: Option<ViewOpenEffect>,
+    route_register: Option<RegisterEffect>,
+    route_unregister: Option<UnregisterEffect>,
     send: Option<SendEffect>,
     recv: Option<RecvEffect>,
     cancelled: Option<CancelEffect>,
@@ -280,13 +308,11 @@ struct EffectTarget {
 }
 
 // The host permits effects on Card threads. Call-scoped effects are accessed
-// under ACTIVE, and the send and receive callbacks have process lifetime.
+// under ACTIVE, and the view callbacks have process lifetime.
 unsafe impl Send for EffectTarget {}
 
 static ACTIVE: Mutex<Option<EffectTarget>> = Mutex::new(None);
 static DISPLAY: Mutex<Option<EffectTarget>> = Mutex::new(None);
-static SEND_SEQUENCES: LazyLock<Mutex<HashMap<Vec<u8>, Arc<Mutex<u32>>>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
 static RESULT: Mutex<Vec<u8>> = Mutex::new(Vec::new());
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -329,8 +355,81 @@ pub fn remaining_ms() -> i64 {
     })
 }
 
-pub(crate) fn send_display(view: &CStr, bytes: &[u8]) -> c_int {
-    const PAYLOAD_MAX: usize = (1 << 24) - 16;
+pub(crate) fn open_view(
+    view: &CStr,
+    mode: u32,
+    width: u32,
+    height: u32,
+) -> Result<(Route, ViewSession)> {
+    let mut route = Route::default();
+    let mut session = ViewSession::default();
+    let target = *lock(&DISPLAY);
+    let status = target.and_then(|t| {
+        t.effects.view_open.map(|open| unsafe {
+            open(
+                t.host,
+                view.as_ptr(),
+                mode,
+                width,
+                height,
+                &mut route,
+                &mut session,
+            )
+        })
+    });
+    match status {
+        Some(0) => Ok((route, session)),
+        _ => Err(effect_failure("open view")),
+    }
+}
+
+pub(crate) fn register_route(session: &ViewSession) -> Result<Route> {
+    let mut route = Route::default();
+    let target = *lock(&DISPLAY);
+    let status = target.and_then(|t| {
+        t.effects
+            .route_register
+            .map(|register| unsafe { register(t.host, session, &mut route) })
+    });
+    match status {
+        Some(0) => Ok(route),
+        _ => Err(effect_failure("register view route")),
+    }
+}
+
+pub(crate) fn unregister_route(route: &Route) -> Result<()> {
+    let target = *lock(&DISPLAY);
+    let status = target.and_then(|t| {
+        t.effects
+            .route_unregister
+            .map(|unregister| unsafe { unregister(t.host, route) })
+    });
+    match status {
+        Some(0) => Ok(()),
+        _ => Err(effect_failure("unregister view route")),
+    }
+}
+
+pub(crate) fn send_view(session: &ViewSession, bytes: &[u8]) -> c_int {
+    if bytes.len() > (1 << 24) {
+        return -1;
+    }
+    let target = *lock(&DISPLAY);
+    target
+        .and_then(|t| {
+            t.effects
+                .send
+                .map(|send| unsafe { send(t.host, session, bytes.as_ptr(), bytes.len()) })
+        })
+        .unwrap_or(-1)
+}
+
+pub(crate) fn send_display(session: &ViewSession, bytes: &[u8]) -> c_int {
+    const HEADER: usize = 20;
+    const PAYLOAD_MAX: usize = (1 << 24) - HEADER;
+    unsafe extern "C" {
+        fn arc4random_buf(buffer: *mut c_void, size: usize);
+    }
     let Some(target) = *lock(&DISPLAY) else {
         return -1;
     };
@@ -340,29 +439,23 @@ pub(crate) fn send_display(view: &CStr, bytes: &[u8]) -> c_int {
     let Ok(count) = u32::try_from(bytes.len().max(1).div_ceil(PAYLOAD_MAX)) else {
         return -1;
     };
-    let state = {
-        let mut sequences = lock(&SEND_SEQUENCES);
-        if let Some(state) = sequences.get(view.to_bytes()) {
-            Arc::clone(state)
-        } else {
-            let state = Arc::new(Mutex::new(0));
-            sequences.insert(view.to_bytes().to_vec(), Arc::clone(&state));
-            state
-        }
-    };
-    let mut next = lock(&state);
-    let sequence = *next;
-    *next = next.wrapping_add(1);
-    let mut frame = Vec::with_capacity(16 + bytes.len().min(PAYLOAD_MAX));
+    let mut id = [0u8; 8];
+    if count > 1 {
+        // The system fills the entire writable ID buffer.
+        unsafe { arc4random_buf(id.as_mut_ptr().cast(), id.len()) };
+    }
+    let mut frame = Vec::with_capacity(HEADER + bytes.len().min(PAYLOAD_MAX));
     for index in 0..count {
         let start = index as usize * PAYLOAD_MAX;
         let payload = &bytes[start..bytes.len().min(start + PAYLOAD_MAX)];
         frame.clear();
-        for word in [0x4d475354, sequence, index, count] {
+        frame.extend_from_slice(&0x4d475354u32.to_le_bytes());
+        frame.extend_from_slice(&id);
+        for word in [index, count] {
             frame.extend_from_slice(&word.to_le_bytes());
         }
         frame.extend_from_slice(payload);
-        let status = unsafe { send(target.host, view.as_ptr(), frame.as_ptr(), frame.len()) };
+        let status = unsafe { send(target.host, session, frame.as_ptr(), frame.len()) };
         if status != 0 {
             return status;
         }
@@ -372,27 +465,48 @@ pub(crate) fn send_display(view: &CStr, bytes: &[u8]) -> c_int {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Received {
-    Message(Vec<u8>),
+    Message {
+        route: Route,
+        session: ViewSession,
+        data: Vec<u8>,
+    },
+    Close {
+        route: Route,
+        session: ViewSession,
+    },
     Timeout,
     Cancelled,
 }
 
-pub(crate) fn recv_display(view: &CStr, timeout_ms: i64) -> Result<Received> {
+pub(crate) fn recv_display(timeout_ms: i64) -> Result<Received> {
     let target = *lock(&DISPLAY);
-    let mut bytes = Bytes::from_slice(&[]);
+    let mut event = ViewEvent {
+        kind: 0,
+        route: Route::default(),
+        session: ViewSession::default(),
+        data: Bytes::from_slice(&[]),
+    };
     let status = target
         .and_then(|t| {
             t.effects
                 .recv
-                .map(|recv| unsafe { recv(t.host, view.as_ptr(), &mut bytes, timeout_ms) })
+                .map(|recv| unsafe { recv(t.host, &mut event, timeout_ms) })
         })
         .unwrap_or(-1);
     match status {
-        0 => {
-            let data = copy_effect_bytes(bytes)
-                .ok_or_else(|| effect_failure("receive display message"))?;
-            Ok(Received::Message(data))
+        0 if event.kind == 0 => {
+            let data = copy_effect_bytes(event.data)
+                .ok_or_else(|| effect_failure("receive view message"))?;
+            Ok(Received::Message {
+                route: event.route,
+                session: event.session,
+                data,
+            })
         }
+        0 if event.kind == 1 => Ok(Received::Close {
+            route: event.route,
+            session: event.session,
+        }),
         1 => Ok(Received::Timeout),
         2 => Ok(Received::Cancelled),
         _ => Err(effect_failure("receive display message")),

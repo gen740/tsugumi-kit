@@ -36,29 +36,37 @@ auto run(const Card::Inputs& input) -> Card::Output {
   auto upload = card::Artifact::upload(file);
 
   using card::display::ReceiveStatus;
-  const auto message = card::display::recv("request", -1);
+  const auto view =
+      card::display::view_open("listing", TSUGUMI_VIEW_WINDOW, 640, 480);
+  const auto route = card::display::route_register(view.session);
+  const auto message = card::display::recv();
   if (message.status != ReceiveStatus::kMessage ||
+      !std::ranges::equal(message.route.bytes, route.bytes) ||
+      !std::ranges::equal(message.session.bytes, view.session.bytes) ||
       message.bytes != std::vector<uint8_t>{42} ||
-      card::display::recv("request", 0).status != ReceiveStatus::kTimeout ||
-      card::display::recv("request", 1).status != ReceiveStatus::kCancelled) {
+      card::display::recv(0).status != ReceiveStatus::kTimeout ||
+      card::display::recv(1).status != ReceiveStatus::kCancelled) {
     throw std::runtime_error("Unexpected receive status");
   }
-
-  auto send = [](size_t size) {
-    if (card::display::send("listing", std::vector<uint8_t>(size, 42)) != 0)
-      throw std::runtime_error("Unexpected send status");
-  };
-  const std::vector<uint8_t> raw{0, 42, 255};
-  if (card::display::send_raw("raw", raw) != 0 ||
-      card::display::send_raw("raw", std::vector<uint8_t>((1u << 24) + 1)) >= 0) {
-    throw std::runtime_error("Unexpected raw send status");
+  card::display::route_unregister(route);
+  if (card::display::send(view.session, std::vector<uint8_t>{42}) != 0 ||
+      card::display::send_raw(
+          view.session, std::vector<uint8_t>(TSUGUMI_MESSAGE_MAX, 42)) != 0 ||
+      card::display::send(view.session,
+                          std::vector<uint8_t>(TSUGUMI_MESSAGE_MAX + 5)) >= 0) {
+    throw std::runtime_error("Unexpected view send status");
   }
-  send(1);
-  send((1u << 24) + 5);
+  const auto close = card::display::recv();
+  if (close.status != ReceiveStatus::kClose || !close.bytes.empty() ||
+      !std::ranges::equal(close.route.bytes, view.route.bytes) ||
+      !std::ranges::equal(close.session.bytes, view.session.bytes)) {
+    throw std::runtime_error("Unexpected close event");
+  }
   std::thread background([] {
-    const auto reply = card::display::recv("background", -1);
+    const auto reply = card::display::recv();
     if (reply.status == ReceiveStatus::kMessage)
-      card::display::send("background", reply.bytes);
+      card::display::send(card::display::view_open("background").session,
+                          reply.bytes);
   });
   background.detach();
 

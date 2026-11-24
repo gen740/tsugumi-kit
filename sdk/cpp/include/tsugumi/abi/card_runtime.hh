@@ -11,6 +11,7 @@
 #include <string_view>
 #include <vector>
 
+#include "tsugumi/abi/card_abi.h"
 #include "tsugumi/protocol/artifact_generated.h"
 #include "tsugumi/protocol/card_enums_generated.h"
 
@@ -119,17 +120,30 @@ inline auto text_bytes(std::string_view text) -> std::span<const uint8_t> {
   return {reinterpret_cast<const uint8_t*>(text.data()), text.size()};
 }
 
-enum class ReceiveStatus { kMessage, kTimeout, kCancelled };
+struct OpenedView {
+  tsugumi_route route;
+  tsugumi_view_session session;
+};
+
+enum class ReceiveStatus { kMessage, kClose, kTimeout, kCancelled };
 
 struct Received {
   ReceiveStatus status;
+  tsugumi_route route{};
+  tsugumi_view_session session{};
   std::vector<uint8_t> bytes;
 };
 
-auto recv(std::string_view view, int64_t timeout_ms = -1) -> Received;
-auto send(std::string_view view, std::span<const uint8_t> bytes) -> int;
+auto view_open(std::string_view view, uint32_t mode = TSUGUMI_VIEW_PANEL,
+               uint32_t width = 0, uint32_t height = 0) -> OpenedView;
+auto route_register(const tsugumi_view_session& session) -> tsugumi_route;
+auto route_unregister(const tsugumi_route& route) -> void;
+auto recv(int64_t timeout_ms = -1) -> Received;
+auto send(const tsugumi_view_session& session, std::span<const uint8_t> bytes)
+    -> int;
 // Send one view ABI message without the SDK's HTML framing.
-auto send_raw(std::string_view view, std::span<const uint8_t> bytes) -> int;
+auto send_raw(const tsugumi_view_session& session,
+              std::span<const uint8_t> bytes) -> int;
 auto send(std::string_view text) -> int;
 auto send(Markdown markdown) -> int;
 auto send(double value) -> int;
@@ -137,7 +151,9 @@ auto send(Scalar scalar) -> int;
 auto send(Table table) -> int;
 auto send(Image image) -> int;
 auto send(Points points) -> int;
+auto send(const tsugumi_view_session& session, Points points) -> int;
 auto send(LineChart chart) -> int;
+auto send(const tsugumi_view_session& session, LineChart chart) -> int;
 
 }  // namespace display
 

@@ -6,9 +6,13 @@
 #include <cstdlib>
 #include <thread>
 
+#include "tsugumi/abi/card_abi.h"
+
 namespace {
-using Send = int (*)(const char*, const uint8_t*, size_t);
-using Recv = int (*)(const char*, int64_t, uint8_t**, size_t*);
+using OpenView = int (*)(const char*, uint32_t, uint32_t, uint32_t,
+                         tsugumi_route*, tsugumi_view_session*);
+using Send = int (*)(const tsugumi_view_session*, const uint8_t*, size_t);
+using Recv = int (*)(int64_t, tsugumi_view_event*);
 
 #if defined(__clang__)
 #pragma clang diagnostic push
@@ -29,14 +33,19 @@ auto GetEffect(const char* name) -> Effect {
 }  // namespace
 
 extern "C" auto start_effects() -> SEXP {
+  const auto open_view = GetEffect<OpenView>("view_open");
   const auto send = GetEffect<Send>("send");
   const auto recv = GetEffect<Recv>("recv");
-  std::thread([send, recv] {
-    uint8_t* data = nullptr;
-    size_t size = 0;
-    if (recv("background", -1, &data, &size) == 0)
-      send("background", data, size);
-    std::free(data);
+  std::thread([open_view, send, recv] {
+    tsugumi_view_event event{};
+    if (recv(-1, &event) == 0 && event.kind == 0) {
+      tsugumi_route route{};
+      tsugumi_view_session session{};
+      if (open_view("background", TSUGUMI_VIEW_PANEL, 0, 0, &route, &session) ==
+          0)
+        send(&session, event.data.data, event.data.size);
+    }
+    std::free(const_cast<uint8_t*>(event.data.data));
   }).detach();
   return R_NilValue;
 }

@@ -2,7 +2,38 @@ use std::ffi::CString;
 
 use serde_json::{Value, json};
 
-use crate::runtime::{Failure, FailureKind, Result, recv_display, send_display};
+use crate::runtime::{
+    Failure, FailureKind, Result, open_view, recv_display, register_route, send_display, send_view,
+    unregister_route,
+};
+pub use crate::runtime::{Received, Route, ViewSession};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u32)]
+pub enum ViewMode {
+    Panel = 0,
+    Window = 1,
+    Fullscreen = 2,
+}
+
+pub fn view_open(
+    view: &str,
+    mode: ViewMode,
+    width: u32,
+    height: u32,
+) -> Result<(Route, ViewSession)> {
+    let view =
+        CString::new(view).map_err(|_| invalid_display("View names cannot contain a NUL byte"))?;
+    open_view(&view, mode as u32, width, height)
+}
+
+pub fn route_register(session: &ViewSession) -> Result<Route> {
+    register_route(session)
+}
+
+pub fn route_unregister(route: &Route) -> Result<()> {
+    unregister_route(route)
+}
 
 /// A value that can be sent to a view.
 pub trait DisplayValue {
@@ -10,13 +41,14 @@ pub trait DisplayValue {
     fn send(self) -> Result<()>;
 }
 
-/// Send opaque bytes to a declared view.
+/// Send one opaque ABI message to an open view session.
 #[track_caller]
-pub fn send(view: &str, bytes: &[u8]) -> Result<()> {
-    let Ok(view) = CString::new(view) else {
-        return Err(invalid_display("View names cannot contain a NUL byte"));
-    };
-    let status = send_display(&view, bytes);
+pub fn send(session: &ViewSession, bytes: &[u8]) -> Result<()> {
+    send_status(send_view(session, bytes))
+}
+
+#[track_caller]
+fn send_status(status: i32) -> Result<()> {
     if status == 0 {
         Ok(())
     } else {
@@ -27,13 +59,9 @@ pub fn send(view: &str, bytes: &[u8]) -> Result<()> {
     }
 }
 
-pub use crate::runtime::Received;
-
-/// Wait for a view message, timeout, or cancellation.
-pub fn recv(view: &str, timeout_ms: i64) -> Result<Received> {
-    let view =
-        CString::new(view).map_err(|_| invalid_display("View names cannot contain a NUL byte"))?;
-    recv_display(&view, timeout_ms)
+/// Wait for an event on any route of this process.
+pub fn recv(timeout_ms: i64) -> Result<Received> {
+    recv_display(timeout_ms)
 }
 
 /// Encode a typed value and send it to its corresponding view.
@@ -49,11 +77,17 @@ fn invalid_display(message: &str) -> Failure {
 
 #[track_caller]
 fn builtin(view: &str, config: Value) -> Result<()> {
-    send(view, config.to_string().as_bytes())
+    send_builtin(view, config.to_string().as_bytes())
 }
 
 #[track_caller]
-fn with_binary(view: &str, config: Value, parts: &[&[u8]]) -> Result<()> {
+fn send_builtin(view: &str, bytes: &[u8]) -> Result<()> {
+    let (_, session) = view_open(view, ViewMode::Panel, 0, 0)?;
+    send_status(send_display(&session, bytes))
+}
+
+#[track_caller]
+fn binary_payload(config: Value, parts: &[&[u8]]) -> Result<Vec<u8>> {
     let config = config.to_string();
     let Ok(size) = u32::try_from(config.len()) else {
         return Err(invalid_display("Display metadata is too large"));
@@ -63,7 +97,7 @@ fn with_binary(view: &str, config: Value, parts: &[&[u8]]) -> Result<()> {
     for part in parts {
         payload.extend_from_slice(part);
     }
-    send(view, &payload)
+    Ok(payload)
 }
 
 impl DisplayValue for &str {
@@ -167,11 +201,11 @@ pub struct Image<'a> {
 
 impl DisplayValue for Image<'_> {
     fn send(self) -> Result<()> {
-        with_binary(
-            "image",
+        let bytes = binary_payload(
             json!({"media_type": self.media_type, "alt": self.alt}),
             &[self.bytes],
-        )
+        )?;
+        send_builtin("image", &bytes)
     }
 }
 
@@ -184,6 +218,16 @@ pub struct Points<'a> {
 
 impl DisplayValue for Points<'_> {
     fn send(self) -> Result<()> {
+        send_builtin("points", &self.encode()?)
+    }
+}
+
+impl Points<'_> {
+    pub fn send_to(self, session: &ViewSession) -> Result<()> {
+        send_status(send_display(session, &self.encode()?))
+    }
+
+    fn encode(self) -> Result<Vec<u8>> {
         let count = self.x.len();
         if self.y.len() != count
             || self.z.len() != count
@@ -198,7 +242,7 @@ impl DisplayValue for Points<'_> {
         let y: Vec<u8> = self.y.iter().flat_map(|v| v.to_le_bytes()).collect();
         let z: Vec<u8> = self.z.iter().flat_map(|v| v.to_le_bytes()).collect();
         let colors: Vec<u8> = self.colors.iter().flat_map(|v| v.to_le_bytes()).collect();
-        with_binary("points", json!({"count": count}), &[&x, &y, &z, &colors])
+        binary_payload(json!({"count": count}), &[&x, &y, &z, &colors])
     }
 }
 
@@ -215,6 +259,16 @@ pub struct LineChart<'a> {
 
 impl DisplayValue for LineChart<'_> {
     fn send(self) -> Result<()> {
+        send_builtin("line-chart", &self.encode()?)
+    }
+}
+
+impl LineChart<'_> {
+    pub fn send_to(self, session: &ViewSession) -> Result<()> {
+        send_status(send_display(session, &self.encode()?))
+    }
+
+    fn encode(self) -> Result<Vec<u8>> {
         let mut x = Vec::new();
         let mut y = Vec::new();
         let mut offset = 0;
@@ -232,7 +286,7 @@ impl DisplayValue for LineChart<'_> {
             x.extend(row.x.iter().flat_map(|value| value.to_le_bytes()));
             y.extend(row.y.iter().flat_map(|value| value.to_le_bytes()));
         }
-        with_binary("line-chart", json!({"series": series}), &[&x, &y])
+        binary_payload(json!({"series": series}), &[&x, &y])
     }
 }
 
@@ -241,12 +295,12 @@ pub struct VegaLite<'a>(pub &'a str);
 
 impl DisplayValue for Plotly<'_> {
     fn send(self) -> Result<()> {
-        send("plotly", self.0.as_bytes())
+        send_builtin("plotly", self.0.as_bytes())
     }
 }
 
 impl DisplayValue for VegaLite<'_> {
     fn send(self) -> Result<()> {
-        send("vega-lite", self.0.as_bytes())
+        send_builtin("vega-lite", self.0.as_bytes())
     }
 }

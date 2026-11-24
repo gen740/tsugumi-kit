@@ -25,14 +25,29 @@ function main(input)
     write(file, "test")
     uploaded = upload(Artifact, file)
     choice, _ = dir(Artifact)
-    @assert recv("request") == (:message, UInt8[42])
-    @assert recv("request", 0) == (:timeout, nothing)
-    @assert recv("request", 1) == (:cancelled, nothing)
-    send("listing", UInt8[42])
-    send("listing", fill(UInt8(42), (1 << 24) + 5))
+    view = view_open("listing", VIEW_WINDOW, 640, 480)
+    route = route_register(view.session)
+    id(first) = ntuple(i -> i == 1 ? first : 0x00, 16)
+    @assert view == (; route=id(0x22), session=id(0x11)) && route == id(0x33)
+    @assert recv() == (; kind=:message, route, session=view.session, data=UInt8[42])
+    @assert recv(0) == (; kind=:timeout, route=nothing, session=nothing, data=nothing)
+    @assert recv(1) == (; kind=:cancelled, route=nothing, session=nothing, data=nothing)
+    route_unregister(route)
+    send(view.session, UInt8[42])
+    send(view.session, fill(UInt8(42), 1 << 24))
+    @assert try
+        send(view.session, fill(UInt8(42), (1 << 24) + 5))
+        false
+    catch err
+        err isa ErrorException
+    end
+    @assert recv() == (; kind=:close, route=view.route, session=view.session, data=UInt8[])
     Threads.@spawn begin
-        status, data = recv("background")
-        status === :message && send("background", data)
+        event = recv()
+        if event.kind === :message
+            background = view_open("background")
+            send(background.session, event.data)
+        end
     end
     return (; listing=(; nested=(; file=artifact), files=[uploaded, granted],
                         choice=(; type="File", value=choice), value=params.offset+number))

@@ -24,6 +24,12 @@ public final class Main {
         return ByteBuffer.wrap(bytes);
     }
 
+    private static byte[] id(int prefix) {
+        var bytes = new byte[16];
+        bytes[0] = (byte)prefix;
+        return bytes;
+    }
+
     public static Card.Output run(Card.Input input) throws Exception {
         long number;
         ArtifactT granted;
@@ -59,20 +65,45 @@ public final class Main {
         }
         if (sort.waitFor() != 0) throw new IllegalStateException("Sort tool failed");
 
-        var message = Display.recv("request", -1);
-        if (message.status() != Display.ReceiveStatus.MESSAGE || !Arrays.equals(message.bytes(), new byte[]{42})
-                || Display.recv("request", 0).status() != Display.ReceiveStatus.TIMEOUT
-                || Display.recv("request", 1).status() != Display.ReceiveStatus.CANCELLED) {
-            throw new IllegalStateException("Unexpected receive status");
+        var view = Display.viewOpen("listing", Display.ViewMode.WINDOW, 640, 480);
+        var registered = Display.routeRegister(view.session());
+        if (!Arrays.equals(view.session(), id(0x11)) || !Arrays.equals(view.route(), id(0x22))
+                || !Arrays.equals(registered, id(0x33))) {
+            throw new IllegalStateException("Unexpected view IDs");
         }
+        var message = Display.recv(-1);
+        if (message.status() != Display.ReceiveStatus.MESSAGE || !Arrays.equals(message.bytes(), new byte[]{42})
+                || !Arrays.equals(message.route(), registered) || !Arrays.equals(message.session(), view.session())
+                || Display.recv(0).status() != Display.ReceiveStatus.TIMEOUT
+                || Display.recv(1).status() != Display.ReceiveStatus.CANCELLED) {
+            throw new IllegalStateException("Unexpected receive status or address");
+        }
+        Display.routeUnregister(registered);
 
-        Display.send("listing", new byte[]{42});
-        var data = new byte[(1 << 24) + 5];
-        Arrays.fill(data, (byte) 42);
-        Display.send("listing", data);
+        Display.send(view.session(), new byte[]{42});
+        var data = new byte[1 << 24];
+        Arrays.fill(data, (byte)42);
+        Display.send(view.session(), data);
+        try {
+            Display.send(view.session(), new byte[(1 << 24) + 5]);
+            throw new AssertionError("Oversized send succeeded");
+        } catch (IllegalStateException expected) {
+            // The ABI rejects an oversized raw message.
+        }
+        var close = Display.recv(-1);
+        if (close.status() != Display.ReceiveStatus.CLOSE || close.bytes().length != 0
+                || !Arrays.equals(close.route(), view.route()) || !Arrays.equals(close.session(), view.session())) {
+            throw new IllegalStateException("Unexpected close event");
+        }
         Thread.ofPlatform().daemon().start(() -> {
-            var reply = Display.recv("background", -1);
-            if (reply.status() == Display.ReceiveStatus.MESSAGE) Display.send("background", reply.bytes());
+            var reply = Display.recv(-1);
+            if (reply.status() == Display.ReceiveStatus.MESSAGE) {
+                var background = Display.viewOpen("background");
+                if (!Arrays.equals(background.route(), id(0x55)) || !Arrays.equals(background.session(), id(0x44))) {
+                    throw new IllegalStateException("Unexpected background view IDs");
+                }
+                Display.send(background.session(), reply.bytes());
+            }
         });
 
         var child = new ChildT();

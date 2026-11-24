@@ -1,5 +1,5 @@
 import { types } from "node:util";
-import { recv, send as sendRaw } from "./effects.js";
+import { recv, sendFramed, viewOpen } from "./effects.js";
 
 export class Text {
   constructor(text) { this.text = text; }
@@ -100,11 +100,12 @@ function lineChart({ series }) {
   });
 }
 
-function send(value) {
+function send(value, session) {
+  const publish = (view, bytes) => sendFramed(session ?? viewOpen(view).session, bytes);
   if (value instanceof Text || typeof value === "string") {
     const text = typeof value === "string" ? value : value.text;
     if (typeof text !== "string") throw new TypeError("Expected display text to be a string");
-    return sendRaw(value instanceof Markdown ? "markdown" : "text", metadata({ text }));
+    return publish(value instanceof Markdown ? "markdown" : "text", metadata({ text }));
   }
   if (value instanceof Table) {
     const columns = Array.from(value.columns, String);
@@ -112,7 +113,7 @@ function send(value) {
     if (rows.some(row => row.length !== columns.length)) {
       throw new RangeError("Display table rows must match the column count");
     }
-    return sendRaw("table", metadata({ columns, rows }));
+    return publish("table", metadata({ columns, rows }));
   }
   if (value instanceof Image) {
     if (!types.isUint8Array(value.data)) throw new TypeError("Expected Uint8Array image data");
@@ -121,10 +122,10 @@ function send(value) {
     }
     const bytes = frame({ alt: value.alt, media_type: value.mediaType },
       value.data.length, (bytes, _, offset) => bytes.set(value.data, offset));
-    return sendRaw("image", bytes);
+    return publish("image", bytes);
   }
-  if (value instanceof LineChart) return sendRaw("line-chart", lineChart(value));
-  if (value instanceof Points) return sendRaw("points", points(value));
+  if (value instanceof LineChart) return publish("line-chart", lineChart(value));
+  if (value instanceof Points) return publish("points", points(value));
   throw new TypeError("Unsupported display value");
 }
 
