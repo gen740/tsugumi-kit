@@ -43,7 +43,8 @@ auto ParseNumber(std::string_view field, std::size_t line_number)
 }  // namespace
 
 auto run(const Card::Inputs& input) -> Card::Output {
-  const std::unique_ptr<card::Artifact> original(input.counts->UnPack());
+  const auto* counts = input.get<const tsugumi::Artifact*>("counts");
+  std::unique_ptr<card::Artifact> original(counts->UnPack());
   const auto directory = original->open();
   auto file = std::filesystem::directory_iterator(directory);
   if (file == std::filesystem::directory_iterator() ||
@@ -112,6 +113,6 @@ auto run(const Card::Inputs& input) -> Card::Output {
   card::display::send(card::display::LineChart{series});
   Card::Output output;
   output.filtered = std::move(filtered_artifact);
-  output.original = original;
+  output.original = std::move(*original);
   return output;
 }
