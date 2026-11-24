@@ -18,6 +18,6 @@ upcoming Card ABI integration in Tsugumi.
 | [Write a note with C#](csharp-write-note/) | A C# Card that writes a parameter to an Artifact. |
 | [Write a note with JavaScript](js-write-note/) | A Node.js Card that writes a parameter to a text Artifact and displays its byte count. |
 
-Every Card has a complete `_card.json` for its type and a `README.md` with `title` and `description` front matter. Project templates carry `tsugumi.json` with the target `tsugumiVersion`, and `tsugumi.lock` with the nixpkgs
+Every Card has a complete `_card.json` for its type and a `README.md` with `title` and `description` front matter. Project templates carry `tsugumi.json` with its `formatVersion`, and `tsugumi.lock` with the nixpkgs
 and SDK source pins. Card-only templates use the destination project's
 `nixPath`. See the [template guide](../docs/templates.md) for the format and Git import fields.
