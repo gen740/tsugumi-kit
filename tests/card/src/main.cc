@@ -39,8 +39,9 @@ auto run(const Card::Inputs& input) -> Card::Output {
   auto upload = card::Artifact::upload(file);
 
   using card::display::ReceiveStatus;
-  const auto view =
-      card::display::view_open("listing", TSUGUMI_VIEW_WINDOW, 640, 480);
+  const auto view = card::display::view_open(
+      "listing", TSUGUMI_VIEW_WINDOW,
+      TSUGUMI_VIEW_HIDE_CURSOR | TSUGUMI_VIEW_LOCK_POINTER, 640, 480);
   const auto route = card::display::route_register(view.session);
   const auto message = card::display::recv();
   if (message.status != ReceiveStatus::kMessage ||

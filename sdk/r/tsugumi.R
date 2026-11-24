@@ -19,8 +19,11 @@ VIEW_PANEL <- 0L
 VIEW_WINDOW <- 1L
 VIEW_FULLSCREEN <- 2L
 
-view_open <- function(view, mode = VIEW_PANEL, width = 0L, height = 0L) {
-  result <- .Call(tsugumi_r_view_open, view, mode, width, height)
+VIEW_HIDE_CURSOR <- 1L
+VIEW_LOCK_POINTER <- 2L
+
+view_open <- function(view, mode = VIEW_PANEL, flags = 0L, width = 0L, height = 0L) {
+  result <- .Call(tsugumi_r_view_open, view, mode, flags, width, height)
   setNames(result, c("route", "session"))
 }
 

@@ -58,15 +58,15 @@ auto ReadViewId(JNIEnv* env, jbyteArray array, Id& id) -> bool {
   return !env->ExceptionCheck();
 }
 
-auto ViewOpen(JNIEnv* env, jclass, jbyteArray view, jint mode, jlong width,
-              jlong height, jbyteArray route, jbyteArray session) noexcept
-    -> void {
+auto ViewOpen(JNIEnv* env, jclass, jbyteArray view, jint mode, jlong flags,
+              jlong width, jlong height, jbyteArray route,
+              jbyteArray session) noexcept -> void {
   try {
     const auto name = ReadString(env, view);
     if (env->ExceptionCheck()) return;
     const auto opened = card::display::view_open(
-        name, static_cast<uint32_t>(mode), static_cast<uint32_t>(width),
-        static_cast<uint32_t>(height));
+        name, static_cast<uint32_t>(mode), static_cast<uint32_t>(flags),
+        static_cast<uint32_t>(width), static_cast<uint32_t>(height));
     env->SetByteArrayRegion(route, 0, sizeof(opened.route.bytes),
                             reinterpret_cast<const jbyte*>(opened.route.bytes));
     if (!env->ExceptionCheck())
@@ -392,7 +392,7 @@ class Jvm {
     jclass effects = LoadClass(env, loader, "tsugumi.Effects");
     if (!effects) return false;
     const JNINativeMethod methods[] = {
-        {const_cast<char*>("viewOpen"), const_cast<char*>("([BIJJ[B[B)V"),
+        {const_cast<char*>("viewOpen"), const_cast<char*>("([BIJJJ[B[B)V"),
          reinterpret_cast<void*>(ViewOpen)},
         {const_cast<char*>("routeRegister"), const_cast<char*>("([B)[B"),
          reinterpret_cast<void*>(RouteRegister)},

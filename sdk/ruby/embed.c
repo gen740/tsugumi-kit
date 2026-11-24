@@ -24,16 +24,18 @@ static void read_view_id(VALUE value, uint8_t* id) {
 
 static uint32_t view_number(VALUE value) {
   if (!RB_INTEGER_TYPE_P(value))
-    rb_raise(rb_eTypeError, "Expected an integer view mode or dimension");
+    rb_raise(rb_eTypeError,
+             "Expected an integer view mode, flags or dimension");
   const unsigned long long number = NUM2ULL(value);
   if (number > UINT32_MAX)
-    rb_raise(rb_eRangeError, "View mode or dimension is out of range");
+    rb_raise(rb_eRangeError, "View mode, flags or dimension is out of range");
   return (uint32_t)number;
 }
 
 struct open_request {
   const char* view;
   uint32_t mode;
+  uint32_t flags;
   uint32_t width;
   uint32_t height;
   uint8_t route[16];
@@ -43,20 +45,21 @@ struct open_request {
 
 static void* open_without_gvl(void* opaque) {
   struct open_request* request = opaque;
-  request->status =
-      tsugumi_ruby_view_open(request->view, request->mode, request->width,
-                             request->height, request->route, request->session);
+  request->status = tsugumi_ruby_view_open(
+      request->view, request->mode, request->flags, request->width,
+      request->height, request->route, request->session);
   return NULL;
 }
 
-static VALUE view_open(VALUE self, VALUE view, VALUE mode, VALUE width,
-                       VALUE height) {
+static VALUE view_open(VALUE self, VALUE view, VALUE mode, VALUE flags,
+                       VALUE width, VALUE height) {
   (void)self;
   Check_Type(view, T_STRING);
   VALUE name = rb_str_new_frozen(view);
   struct open_request request = {
       .view = StringValueCStr(name),
       .mode = view_number(mode),
+      .flags = view_number(flags),
       .width = view_number(width),
       .height = view_number(height),
       .status = -1,
@@ -238,7 +241,7 @@ static VALUE initialize(VALUE unused) {
   (void)unused;
   VALUE package = rb_module_new();
   VALUE host = rb_define_module_under(package, "TsugumiHost");
-  rb_define_singleton_method(host, "view_open", view_open, 4);
+  rb_define_singleton_method(host, "view_open", view_open, 5);
   rb_define_singleton_method(host, "route_register", route_register, 1);
   rb_define_singleton_method(host, "route_unregister", route_unregister, 1);
   rb_define_singleton_method(host, "send_bytes", send_bytes, 3);

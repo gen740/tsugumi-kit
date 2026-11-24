@@ -62,7 +62,7 @@ be omitted.
 parameters. Parameter values affect the run build. The API derivation
 depends on parameter types.
 
-`tsugumi.ViewOpen(name, mode, width, height)` returns a route, a session,
+`tsugumi.ViewOpen(name, mode, flags, width, height)` returns a route, a session,
 and an error. `tsugumi.Send(session, bytes)` sends one raw byte slice.
 Use `RouteRegister(session)` to create a route and `RouteUnregister(route)`
 to release it. `tsugumi.SendValue(value)` opens a panel and encodes strings,
@@ -71,6 +71,9 @@ numbers, `Markdown`, `Scalar`,
 their corresponding views. Local argument and encoding errors are returned
 before calling the host. A nonzero host status produces a transport error
 indicating the host could not accept the message.
+
+Pass `0` for default pointer behavior or combine `tsugumi.HideCursor`
+and `tsugumi.LockPointer` with `|`.
 
 The SDK bundles the `line-chart` and `points` HTML views.
 Declare the matching views in your Card's `default.nix` with

@@ -55,8 +55,11 @@ module Tsugumi
   FULLSCREEN = 2
 
   # Return the opener's route and the new session as 16-byte Strings.
-  def self.view_open(view, mode = PANEL, width = 0, height = 0)
-    TsugumiHost.view_open(view, mode, width, height)
+  HIDE_CURSOR = 1
+  LOCK_POINTER = 2
+
+  def self.view_open(view, mode = PANEL, flags = 0, width = 0, height = 0)
+    TsugumiHost.view_open(view, mode, flags, width, height)
   end
 
   def self.route_register(session) = TsugumiHost.route_register(session)

@@ -270,6 +270,7 @@ type ViewOpenEffect = unsafe extern "C" fn(
     u32,
     u32,
     u32,
+    u32,
     *mut Route,
     *mut ViewSession,
 ) -> c_int;
@@ -360,6 +361,7 @@ pub fn remaining_ms() -> i64 {
 pub(crate) fn open_view(
     view: &CStr,
     mode: u32,
+    flags: u32,
     width: u32,
     height: u32,
 ) -> Result<(Route, ViewSession)> {
@@ -372,6 +374,7 @@ pub(crate) fn open_view(
                 t.host,
                 view.as_ptr(),
                 mode,
+                flags,
                 width,
                 height,
                 &mut route,

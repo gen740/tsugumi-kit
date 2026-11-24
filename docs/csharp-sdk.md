@@ -79,7 +79,7 @@ the project whose ID the Card knows. It throws when the Artifact was not kept
 after its run, was deleted or is not in this project. Return the same object
 to forward it.
 
-`Effects.ViewOpen(name, mode, width, height)` returns an `OpenedView` with
+`Effects.ViewOpen(name, mode, flags, width, height)` returns an `OpenedView` with
 `Route` and `Session`. `Effects.Send(session, bytes)` sends one raw message.
 Use `Effects.RouteRegister(session)` and `Effects.RouteUnregister(route)`
 to manage routes. The `Effects.Send(value)` overloads open a panel and support text,
@@ -87,6 +87,9 @@ scalar values, markdown, tables, images, points, line charts, Plotly and
 Vega-Lite. Local argument and encoding errors throw before the host is called.
 The return value is zero when the host accepts the update. A nonzero status
 means the host could not accept the message.
+
+Combine `ViewFlags.HideCursor` and `ViewFlags.LockPointer` with `|`.
+The default is `ViewFlags.None`.
 
 The C# SDK bundles the `line-chart` and `points` HTML views.
 Declare the matching views in your Card's `default.nix` with

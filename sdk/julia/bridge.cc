@@ -135,11 +135,12 @@ extern "C" auto EmitDisplay(const char* kind, const char* payload,
   }
 }
 
-extern "C" auto OpenView(const char* view, uint32_t mode, uint32_t width,
-                         uint32_t height, tsugumi_route* route,
+extern "C" auto OpenView(const char* view, uint32_t mode, uint32_t flags,
+                         uint32_t width, uint32_t height, tsugumi_route* route,
                          tsugumi_view_session* session) noexcept -> int {
   try {
-    const auto opened = card::display::view_open(view, mode, width, height);
+    const auto opened =
+        card::display::view_open(view, mode, flags, width, height);
     *route = opened.route;
     *session = opened.session;
     return 0;

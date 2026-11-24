@@ -34,21 +34,27 @@ public final class Display {
     public enum ReceiveStatus { MESSAGE, CLOSE, TIMEOUT, CANCELLED }
     public record Received(ReceiveStatus status, byte[] bytes, byte[] route, byte[] session) {}
 
+    public static final long HIDE_CURSOR = 1;
+    public static final long LOCK_POINTER = 2;
+
     public static OpenedView viewOpen(String view) {
-        return viewOpen(view, ViewMode.PANEL, 0, 0);
+        return viewOpen(view, ViewMode.PANEL, 0, 0, 0);
     }
 
     /** Open a declared view, with an optional initial size for WINDOW. */
-    public static OpenedView viewOpen(String view, ViewMode mode, long width, long height) {
+    public static OpenedView viewOpen(String view, ViewMode mode, long flags, long width, long height) {
         if (view.indexOf(0) >= 0) {
             throw new IllegalArgumentException("View names cannot contain a NUL byte");
         }
         if (width < 0 || width > 0xffffffffL || height < 0 || height > 0xffffffffL) {
             throw new IllegalArgumentException("Expected unsigned 32-bit dimensions");
         }
+        if (flags < 0 || flags > 0xffffffffL) {
+            throw new IllegalArgumentException("Expected unsigned 32-bit view flags");
+        }
         var route = new byte[16];
         var session = new byte[16];
-        Effects.viewOpen(view.getBytes(UTF_8), mode.ordinal(), width, height, route, session);
+        Effects.viewOpen(view.getBytes(UTF_8), mode.ordinal(), flags, width, height, route, session);
         return new OpenedView(route, session);
     }
 

@@ -13,10 +13,12 @@ using namespace tsugumi::abi;
 using tsugumi::abi::ResultBuffer;
 using Tsugumi::Card::CardResult;
 
-auto ViewOpen(const char* view, uint32_t mode, uint32_t width, uint32_t height,
-              uint8_t* route, uint8_t* session) noexcept -> int {
+auto ViewOpen(const char* view, uint32_t mode, uint32_t flags, uint32_t width,
+              uint32_t height, uint8_t* route, uint8_t* session) noexcept
+    -> int {
   try {
-    const auto opened = card::display::view_open(view, mode, width, height);
+    const auto opened =
+        card::display::view_open(view, mode, flags, width, height);
     std::memcpy(route, opened.route.bytes, sizeof(opened.route.bytes));
     std::memcpy(session, opened.session.bytes, sizeof(opened.session.bytes));
     return 0;

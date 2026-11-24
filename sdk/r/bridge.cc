@@ -119,12 +119,13 @@ extern "C" auto tsugumi_r_display(const char* request, int* status) noexcept
 }
 
 extern "C" auto tsugumi_r_view_open(const char* view, uint32_t mode,
-                                    uint32_t width, uint32_t height,
-                                    tsugumi_route* route,
+                                    uint32_t flags, uint32_t width,
+                                    uint32_t height, tsugumi_route* route,
                                     tsugumi_view_session* session) noexcept
     -> int {
   try {
-    const auto opened = card::display::view_open(view, mode, width, height);
+    const auto opened =
+        card::display::view_open(view, mode, flags, width, height);
     *route = opened.route;
     *session = opened.session;
     return 0;

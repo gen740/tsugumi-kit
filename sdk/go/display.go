@@ -71,9 +71,16 @@ const (
 	Fullscreen
 )
 
+type ViewFlags uint32
+
+const (
+	HideCursor ViewFlags = 1 << iota
+	LockPointer
+)
+
 // ViewOpen opens a declared view and returns the opener's route and session.
 // Window mode can specify both dimensions in logical pixels or leave both zero.
-func ViewOpen(view string, mode ViewMode, width, height uint32) (Route, ViewSession, error) {
+func ViewOpen(view string, mode ViewMode, flags ViewFlags, width, height uint32) (Route, ViewSession, error) {
 	var route Route
 	var session ViewSession
 	if strings.IndexByte(view, 0) >= 0 {
@@ -81,7 +88,7 @@ func ViewOpen(view string, mode ViewMode, width, height uint32) (Route, ViewSess
 	}
 	name := C.CString(view)
 	defer C.free(unsafe.Pointer(name))
-	if C.tsugumi_go_view_open(name, C.uint32_t(mode), C.uint32_t(width), C.uint32_t(height),
+	if C.tsugumi_go_view_open(name, C.uint32_t(mode), C.uint32_t(flags), C.uint32_t(width), C.uint32_t(height),
 		bytesPointer(route[:]), bytesPointer(session[:])) != 0 {
 		return Route{}, ViewSession{}, fmt.Errorf("the host rejected the view open")
 	}
@@ -171,7 +178,7 @@ func SendValue(value any) error {
 	if err != nil {
 		return err
 	}
-	_, session, err := ViewOpen(message.view, Panel, 0, 0)
+	_, session, err := ViewOpen(message.view, Panel, 0, 0, 0)
 	if err != nil {
 		return err
 	}

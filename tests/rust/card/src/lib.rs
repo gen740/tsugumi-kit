@@ -45,7 +45,13 @@ fn run(input: Inputs<'_>) -> Result<Output> {
     std::fs::write(&file, "test")?;
     let upload = Artifact::upload(file)?;
 
-    let (opener, session) = tsugumi::view_open("listing", tsugumi::ViewMode::Window, 640, 480)?;
+    let (opener, session) = tsugumi::view_open(
+        "listing",
+        tsugumi::ViewMode::Window,
+        tsugumi::VIEW_HIDE_CURSOR | tsugumi::VIEW_LOCK_POINTER,
+        640,
+        480,
+    )?;
     let route = tsugumi::route_register(&session)?;
     if tsugumi::recv(-1)?
         != (Received::Message {
@@ -72,7 +78,7 @@ fn run(input: Inputs<'_>) -> Result<Output> {
     }
     std::thread::spawn(|| {
         if let Ok(Received::Message { data, .. }) = tsugumi::recv(-1) {
-            let (_, session) = tsugumi::view_open("background", tsugumi::ViewMode::Panel, 0, 0)
+            let (_, session) = tsugumi::view_open("background", tsugumi::ViewMode::Panel, 0, 0, 0)
                 .expect("Open background view");
             let _ = tsugumi::send(&session, &data);
         }

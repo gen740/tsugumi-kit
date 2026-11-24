@@ -16,15 +16,19 @@ pub enum ViewMode {
     Fullscreen = 2,
 }
 
+pub const VIEW_HIDE_CURSOR: u32 = 1;
+pub const VIEW_LOCK_POINTER: u32 = 2;
+
 pub fn view_open(
     view: &str,
     mode: ViewMode,
+    flags: u32,
     width: u32,
     height: u32,
 ) -> Result<(Route, ViewSession)> {
     let view =
         CString::new(view).map_err(|_| invalid_display("View names cannot contain a NUL byte"))?;
-    open_view(&view, mode as u32, width, height)
+    open_view(&view, mode as u32, flags, width, height)
 }
 
 pub fn route_register(session: &ViewSession) -> Result<Route> {
@@ -82,7 +86,7 @@ fn builtin(view: &str, config: Value) -> Result<()> {
 
 #[track_caller]
 fn send_builtin(view: &str, bytes: &[u8]) -> Result<()> {
-    let (_, session) = view_open(view, ViewMode::Panel, 0, 0)?;
+    let (_, session) = view_open(view, ViewMode::Panel, 0, 0, 0)?;
     send_status(send_display(&session, bytes))
 }
 

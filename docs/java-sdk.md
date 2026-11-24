@@ -125,8 +125,8 @@ Line series require equal-length finite axes. Points require axes of equal
 length and either zero colors or one color per point. The points view skips
 non-finite positions.
 
-Use `Display.viewOpen(name)` to open a declared custom view, then
-`Display.send(opened.session(), bytes)` to send a raw `byte[]` message. Add its
+Use `Display.viewOpen(name, mode, flags, width, height)` to open a declared
+custom view, then call `Display.send(opened.session(), bytes)` to send a raw `byte[]` message. Add its
 `{ name; type; blob; }` entry with `views = sdk.views ++ [ ... ];`.
 Use `Display.routeRegister(session)` and `Display.routeUnregister(route)`
 to manage routes. The SDK frames typed values. `Points` and `LineChart`
@@ -135,6 +135,9 @@ a `Received` with status `MESSAGE`, `CLOSE`, `TIMEOUT` or `CANCELLED`.
 Message and close events carry the route and session. A negative timeout
 waits without a deadline. Card threads can send and receive between
 invocations. See the [view protocol](sdk-contract.md#display-and-effects).
+
+Combine `Display.HIDE_CURSOR` and `Display.LOCK_POINTER` with `|`.
+`Display.viewOpen(name)` opens a panel with zero flags.
 
 ## Cancellation and failures
 

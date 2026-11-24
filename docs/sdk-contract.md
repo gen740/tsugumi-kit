@@ -145,6 +145,13 @@ and an opener route. The initial presentation can be a panel, a window or
 fullscreen. Window sizing uses logical pixels. Specify both dimensions or
 use `0, 0` to let the UI choose. Panel and fullscreen require `0, 0`.
 Unknown names and modes, and invalid dimension pairs, are errors.
+The public argument order is `name, mode, flags, width, height`.
+Flags form a 32-bit unsigned bitmask. Pass zero for the default, bit 0
+(`HIDE_CURSOR`) to hide the cursor or bit 1 (`LOCK_POINTER`) to request
+pointer lock. Both bits can be set together. While locked, Dawn pointer
+callbacks receive relative movement in `x` and `y`. The user can release
+pointer lock. A Card running without a UI still receives a session and
+route. Its sends are dropped and it receives no events from that session.
 
 A session identifies one open view. `send` addresses that session and
 carries up to `TSUGUMI_MESSAGE_MAX` bytes (16 MiB) per ABI message.
@@ -191,6 +198,10 @@ Read incoming data with `tsugumi_view_read` inside `tsugumi_view_message`.
 Reply with `tsugumi_view_send(route, data, size)`. Pass 16 zero bytes for
 the opener's route or the ID of another route registered to this view.
 
+Build C view sources with `sdk.dawnView { inherit name src; }` from the
+C++ kit. See the [Dawn SDK guide](dawn-sdk.md) for the clock, optional
+callbacks, input helpers and embedded font atlas.
+
 ## Check every SDK
 
 Use `nix/contract-check.nix { inherit pkgs; }` with the language's `name`,
@@ -200,7 +211,8 @@ in that language following `tests/card/src/main.cc` or
 member, a direct Artifact, nested Artifact listing in a table, vector and
 union, forwarding, the keep flags of `dir`, `upload` and `dir` with keep
 false, an unknown Artifact ID, required and optional outputs, malformed
-inputs, opening a session, registering and unregistering a route, raw bytes
+inputs, opening sessions with combined flags and with zero flags,
+registering and unregistering a route, raw bytes
 per message, receive statuses, and close events with their session and route
 IDs. It also exercises send and receive after the entry point returns.
 `tests/view-reassembly.mjs` exercises HTML framing independently.

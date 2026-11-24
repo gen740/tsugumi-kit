@@ -5,13 +5,13 @@ from _tsugumi_host import cancelled, remaining_ms
 from . import _display as display
 from ._display import (
     Image, LineChart, LineSeries, Markdown, OpenedView, Plotly, Points, Scalar, Table,
-    ViewEvent, ViewMode, recv, route_register, route_unregister, send, view_open,
+    ViewEvent, ViewFlags, ViewMode, recv, route_register, route_unregister, send, view_open,
 )
 
 __all__ = [
     "display", "Failure", "Image", "LineChart", "LineSeries", "Markdown", "Plotly",
     "Points", "Scalar", "Table",
-    "OpenedView", "ViewEvent", "ViewMode", "cancelled", "recv", "remaining_ms",
+    "OpenedView", "ViewEvent", "ViewMode", "ViewFlags", "cancelled", "recv", "remaining_ms",
     "route_register", "route_unregister", "send", "view_open",
 ]
 

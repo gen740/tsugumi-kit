@@ -33,7 +33,8 @@ export type ViewEvent = Readonly<
   | { status: "message" | "close"; route: Uint8Array; session: Uint8Array; bytes: Uint8Array }
   | { status: "timeout" | "cancelled"; bytes: Uint8Array }
 >;
-export function viewOpen(view: string, mode?: ViewMode, width?: number, height?: number): OpenedView;
+export const ViewFlags: Readonly<{ NONE: 0; HIDE_CURSOR: 1; LOCK_POINTER: 2 }>;
+export function viewOpen(view: string, mode?: ViewMode, flags?: number, width?: number, height?: number): OpenedView;
 export function routeRegister(session: Uint8Array): Uint8Array;
 export function routeUnregister(route: Uint8Array): void;
 export function send(session: Uint8Array, bytes: Uint8Array): number;

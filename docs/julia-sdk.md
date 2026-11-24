@@ -89,7 +89,7 @@ nonfinite floats. You can also return Julia's nonfinite float values.
 A `[ubyte]` field uses standard padded base64, with `base64encode` and
 `base64decode` available from Julia's `Base64` standard library.
 
-`view_open(name)` returns a named tuple with `route` and `session`.
+`view_open(name, mode, flags, width, height)` returns a named tuple with `route` and `session`.
 `send(session, bytes)` sends one raw `AbstractVector{UInt8}` message.
 Use `route_register(session)` and `route_unregister(route)` to manage routes.
 `send(value)` opens a panel and supports strings, real scalars,
@@ -97,6 +97,9 @@ Use `route_register(session)` and `route_unregister(route)` to manage routes.
 `Plotly`, and `VegaLite`. Local argument and encoding errors throw before
 calling the host. If the host cannot accept the message, `send` throws
 `ErrorException("display was rejected")`.
+
+Combine `VIEW_HIDE_CURSOR` and `VIEW_LOCK_POINTER` with `|`.
+The default flags value is zero.
 
 The SDK bundles the `line-chart` and `points` HTML views.
 Declare the matching views in your Card's `default.nix` with

@@ -7,7 +7,7 @@ generated API under `share/tsugumi/api/`.
 Open a declared view and send raw bytes to its session.
 
 ```r
-opened <- view_open("preview", VIEW_WINDOW, 640L, 480L)
+opened <- view_open("preview", VIEW_WINDOW, bitwOr(VIEW_HIDE_CURSOR, VIEW_LOCK_POINTER), 640L, 480L)
 send(opened$session, charToRaw("ready"))
 event <- recv(timeout_ms = 500L)
 ```

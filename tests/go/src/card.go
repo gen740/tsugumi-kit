@@ -60,7 +60,7 @@ func run(input tsugumi.Inputs) (tsugumi.Output, error) {
 	if err != nil {
 		return output, err
 	}
-	opener, session, err := tsugumi.ViewOpen("listing", tsugumi.Window, 640, 480)
+	opener, session, err := tsugumi.ViewOpen("listing", tsugumi.Window, tsugumi.HideCursor|tsugumi.LockPointer, 640, 480)
 	if err != nil || opener != (tsugumi.Route{0x22}) || session != (tsugumi.ViewSession{0x11}) {
 		return output, fmt.Errorf("unexpected opened view: %v", err)
 	}
@@ -98,7 +98,7 @@ func run(input tsugumi.Inputs) (tsugumi.Output, error) {
 	go func() {
 		event, status, err := tsugumi.Recv(-1)
 		if err == nil && status == tsugumi.Received && event.Kind == tsugumi.Message {
-			route, session, err := tsugumi.ViewOpen("background", tsugumi.Panel, 0, 0)
+			route, session, err := tsugumi.ViewOpen("background", tsugumi.Panel, 0, 0, 0)
 			if err == nil && route == (tsugumi.Route{0x55}) && session == (tsugumi.ViewSession{0x44}) {
 				_ = tsugumi.Send(session, event.Data)
 			}

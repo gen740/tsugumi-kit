@@ -5,7 +5,7 @@ import math
 import struct
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from enum import IntEnum
+from enum import IntEnum, IntFlag
 from functools import singledispatch
 from numbers import Real
 from operator import index
@@ -18,6 +18,12 @@ class ViewMode(IntEnum):
     PANEL = 0
     WINDOW = 1
     FULLSCREEN = 2
+
+
+class ViewFlags(IntFlag):
+    NONE = 0
+    HIDE_CURSOR = 1
+    LOCK_POINTER = 2
 
 
 @dataclass(frozen=True)
@@ -34,13 +40,18 @@ class ViewEvent:
     data: bytes | None
 
 
-def view_open(view: str, mode: ViewMode = ViewMode.PANEL, width: int = 0,
-              height: int = 0) -> OpenedView:
+def view_open(
+    view: str,
+    mode: ViewMode = ViewMode.PANEL,
+    flags: int = ViewFlags.NONE,
+    width: int = 0,
+    height: int = 0,
+) -> OpenedView:
     """Open a declared view and return its 16-byte route and session."""
-    mode, width, height = map(index, (mode, width, height))
-    if not all(0 <= field < 2**32 for field in (mode, width, height)):
-        raise ValueError("Expected unsigned 32-bit view mode and dimensions")
-    return OpenedView(*_host.view_open(view, mode, width, height))
+    mode, flags, width, height = map(index, (mode, flags, width, height))
+    if not all(0 <= field < 2**32 for field in (mode, flags, width, height)):
+        raise ValueError("Expected unsigned 32-bit view mode, flags and dimensions")
+    return OpenedView(*_host.view_open(view, mode, flags, width, height))
 
 
 def route_register(session: bytes) -> bytes:

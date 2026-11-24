@@ -20,6 +20,8 @@ public sealed record LineChart(Series[] Series);
 public sealed record Plotly(string Config);
 public sealed record VegaLite(string Config);
 public enum ViewMode : uint { Panel, Window, Fullscreen }
+[Flags]
+public enum ViewFlags : uint { None = 0, HideCursor = 1, LockPointer = 2 }
 public sealed record OpenedView(byte[] Route, byte[] Session);
 public enum ReceiveStatus { Message, Close, Timeout, Cancelled }
 public sealed record Received(ReceiveStatus Status, byte[] Bytes, byte[]? Route, byte[]? Session);
@@ -36,7 +38,7 @@ internal unsafe struct NativeBytes
 [StructLayout(LayoutKind.Sequential)]
 internal unsafe struct NativeEffects
 {
-    internal delegate* unmanaged[Cdecl]<byte*, uint, uint, uint, byte*, byte*, int> ViewOpen;
+    internal delegate* unmanaged[Cdecl]<byte*, uint, uint, uint, uint, byte*, byte*, int> ViewOpen;
     internal delegate* unmanaged[Cdecl]<byte*, byte*, int> RouteRegister;
     internal delegate* unmanaged[Cdecl]<byte*, int> RouteUnregister;
     internal delegate* unmanaged[Cdecl]<byte*, byte*, nuint, int, int> Send;
@@ -68,14 +70,14 @@ public static class Effects
     }
 
     public static unsafe OpenedView ViewOpen(string view, ViewMode mode = ViewMode.Panel,
-                                             uint width = 0, uint height = 0)
+                                             ViewFlags flags = ViewFlags.None, uint width = 0, uint height = 0)
     {
         var route = new byte[16];
         var session = new byte[16];
         fixed (byte* name = ViewName(view))
         fixed (byte* routePtr = route)
         fixed (byte* sessionPtr = session)
-            if (effects == null || effects->ViewOpen(name, (uint)mode, width, height, routePtr, sessionPtr) != 0)
+            if (effects == null || effects->ViewOpen(name, (uint)mode, (uint)flags, width, height, routePtr, sessionPtr) != 0)
                 throw new InvalidOperationException("The host could not open the view");
         return new(route, session);
     }

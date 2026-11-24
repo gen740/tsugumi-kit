@@ -65,7 +65,7 @@ public final class Main {
         }
         if (sort.waitFor() != 0) throw new IllegalStateException("Sort tool failed");
 
-        var view = Display.viewOpen("listing", Display.ViewMode.WINDOW, 640, 480);
+        var view = Display.viewOpen("listing", Display.ViewMode.WINDOW, Display.HIDE_CURSOR | Display.LOCK_POINTER, 640, 480);
         var registered = Display.routeRegister(view.session());
         if (!Arrays.equals(view.session(), id(0x11)) || !Arrays.equals(view.route(), id(0x22))
                 || !Arrays.equals(registered, id(0x33))) {

@@ -35,17 +35,19 @@ static const tsugumi_view_session background_session = {{0x44}};
 static const tsugumi_route background_route = {{0x55}};
 
 static int view_open(void* context, const char* view, uint32_t mode,
-                     uint32_t width, uint32_t height, tsugumi_route* route,
-                     tsugumi_view_session* session) {
+                     uint32_t flags, uint32_t width, uint32_t height,
+                     tsugumi_route* route, tsugumi_view_session* session) {
   struct fake_host* host = context;
   if (strcmp(view, "listing") == 0) {
     CHECK(host->in_call && mode == TSUGUMI_VIEW_WINDOW);
+    CHECK(flags == (TSUGUMI_VIEW_HIDE_CURSOR | TSUGUMI_VIEW_LOCK_POINTER));
     CHECK(width == 640 && height == 480);
     *route = opener_route;
     *session = listing_session;
   } else {
     CHECK(strcmp(view, "background") == 0);
     CHECK(!host->in_call && mode == TSUGUMI_VIEW_PANEL);
+    CHECK(flags == 0);
     CHECK(width == 0 && height == 0);
     *route = background_route;
     *session = background_session;

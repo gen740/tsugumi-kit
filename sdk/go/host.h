@@ -15,8 +15,9 @@ int tsugumi_go_failure(void* result, uint16_t kind, const char* message,
                        size_t source_size, uint32_t line, const char* cell,
                        size_t cell_size);
 
-int tsugumi_go_view_open(const char* view, uint32_t mode, uint32_t width,
-                         uint32_t height, uint8_t* route, uint8_t* session);
+int tsugumi_go_view_open(const char* view, uint32_t mode, uint32_t flags,
+                         uint32_t width, uint32_t height, uint8_t* route,
+                         uint8_t* session);
 int tsugumi_go_route_register(const uint8_t* session, uint8_t* route);
 int tsugumi_go_route_unregister(const uint8_t* route);
 int tsugumi_go_send(const uint8_t* session, const uint8_t* data, size_t size,

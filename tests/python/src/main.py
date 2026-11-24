@@ -39,7 +39,10 @@ def run(input: Input) -> Output:
     upload = Artifact.upload(file)
     choice, _ = Artifact.dir(keep=False)
 
-    view = tsugumi.view_open("listing", tsugumi.ViewMode.WINDOW, 640, 480)
+    view = tsugumi.view_open(
+        "listing", tsugumi.ViewMode.WINDOW,
+        tsugumi.ViewFlags.HIDE_CURSOR | tsugumi.ViewFlags.LOCK_POINTER, 640, 480,
+    )
     route = tsugumi.route_register(view.session)
     assert tsugumi.recv() == tsugumi.ViewEvent("message", route, view.session, b"*")
     assert tsugumi.recv(0).kind == "timeout"

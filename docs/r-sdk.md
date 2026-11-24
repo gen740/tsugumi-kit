@@ -99,7 +99,7 @@ host seals created directories when the call returns.
 
 ## Effects
 
-`view_open(name)` returns a list with `route` and `session`.
+`view_open(name, mode, flags, width, height)` returns a list with `route` and `session`.
 Use `route_register(session)` and `route_unregister(route)` to manage routes.
 `send(session, bytes)` sends one raw vector. `send(value)` opens a panel
 and encodes text, a number, a data frame or a matrix.
@@ -109,6 +109,9 @@ The constructors `markdown(text)`, `scalar(value, label)`,
 views. Local argument and encoding errors raise an R error before calling
 the host. If the host cannot accept the message, `send` raises
 `"display rejected"`.
+
+Combine `VIEW_HIDE_CURSOR` and `VIEW_LOCK_POINTER` with `bitwOr()`.
+The default flags value is `0L`.
 
 `recv(timeout_ms)` returns a list with `kind`, `route`, `session` and
 `data`. Kind is `"message"`, `"close"`, `"timeout"` or `"cancelled"`.

@@ -79,12 +79,17 @@ the returned bytes are owned by `Received`.
 
 ```cpp
 using namespace card::display;
-const auto view = view_open("controls");
+const auto view = view_open("controls", TSUGUMI_VIEW_WINDOW,
+                            TSUGUMI_VIEW_HIDE_CURSOR | TSUGUMI_VIEW_LOCK_POINTER,
+                            640, 480);
 if (send(view.session, text_bytes("ready")) != 0) {
   throw std::runtime_error("Could not send the view message");
 }
 const auto event = recv(500);
 ```
+
+Combine `TSUGUMI_VIEW_HIDE_CURSOR` and `TSUGUMI_VIEW_LOCK_POINTER` with
+`|`. The default flags value is zero.
 
 Display effects remain available to Card threads after the call returns.
 Use `card::cancelled()` and `card::remaining_ms()` inside the call.

@@ -23,8 +23,9 @@
 extern bool tsugumi_r_cancelled(void);
 extern double tsugumi_r_remaining_ms(void);
 extern bool tsugumi_r_display(const char* request, int* status);
-extern int tsugumi_r_view_open(const char* view, uint32_t mode, uint32_t width,
-                               uint32_t height, tsugumi_route* route,
+extern int tsugumi_r_view_open(const char* view, uint32_t mode, uint32_t flags,
+                               uint32_t width, uint32_t height,
+                               tsugumi_route* route,
                                tsugumi_view_session* session);
 extern int tsugumi_r_route_register(const tsugumi_view_session* session,
                                     tsugumi_route* route);
@@ -85,7 +86,8 @@ static uint32_t view_option(SEXP value) {
   return (uint32_t)option;
 }
 
-static SEXP open_view(SEXP view, SEXP mode, SEXP width, SEXP height) {
+static SEXP open_view(SEXP view, SEXP mode, SEXP flags, SEXP width,
+                      SEXP height) {
   if (TYPEOF(view) != STRSXP || XLENGTH(view) != 1 ||
       STRING_ELT(view, 0) == NA_STRING)
     Rf_error("Expected a view name");
@@ -95,7 +97,8 @@ static SEXP open_view(SEXP view, SEXP mode, SEXP width, SEXP height) {
   const char* name = Rf_translateCharUTF8(STRING_ELT(view, 0));
   tsugumi_route route;
   tsugumi_view_session session;
-  if (tsugumi_r_view_open(name, where, w, h, &route, &session))
+  if (tsugumi_r_view_open(name, where, view_option(flags), w, h, &route,
+                          &session))
     Rf_error("View open was rejected");
   SEXP result = PROTECT(Rf_allocVector(VECSXP, 2));
   SET_VECTOR_ELT(result, 0, view_bytes(route.bytes, sizeof(route.bytes)));
@@ -223,7 +226,7 @@ static const R_CallMethodDef methods[] = {
     {"tsugumi_r_cancelled", (DL_FUNC)&cancelled, 0},
     {"tsugumi_r_remaining_ms", (DL_FUNC)&remaining_ms, 0},
     {"tsugumi_r_emit", (DL_FUNC)&emit, 1},
-    {"tsugumi_r_view_open", (DL_FUNC)&open_view, 4},
+    {"tsugumi_r_view_open", (DL_FUNC)&open_view, 5},
     {"tsugumi_r_route_register", (DL_FUNC)&register_route, 1},
     {"tsugumi_r_route_unregister", (DL_FUNC)&unregister_route, 1},
     {"tsugumi_r_send", (DL_FUNC)&send_bytes, 2},

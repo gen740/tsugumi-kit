@@ -76,6 +76,23 @@
             done
             touch "$out"
           '';
+        dawnSdk =
+          let
+            view = kit.cpp.dawnView {
+              name = "dawn-sdk-check";
+              src = ../tests/dawn;
+              font = { };
+              cflags = [
+                "-Wall"
+                "-Wextra"
+                "-Werror"
+              ];
+            };
+          in
+          pkgs.runCommand "tsugumi-dawn-sdk-check" { nativeBuildInputs = [ pkgs.nodejs ]; } ''
+            node ${../tests/dawn-sdk.mjs} "${view.blob}"
+            touch "$out"
+          '';
         dawnViewTemplate =
           let
             fixture = import ../tests/card-eval.nix { inherit pkgs; };

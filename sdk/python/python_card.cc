@@ -77,11 +77,13 @@ auto ReadViewId(const char* data, Py_ssize_t size, Id& id) -> bool {
 
 auto OpenView(PyObject*, PyObject* args) -> PyObject* {
   const char* view;
-  unsigned int mode, width, height;
-  if (!PyArg_ParseTuple(args, "sIII", &view, &mode, &width, &height))
+  unsigned int mode, flags, width, height;
+  if (!PyArg_ParseTuple(args, "sIIII", &view, &mode, &flags, &width, &height))
     return nullptr;
   return QueryHost(
-      [&] { return card::display::view_open(view, mode, width, height); },
+      [&] {
+        return card::display::view_open(view, mode, flags, width, height);
+      },
       [](const auto& opened) {
         return Py_BuildValue(
             "y#y#", reinterpret_cast<const char*>(opened.route.bytes),

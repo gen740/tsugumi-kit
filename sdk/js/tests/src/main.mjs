@@ -3,7 +3,7 @@ import { statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Worker } from "node:worker_threads";
 import isNumber from "is-number";
-import { Artifact, ByteBuffer, inputs, outputs, params, ViewMode, viewOpen, routeRegister, routeUnregister, recv, send } from "@tsugumi/card";
+import { Artifact, ByteBuffer, inputs, outputs, params, ViewMode, ViewFlags, viewOpen, routeRegister, routeUnregister, recv, send } from "@tsugumi/card";
 
 export default function main(input, ctx) {
   const item = input.need("arrival");
@@ -26,7 +26,7 @@ export default function main(input, ctx) {
   const upload = Artifact.upload(file);
   const [choice] = Artifact.dir({ keep: false });
   const id = prefix => Uint8Array.of(prefix, ...new Uint8Array(15));
-  const { route, session } = viewOpen("listing", ViewMode.WINDOW, 640, 480);
+  const { route, session } = viewOpen("listing", ViewMode.WINDOW, ViewFlags.HIDE_CURSOR | ViewFlags.LOCK_POINTER, 640, 480);
   assert.deepEqual(route, id(0x22));
   assert.deepEqual(session, id(0x11));
   const registered = routeRegister(session);

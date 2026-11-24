@@ -7,7 +7,7 @@ generated API under `share/tsugumi/api/`.
 Open a declared view and send raw bytes to its session.
 
 ```julia
-opened = view_open("preview", VIEW_WINDOW, 640, 480)
+opened = view_open("preview", VIEW_WINDOW, VIEW_HIDE_CURSOR | VIEW_LOCK_POINTER, 640, 480)
 send(opened.session, UInt8[42])
 event = recv(500)
 ```

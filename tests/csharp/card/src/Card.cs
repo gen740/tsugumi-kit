@@ -42,7 +42,7 @@ public static class Card
         File.WriteAllText(file, JsonConvert.DeserializeObject<string>("\"test\"")!);
         var uploaded = Artifact.Upload(file);
 
-        var view = Effects.ViewOpen("listing", ViewMode.Window, 640, 480);
+        var view = Effects.ViewOpen("listing", ViewMode.Window, ViewFlags.HideCursor | ViewFlags.LockPointer, 640, 480);
         var registered = Effects.RouteRegister(view.Session);
         if (!view.Session.AsSpan().SequenceEqual(Id(0x11)) || !view.Route.AsSpan().SequenceEqual(Id(0x22)) ||
             !registered.AsSpan().SequenceEqual(Id(0x33)))

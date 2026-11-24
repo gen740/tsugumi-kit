@@ -74,10 +74,16 @@ the bundled value classes from `tsugumi`, including `LineChart`,
 ```python
 from tsugumi import display
 
-opened = display.view_open("controls")
+opened = display.view_open(
+    "controls", display.ViewMode.WINDOW,
+    display.ViewFlags.HIDE_CURSOR | display.ViewFlags.LOCK_POINTER, 640, 480,
+)
 display.send(opened.session, b"ready")
 event = display.recv(500)
 ```
+
+Combine `ViewFlags.HIDE_CURSOR` and `ViewFlags.LOCK_POINTER` with `|`.
+The default is `ViewFlags.NONE`.
 
 `view_open` returns the opener route and session. Use `route_register(session)`
 to create a route for an existing session and `route_unregister(route)` to

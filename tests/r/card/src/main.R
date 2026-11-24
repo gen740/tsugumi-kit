@@ -27,7 +27,7 @@ main <- function(input) {
   writeLines("test", file)
   uploaded <- artifact_upload(file)
   choice <- artifact_dir(keep = FALSE)
-  view <- view_open("listing", VIEW_WINDOW, 640L, 480L)
+  view <- view_open("listing", VIEW_WINDOW, bitwOr(VIEW_HIDE_CURSOR, VIEW_LOCK_POINTER), 640L, 480L)
   route <- route_register(view$session)
   stopifnot(identical(view, list(route = c(as.raw(0x22), raw(15L)),
                                  session = c(as.raw(0x11), raw(15L)))),

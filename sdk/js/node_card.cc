@@ -82,12 +82,14 @@ auto ViewOpen(const CallbackInfo& args) -> void {
   auto* isolate = args.GetIsolate();
   const auto context = isolate->GetCurrentContext();
   try {
-    if (!args[1]->IsUint32() || !args[2]->IsUint32() || !args[3]->IsUint32())
+    if (!args[1]->IsUint32() || !args[2]->IsUint32() || !args[3]->IsUint32() ||
+        !args[4]->IsUint32())
       throw std::invalid_argument(
-          "Expected an unsigned 32-bit mode and dimensions");
+          "Expected an unsigned 32-bit mode, flags and dimensions");
     const auto opened = card::display::view_open(
         ViewName(isolate, args[0]), args[1].As<v8::Uint32>()->Value(),
-        args[2].As<v8::Uint32>()->Value(), args[3].As<v8::Uint32>()->Value());
+        args[2].As<v8::Uint32>()->Value(), args[3].As<v8::Uint32>()->Value(),
+        args[4].As<v8::Uint32>()->Value());
     const auto result = v8::Object::New(isolate);
     result
         ->Set(context, Text(isolate, "route"),

@@ -94,7 +94,7 @@ directory, set `sourcePrefix` to its path relative to the Card definition.
 
 ## Effects
 
-`Tsugumi.view_open(name)` returns `[route, session]`. Use
+`Tsugumi.view_open(name, mode, flags, width, height)` returns `[route, session]`. Use
 `Tsugumi.send(session, bytes)` to send one raw binary String and
 `Tsugumi.route_register(session)` or `Tsugumi.route_unregister(route)` to
 manage routes. `Tsugumi.send(value)` opens a panel and encodes the typed
@@ -102,6 +102,9 @@ values below. `Tsugumi.send_value(session, value)` sends a typed value to
 an existing view. Argument and encoding
 errors raise before calling the host. The SDK raises `RuntimeError` if the
 host cannot accept the message.
+
+Combine `Tsugumi::HIDE_CURSOR` and `Tsugumi::LOCK_POINTER` with `|`.
+The default flags value is zero.
 
 Declare the matching views alongside `run`. The Ruby SDK bundles text, markdown, table, image, line-chart, and points views.
 Scalars use the `markdown` view.

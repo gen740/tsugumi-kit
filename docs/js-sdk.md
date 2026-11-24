@@ -95,14 +95,17 @@ See [Runtime tools](../README.md#runtime-tools) for `PATH` and shell behavior.
 Call `ctx.display.send(value)` to open a bundled view as a panel. Pass a
 session as the second argument to update an existing bundled view. For
 custom views, declare the view alongside `sdk.views` and use
-`ctx.viewOpen(name)` to obtain its route and session. Call `ctx.send(session, bytes)` with
-opaque `Uint8Array` data. Both return the host status, where zero indicates
-acceptance and a nonzero value means the host could not accept the message.
+`ctx.viewOpen(name, mode, flags, width, height)` to obtain its route and session. Call
+`ctx.send(session, bytes)` with opaque `Uint8Array` data. Sending returns
+zero on acceptance and a nonzero value if the host rejected the message.
 Use `ctx.routeRegister(session)` to create a route and
 `ctx.routeUnregister(route)` to release it.
 Argument and encoding errors throw JavaScript exceptions before the SDK
 calls the host. These functions can also be imported from `@tsugumi/card`.
 The [bundled HTML views](sdk-contract.md#html-view-api) use SDK-framed typed values.
+
+Import `ViewFlags` from `@tsugumi/card`. Combine `ViewFlags.HIDE_CURSOR`
+and `ViewFlags.LOCK_POINTER` with `|`. The default is `ViewFlags.NONE`.
 
 Use `ctx.recv(timeoutMs)` to receive an object with `bytes` and a `status`
 of `"message"`, `"close"`, `"timeout"` or `"cancelled"`. Message and close

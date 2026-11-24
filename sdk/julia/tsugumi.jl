@@ -5,7 +5,7 @@ import Printf
 import Base64
 
 export Inputs, Artifact, dir, upload, params, send, recv, cancelled, remaining_ms, CardFailure
-export view_open, route_register, route_unregister, VIEW_PANEL, VIEW_WINDOW, VIEW_FULLSCREEN
+export view_open, route_register, route_unregister, VIEW_PANEL, VIEW_WINDOW, VIEW_FULLSCREEN, VIEW_HIDE_CURSOR, VIEW_LOCK_POINTER
 export Markdown, Scalar, Table, Image, Points, LineChart, Plotly, VegaLite
 
 struct CardFailure <: Exception
@@ -76,6 +76,8 @@ end
 const VIEW_PANEL = UInt32(0)
 const VIEW_WINDOW = UInt32(1)
 const VIEW_FULLSCREEN = UInt32(2)
+const VIEW_HIDE_CURSOR = UInt32(1)
+const VIEW_LOCK_POINTER = UInt32(2)
 const ViewId = NTuple{16,UInt8}
 
 struct HostViewEvent
@@ -87,11 +89,11 @@ struct HostViewEvent
 end
 
 function view_open(view::AbstractString, mode::Integer=VIEW_PANEL,
-                   width::Integer=0, height::Integer=0)
+                   flags::Integer=0, width::Integer=0, height::Integer=0)
     route = Ref{ViewId}()
     session = Ref{ViewId}()
     code = @ccall gc_safe=true $(HOST.view_open)(view::Cstring, mode::UInt32,
-                     width::UInt32, height::UInt32, route::Ref{ViewId},
+                     flags::UInt32, width::UInt32, height::UInt32, route::Ref{ViewId},
                      session::Ref{ViewId})::Cint
     code == 0 || error("view open was rejected")
     return (; route=route[], session=session[])
@@ -213,7 +215,7 @@ end
 
 module CardCode
 using ..Tsugumi: Inputs, Artifact, dir, upload, params, send, recv, cancelled, remaining_ms, CardFailure
-using ..Tsugumi: view_open, route_register, route_unregister, VIEW_PANEL, VIEW_WINDOW, VIEW_FULLSCREEN
+using ..Tsugumi: view_open, route_register, route_unregister, VIEW_PANEL, VIEW_WINDOW, VIEW_FULLSCREEN, VIEW_HIDE_CURSOR, VIEW_LOCK_POINTER
 using ..Tsugumi: Markdown, Scalar, Table, Image, Points, LineChart, Plotly, VegaLite
 end
 

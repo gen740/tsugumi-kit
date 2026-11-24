@@ -10,7 +10,7 @@ public final class Effects {
     /** Remaining milliseconds, -1 for no deadline, or 0 between calls. */
     public static native long remainingMs();
 
-    static native void viewOpen(byte[] view, int mode, long width, long height,
+    static native void viewOpen(byte[] view, int mode, long flags, long width, long height,
                                 byte[] route, byte[] session);
     static native byte[] routeRegister(byte[] session);
     static native void routeUnregister(byte[] route);

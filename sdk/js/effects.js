@@ -8,6 +8,8 @@ function host() {
 
 export const ViewMode = Object.freeze({ PANEL: 0, WINDOW: 1, FULLSCREEN: 2 });
 
+export const ViewFlags = Object.freeze({ NONE: 0, HIDE_CURSOR: 1, LOCK_POINTER: 2 });
+
 function requireId(id) {
   if (!types.isUint8Array(id) || id.byteLength !== 16) {
     throw new TypeError("Expected a 16-byte view ID");
@@ -18,14 +20,14 @@ function isUint32(value) {
   return Number.isInteger(value) && value >= 0 && value <= 0xffffffff;
 }
 
-export function viewOpen(view, mode = ViewMode.PANEL, width = 0, height = 0) {
+export function viewOpen(view, mode = ViewMode.PANEL, flags = ViewFlags.NONE, width = 0, height = 0) {
   if (typeof view !== "string" || view.includes("\0")) {
     throw new TypeError("Expected a view name without NUL bytes");
   }
-  if (![mode, width, height].every(isUint32)) {
-    throw new RangeError("Expected an unsigned 32-bit mode and dimensions");
+  if (![mode, flags, width, height].every(isUint32)) {
+    throw new RangeError("Expected an unsigned 32-bit mode, flags and dimensions");
   }
-  return host().viewOpen(view, mode, width, height);
+  return host().viewOpen(view, mode, flags, width, height);
 }
 
 export function routeRegister(session) {

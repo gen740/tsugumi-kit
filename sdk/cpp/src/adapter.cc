@@ -276,15 +276,15 @@ auto remaining_ms() -> int64_t {
 
 namespace card::display {
 
-auto view_open(std::string_view view, uint32_t mode, uint32_t width,
-               uint32_t height) -> OpenedView {
+auto view_open(std::string_view view, uint32_t mode, uint32_t flags,
+               uint32_t width, uint32_t height) -> OpenedView {
   if (view.find('\0') != std::string_view::npos)
     throw std::invalid_argument("View names cannot contain a NUL byte");
   const auto [effects, host] = tsugumi::abi::GetViewEffects();
   OpenedView opened{};
   if (!effects.view_open ||
-      effects.view_open(host, std::string(view).c_str(), mode, width, height,
-                        &opened.route, &opened.session) != 0) {
+      effects.view_open(host, std::string(view).c_str(), mode, flags, width,
+                        height, &opened.route, &opened.session) != 0) {
     throw std::runtime_error("The host could not open the view");
   }
   return opened;

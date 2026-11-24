@@ -63,7 +63,7 @@ and invalid output objects produce `output_invalid`.
 affects the run build and preserves the generated API when its type is
 unchanged.
 
-`tsugumi::view_open(name, mode, width, height)` returns `(Route, ViewSession)`.
+`tsugumi::view_open(name, mode, flags, width, height)` returns `(Route, ViewSession)`.
 `tsugumi::send(&session, bytes)` sends one raw byte slice.
 Use `route_register(&session)` and `route_unregister(&route)` to manage
 routes. `tsugumi::send_value(value)` opens a panel and supports text, `f64`, `Scalar`, `Markdown`,
@@ -71,6 +71,9 @@ routes. `tsugumi::send_value(value)` opens a panel and supports text, `f64`, `Sc
 Both functions return `tsugumi::Result<()>`. Local argument and encoding
 errors return a `Failure` with kind `invalid_request` before calling the host.
 A nonzero host status returns `worker_failed` and includes the transport status.
+
+Pass `0` for default pointer behavior or combine `tsugumi::VIEW_HIDE_CURSOR`
+and `tsugumi::VIEW_LOCK_POINTER` with `|`.
 
 The SDK bundles the `line-chart` and `points` HTML views.
 Declare the matching views in your Card's `default.nix` with
