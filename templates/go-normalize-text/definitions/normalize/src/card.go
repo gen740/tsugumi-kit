@@ -8,13 +8,9 @@ import (
 	"tsugumi"
 )
 
-func run(input tsugumi.Inputs) (tsugumi.Output, error) {
+func run(_ tsugumi.Inputs) (tsugumi.Output, error) {
 	name := "normalized.txt"
-	source, err := tsugumi.RequireInput[tsugumi.InputText](input, "text")
-	if err != nil {
-		return tsugumi.Output{}, err
-	}
-	text := strings.Join(strings.Fields(source.Value), " ") + "\n"
+	text := strings.Join(strings.Fields(tsugumi.Parameters().Value), " ") + "\n"
 	artifact, dir, err := tsugumi.Dir()
 	if err != nil {
 		return tsugumi.Output{}, err

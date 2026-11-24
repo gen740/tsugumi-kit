@@ -1,16 +1,7 @@
 # Convert a temperature
 
-An Input Card supplies degrees Celsius to a C++ Card that returns degrees Fahrenheit. **Targets the unreleased Card ABI.** The C++ Card will not build in released Tsugumi until the Card ABI PR lands.
+The C++ Card converts its Celsius parameter to Fahrenheit and displays the
+result. The default of 20 °C produces 68 °F. Edit `definitions/convert/params.nix` to change the value.
 
-```text
-settings.celsius → convert.celsius
-                   convert.fahrenheit → downstream
-```
-
-Copy the pair into a project and connect a Trigger to `settings.start`. At the default input of 20 °C, `convert` returns 68 and shows a live markdown line labelled °F. Changing `settings` to −40 gives −40 °F.
-
-The converter's `default.nix` declares the C++ SDK's bundled HTML views with `views = sdk.views`, including the `markdown` view used for the live display.
-
-The example saves the internal wire using the existing project `tsugumi.json` canvas syntax. Its use as a template fragment is provisional. If your importer copies only definitions, connect `settings.celsius` to `convert.celsius` as shown. The optional layout fragment (`layout.bin`) places the two Cards side by side.
-
+Git import subdirectory `templates/temperature-conversion`.
 Git import subdirectory: `templates/temperature-conversion`. [Template guide](../../docs/templates.md) · [C++ source](definitions/convert/src/card.cc)

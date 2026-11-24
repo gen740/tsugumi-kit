@@ -1,5 +1,0 @@
-namespace thermometer;
-
-table Temperature { value:double; }
-table Outputs { celsius:Temperature (required); }
-root_type Outputs;

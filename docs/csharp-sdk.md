@@ -63,8 +63,7 @@ FlatBuffers object types, such as `TemperatureT`.
 
 `Params.Current` exposes the typed build-time parameter record.
 Parameter values affect the run derivation and preserve the API when their
-types are unchanged. The SDK also exports the shared `sdk.input` and
-`sdk.artifact` helpers for Input Cards.
+types are unchanged.
 
 `tsugumi.ArtifactT.Dir()` creates an Artifact and returns its writable
 directory. `ArtifactT.Upload(source)` copies a file or directory into a new

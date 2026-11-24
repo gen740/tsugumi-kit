@@ -1,3 +1,0 @@
-table Text { value:string (required); }
-table Outputs { text:Text (required); }
-root_type Outputs;

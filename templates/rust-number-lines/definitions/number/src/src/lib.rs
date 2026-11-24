@@ -1,8 +1,8 @@
-use tsugumi::{Artifact, Failure, FailureKind, Inputs, Output, Result, send_value};
+use tsugumi::{Artifact, Failure, FailureKind, Inputs, Output, PARAMS, Result, send_value};
 
-fn run(input: Inputs<'_>) -> Result<Output> {
+fn run(_input: Inputs) -> Result<Output> {
     let path = "numbered.txt";
-    let value = input.text.value();
+    let value = PARAMS.value;
     let (artifact, directory) = Artifact::dir()?;
     let text: String = value
         .lines()

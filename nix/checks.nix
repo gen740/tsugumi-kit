@@ -58,7 +58,6 @@
               node ${../tests/view-reassembly.mjs} ${../sdk/views/data.js}
               touch "$out"
             '';
-        inputCard = pkgs.callPackage ./input-check.nix { inherit kit; };
         k1Templates =
           let
             fixture = import ../tests/card-eval.nix { inherit pkgs; };
@@ -67,15 +66,11 @@
             python = ../templates/python-write-text/definitions;
             convert = fixture.call (temperature + "/convert") { };
             write = fixture.call (python + "/write") { };
-            celsius = (fixture.call (temperature + "/settings") { }).run;
-            text = (fixture.call (python + "/settings") { }).run;
           in
           pkgs.runCommand "tsugumi-k1-templates" { } ''
             test -s "${filter.run}/lib/main.so"
             test -s "${convert.run}/lib/main.so"
             test -s "${write.run}/lib/main.so"
-            test -s "${celsius}/share/tsugumi/input/ports/celsius"
-            test -s "${text}/share/tsugumi/input/ports/text"
             for view in ${lib.escapeShellArgs (map (view: toString view.blob) kit.python.views)}; do
               test -s "$view"
             done

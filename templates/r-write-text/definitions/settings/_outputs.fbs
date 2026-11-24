@@ -1,3 +1,0 @@
-table Text { value:string (id: 0); }
-table Outputs { text:Text (id: 0, required); }
-root_type Outputs;

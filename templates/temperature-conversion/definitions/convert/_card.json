@@ -1,11 +1,7 @@
 {
   "type": "code",
   "symbol": "chevron.left.forwardslash.chevron.right",
-  "inputs": [
-    {
-      "name": "celsius"
-    }
-  ],
+  "inputs": [],
   "maxRuns": 1,
   "reuseWorker": false,
   "timeoutSeconds": 0,

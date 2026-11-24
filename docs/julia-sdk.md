@@ -28,16 +28,13 @@ under `share/tsugumi/api/`. Set `entry` to choose another file relative to `src`
 function main(input::Inputs)
     cancelled() && throw(CardFailure(:cancelled, "Stopped before writing"))
     file, directory = dir(Artifact)
-    open(io -> println(io, input.text["value"]), joinpath(directory, "note.txt"), "w")
+    open(io -> println(io, params.value), joinpath(directory, "note.txt"), "w")
     return (; file)
 end
 ```
 
 The [Julia starter](../templates/julia-write-text/) uses this entry with a
-typed `text` input and an Artifact `file` output.
-
-The SDK also exposes `sdk.input` and `sdk.artifact` for Input Card
-definitions. See the [Card SDK contract](sdk-contract.md).
+text parameter and an Artifact `file` output.
 
 ## Inputs and outputs
 

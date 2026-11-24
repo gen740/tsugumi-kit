@@ -1,14 +1,7 @@
 # Write text with Java
 
-An Input Card supplies text to a Java Card. The Java Card displays the text,
-writes it to `message.txt` as UTF-8 in a new Artifact and returns it on the `file` port.
+The Java Card displays its text parameter and writes it to `message.txt` as
+UTF-8 in a new Artifact on the `file` port. Edit `definitions/write/params.nix` to change the value.
 
-```text
-settings.text → write.text
-                write.file → downstream
-```
-
-Change `settings.value` to try a different message.
-
-Use `templates/java-write-text` as the Git import subdirectory.
+Git import subdirectory `templates/java-write-text`.
 [Template guide](../../docs/templates.md) · [Java source](definitions/write/src/card/Main.java)

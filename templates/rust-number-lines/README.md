@@ -1,19 +1,7 @@
 # Number lines with Rust
 
-An Input Card supplies text to a Rust Card that numbers the lines, writes
-`numbered.txt` in a new Artifact and returns it on the `file` port.
+The Rust Card numbers the lines in its text parameter and returns
+`numbered.txt` on its Artifact output `file`. Edit `definitions/number/params.nix` to change the value.
 
-```text
-settings.text → number.text
-                number.file → downstream
-```
-
-With the default two lines, the file contains `1: alpha` and `2: beta`. The
-Card accepts LF and CRLF input, writes LF line endings and displays the
-output filename live. Change `settings.value` to try another input.
-
-Use `templates/rust-number-lines` as the Git import subdirectory.
+Git import subdirectory `templates/rust-number-lines`.
 [Template guide](../../docs/templates.md) · [Rust source](definitions/number/src/src/lib.rs)
-
-The Card build publishes its typed API under `share/tsugumi/api/`.
-[Rust SDK guide](../../docs/rust-sdk.md)

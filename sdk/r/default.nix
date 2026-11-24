@@ -11,7 +11,6 @@ pkgs.callPackage ./card.nix {
     ;
   inherit (deps) runtime ipaexGothic;
 }
-// (import ../input { inherit pkgs; })
 // {
   inherit (deps.views) dawnView;
   views = deps.views.common;

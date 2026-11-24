@@ -12,7 +12,6 @@ import ./card.nix {
   inherit pkgs;
   inherit (deps) runtime;
 }
-// (import ../input { inherit pkgs; })
 // {
   inherit (deps.views) dawnView;
   views = deps.views.common;

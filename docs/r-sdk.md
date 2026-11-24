@@ -28,16 +28,13 @@ under `share/tsugumi/api/`. Set `entry` to choose another file relative to `src`
 main <- function(input) {
   if (cancelled()) stop("Stopped before writing")
   file <- artifact_dir()
-  writeLines(input$text$value, file.path(file$path, "note.txt"))
+  writeLines(params$value, file.path(file$path, "note.txt"))
   list(file = file$artifact)
 }
 ```
 
 The [R starter](../templates/r-write-text/) uses this entry with a FlatBuffer
-`text` input and an Artifact `file` output.
-
-The SDK also exposes `sdk.input` and `sdk.artifact` for Input Card
-definitions. See the [Card SDK contract](sdk-contract.md).
+text parameter and an Artifact `file` output.
 
 ## Inputs and outputs
 
