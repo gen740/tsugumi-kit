@@ -33,7 +33,8 @@ extern "C" {
 /* The returned input lives until the next call to make_input. */
 tsugumi_bytes make_input(enum input_case scenario);
 void check_result(tsugumi_bytes result, enum input_case scenario,
-                  const tsugumi_artifact_id* expected, size_t count);
+                  const tsugumi_artifact_id* expected, size_t count,
+                  int offset);
 
 #ifdef __cplusplus
 }

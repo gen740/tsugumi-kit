@@ -11,17 +11,20 @@ schema paths and params with `sdk.cppApi`. See the shared
 
 auto run(const Card::Inputs& input) -> Card::Output {
   Card::Output output;
-  output.result.emplace().value = input.sample->value + Card::params.offset;
+  output.result.emplace().value = input.sample->value() + Card::params.offset;
   return output;
 }
 ```
 
-The generator uses FlatBuffers native object types for port tables. Input
-members reflect the connected ports. For a Merge with multiple candidate
-types, use `std::visit` or `std::get_if` on the generated `std::variant`.
-Collect exposes the fixed `tsugumi::builtin::CollectedT` and its envelope
-items. Each item provides `schema` and `bytes`. Output members
-use `std::optional`. A field declared `(required)` must be populated.
+Input members are pointers to verified FlatBuffers tables borrowed from
+the host's input. They are valid during `run`. Use the generated accessor
+methods to read scalars, strings, vectors and child tables. A Merge with
+multiple candidate types is a `std::variant` of table pointers. Use
+`std::visit` or `std::get_if` to select the actual table. Collect exposes a
+`tsugumi::builtin::Collected` table whose items contain each original
+schema and byte vector. Call `UnPack()` on a table when you need an owned
+native value. Output members use `std::optional` of the native table
+types. A field declared `(required)` must be populated.
 `Card::params` is a constant `Card::Params` with scalar fields or
 `std::vector<T>` fields for list params.
 
@@ -39,8 +42,8 @@ output.report = std::move(artifact);
 
 Use `card::Artifact::upload(path)` to copy an existing file or directory.
 `artifact.open()` returns the read-only directory of any sealed Artifact of
-the project whose ID the Card knows, such as one in an input. Assign the
-input Artifact to an output to forward its ID.
+the project whose ID the Card knows. To open or forward an input
+Artifact, unpack the borrowed table to an owned Artifact first.
 
 `card::Artifact::dir(keep)` and `card::Artifact::upload(path, keep)` keep
 the Artifact after its run by default. With `keep` false it exists only

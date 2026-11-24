@@ -48,7 +48,6 @@ module Tsugumi
   end
 
   def self.params = PARAMS
-  require TsugumiHost::PARAMS_FILE
   private_constant :PARAMS
 
   PANEL = 0
@@ -193,6 +192,7 @@ module Tsugumi
     $stdout.sync = $stderr.sync = true
     file = File.join(directory, 'main.rb')
     klass = Class.new
+    klass.const_set(:Tsugumi, self)
     klass.class_eval(File.read(file, encoding: Encoding::UTF_8), file, 1)
     @card = klass.new
     raise 'define main(input) in main.rb' unless @card.respond_to?(:main) && @card.method(:main).arity == 1

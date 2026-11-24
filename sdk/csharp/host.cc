@@ -10,8 +10,8 @@
 namespace {
 
 using namespace tsugumi::abi;
+using tsugumi::abi::ResultBuffer;
 using Tsugumi::Card::CardResult;
-using Tsugumi::Card::CardResultT;
 
 auto ViewOpen(const char* view, uint32_t mode, uint32_t width, uint32_t height,
               uint8_t* route, uint8_t* session) noexcept -> int {
@@ -189,21 +189,21 @@ auto ReceiveResult(void* context, const uint8_t* data, size_t size) noexcept
     const Buffer buffer({data, size});
     const auto* result = buffer.Verify<CardResult>();
     if (!result) return 1;
-    result->UnPackTo(static_cast<CardResultT*>(context));
+    *static_cast<ResultBuffer*>(context) = ResultBuffer({data, size});
     return 0;
   } catch (...) {
     return 1;
   }
 }
 
-auto Run(tsugumi_bytes bytes) -> CardResultT {
+auto Run(tsugumi_bytes bytes) -> ResultBuffer {
   if (!Buffer(bytes).Verify<Tsugumi::Card::CardInput>())
     Reject(FailureKind::input_invalid, "Invalid CardInput");
   static const Entry entry = LoadCard();
   if (!entry)
     Reject(FailureKind::worker_failed, "Could not load the .NET Card");
 
-  CardResultT result;
+  ResultBuffer result;
   if (entry(bytes.data, bytes.size, &effects, &result, ReceiveResult) != 0)
     Reject(FailureKind::worker_failed,
            "Could not build the managed CardResult");

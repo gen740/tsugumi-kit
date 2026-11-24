@@ -16,6 +16,16 @@ let
   jdk = jdk21_headless;
   inherit (stdenv.hostPlatform) isDarwin;
   jvmDir = if isDarwin then "${jdk}/lib/server" else "${jdk}/lib/openjdk/lib/server";
+  vmLibrary = "libtsugumi-java${stdenv.hostPlatform.extensions.sharedLibrary}";
+  vm = runCommandCC "tsugumi-java-vm" { } ''
+    mkdir -p "$out/lib"
+    $CXX -std=c++20 -O2 -fPIC -fvisibility=hidden -shared \
+      -I${jdk}/include -I${jdk}/include/${if isDarwin then "darwin" else "linux"} \
+      ${../sdk/java/vm.cc} -Wl,-rpath,${jvmDir} \
+      "${jvmDir}/libjvm${stdenv.hostPlatform.extensions.sharedLibrary}" \
+      ${lib.optionalString isDarwin "-Wl,-install_name,$out/lib/${vmLibrary}"} \
+      -o "$out/lib/${vmLibrary}"
+  '';
   # Compile the official Java runtime from the same source as flatc. Its
   # generated classes reference a version-specific runtime constant.
   flatbuffersJava =
@@ -117,7 +127,7 @@ let
           -I${jdk}/include -I${jdk}/include/${if isDarwin then "darwin" else "linux"} \
           "-DTSUGUMI_JAVA_CLASSPATH=\"$out/lib/card.jar:$TSUGUMI_JAVA_CLASSPATH\"" \
           ${generated}/card_adapter.cc ${../sdk/java/host.cc} ${runtime}/lib/libtsugumi_abi.a \
-          -Wl,-rpath,${jvmDir} "${jvmDir}/libjvm${stdenv.hostPlatform.extensions.sharedLibrary}" \
+          "${vm}/lib/${vmLibrary}" -Wl,-rpath,"${vm}/lib" \
           -pthread ${lib.optionalString (!isDarwin) "-ldl"} -o "$out/lib/main.so"
       '';
   javaApi =

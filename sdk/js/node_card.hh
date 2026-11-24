@@ -7,6 +7,6 @@
 
 namespace tsugumi::abi {
 
-auto RunNodeCard(tsugumi_bytes input) -> Tsugumi::Card::CardResultT;
+auto RunNodeCard(tsugumi_bytes input) -> ResultBuffer;
 
 }  // namespace tsugumi::abi

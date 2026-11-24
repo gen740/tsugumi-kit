@@ -32,9 +32,6 @@ using Tsugumi::Card::CardFailureT;
 using Tsugumi::Card::CardResult;
 using Tsugumi::Card::CardResultT;
 
-// Kept until the next call. The worker invokes one call at a time.
-flatbuffers::DetachedBuffer result_buffer;
-
 struct ViewEffects {
   tsugumi_effects effects{};
   void* host = nullptr;
@@ -74,9 +71,11 @@ auto FailureResult(FailureKind kind, const char* message) -> CardResultT {
   return result;
 }
 
-auto Run(CardBody body, tsugumi_bytes input) -> CardResultT {
+template <class Body>
+auto Run(Body body) -> CardResultT {
   try {
-    return body(input);
+    body();
+    return {};
   } catch (const Failure& error) {
     const bool valid_kind = error.kind != FailureKind::unspecified &&
                             *Tsugumi::Data::EnumNameFailureKind(error.kind);
@@ -102,6 +101,31 @@ auto Run(CardBody body, tsugumi_bytes input) -> CardResultT {
   } catch (...) {
     return FailureResult(FailureKind::worker_failed,
                          "Card threw a non-standard exception");
+  }
+}
+
+template <class Body>
+auto InvokeBody(const tsugumi_call* call, tsugumi_bytes* result,
+                Body body) noexcept -> int {
+  // A different ABI may provide only the leading version at this address.
+  if (!call || !result) return 1;
+  uint32_t version;
+  std::memcpy(&version, call, sizeof(version));
+  if (version != TSUGUMI_ABI_VERSION) return 1;
+  *result = {};
+  try {
+    const CallEffects effects(*call);
+    ResultBuffer buffer;
+    const auto failure = Run([&] { buffer = body(call->input); });
+    if (failure.failure) {
+      flatbuffers::FlatBufferBuilder builder;
+      builder.Finish(CardResult::Pack(builder, &failure));
+      buffer = ResultBuffer({builder.GetBufferPointer(), builder.GetSize()});
+    }
+    *result = buffer.release();
+    return 0;
+  } catch (...) {
+    return 1;
   }
 }
 
@@ -138,35 +162,46 @@ auto SendDisplay(const tsugumi_view_session& session, tsugumi_bytes bytes)
   return 0;
 }
 
-auto Invoke(const tsugumi_call* call, tsugumi_bytes* result,
-            CardBody body) noexcept -> int {
-  // A different ABI may provide only the leading version at this address.
-  if (!call || !result) return 1;
-  uint32_t version;
-  std::memcpy(&version, call, sizeof(version));
-  if (version != TSUGUMI_ABI_VERSION) return 1;
-  *result = {};
-  result_buffer = {};
-  try {
-    const CallEffects effects(*call);
-    const auto value = Run(body, call->input);
-    flatbuffers::FlatBufferBuilder builder;
-    builder.Finish(CardResult::Pack(builder, &value));
-    result_buffer = builder.Release();
-    *result = {result_buffer.data(), result_buffer.size()};
-    return 0;
-  } catch (...) {
-    return 1;
-  }
+ResultBuffer::ResultBuffer(size_t size)
+    : data_(static_cast<uint8_t*>(std::malloc(size)), std::free), size_(size) {
+  if (!data_) throw std::bad_alloc();
 }
 
-Buffer::Buffer(tsugumi_bytes bytes) : size_(bytes.size) {
+ResultBuffer::ResultBuffer(tsugumi_bytes bytes) : ResultBuffer(bytes.size) {
+  if (bytes.size) std::memcpy(data(), bytes.data, bytes.size);
+}
+
+auto Invoke(const tsugumi_call* call, tsugumi_bytes* result,
+            CardBody body) noexcept -> int {
+  return InvokeBody(call, result, [body](tsugumi_bytes input) {
+    const auto value = body(input);
+    flatbuffers::FlatBufferBuilder builder;
+    builder.Finish(CardResult::Pack(builder, &value));
+    return ResultBuffer({builder.GetBufferPointer(), builder.GetSize()});
+  });
+}
+
+auto Invoke(const tsugumi_call* call, tsugumi_bytes* result,
+            WireBody body) noexcept -> int {
+  return InvokeBody(call, result, [body](tsugumi_bytes input) {
+    flatbuffers::FlatBufferBuilder builder;
+    body(input, builder);
+    return ResultBuffer({builder.GetBufferPointer(), builder.GetSize()});
+  });
+}
+
+auto Invoke(const tsugumi_call* call, tsugumi_bytes* result,
+            SerializedBody body) noexcept -> int {
+  return InvokeBody(call, result, body);
+}
+
+Buffer::Buffer(tsugumi_bytes bytes, bool align) : size_(bytes.size) {
   if (!bytes.data || size_ < FLATBUFFERS_MIN_BUFFER_SIZE ||
       size_ >= FLATBUFFERS_MAX_BUFFER_SIZE) {
     return;
   }
   data_ = bytes.data;
-  if (reinterpret_cast<uintptr_t>(data_) % alignof(Block) != 0) {
+  if (align && needs_alignment()) {
     aligned_.resize((size_ + sizeof(Block) - 1) / sizeof(Block));
     std::memcpy(aligned_.data(), data_, size_);
     data_ = reinterpret_cast<const uint8_t*>(aligned_.data());

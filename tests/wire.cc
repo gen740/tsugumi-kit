@@ -100,7 +100,8 @@ auto make_input(input_case scenario) -> tsugumi_bytes {
 }
 
 auto check_result(tsugumi_bytes result, input_case scenario,
-                  const tsugumi_artifact_id* expected, size_t count) -> void {
+                  const tsugumi_artifact_id* expected, size_t count, int offset)
+    -> void {
   flatbuffers::Verifier verifier(result.data, result.size);
   CHECK(verifier.VerifyBuffer<CardResult>());
   const auto* wire = flatbuffers::GetRoot<CardResult>(result.data);
@@ -140,7 +141,7 @@ auto check_result(tsugumi_bytes result, input_case scenario,
   flatbuffers::Verifier value_verifier(payload.data(), bytes->size());
   CHECK(value_verifier.VerifyBuffer<outputs::Listing>());
   const auto* listing = flatbuffers::GetRoot<outputs::Listing>(payload.data());
-  CHECK(listing->value() == (scenario == VALID_NUMBER ? 107 : 120));
+  CHECK(listing->value() == offset + (scenario == VALID_NUMBER ? 7 : 20));
   CHECK(listing->files()->size() == 2);
   const tsugumi::ArtifactId* nested[] = {
       listing->nested()->file()->id(),

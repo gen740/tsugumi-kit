@@ -3,15 +3,12 @@
 #include <dlfcn.h>
 #include <julia.h>
 
-#include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <exception>
-#include <future>
 #include <mutex>
 #include <string>
-#include <thread>
 #include <vector>
 
 #include "display.hh"
@@ -209,77 +206,45 @@ auto CheckJulia(const char* action) -> void {
   }
 }
 
-auto SetEnv(const char* name, const char* value) -> void {
-  if (setenv(name, value, 1) != 0)
-    throw std::runtime_error(std::string("Cannot set ") + name);
-}
+extern "C" auto tsugumi_julia_on_owner(void (*callback)(void*), void* context)
+    -> void;
 
-// Between calls the worker thread may block in the host while a Julia task
-// allocates or sends a display on another Julia thread.
-class JuliaScope {
+class CardModule {
  public:
-  JuliaScope()
-      : ptls_(static_cast<jl_ptls_t>(jl_get_ptls_states())),
-        previous_(jl_gc_unsafe_enter(ptls_)) {}
-  ~JuliaScope() { jl_gc_unsafe_leave(ptls_, previous_); }
-
-  JuliaScope(const JuliaScope&) = delete;
-  auto operator=(const JuliaScope&) -> JuliaScope& = delete;
-
- private:
-  jl_ptls_t ptls_;
-  int8_t previous_;
-};
-
-class Interpreter {
- public:
-  Interpreter() {
-    // Julia and Card tasks can still use this library after the caller releases
-    // its handle. Keep the library and interpreter alive until process exit.
+  CardModule() {
+    // Card tasks can call the bridge after the host releases its handle.
     Dl_info info{};
     if (!dladdr(reinterpret_cast<void*>(EmitDisplay), &info) ||
         !dlopen(info.dli_fname, RTLD_NOW | RTLD_LOCAL)) {
       throw std::runtime_error("Could not retain the Julia Card library");
     }
-    std::thread([this] { Serve(); }).detach();
   }
 
   auto Run(const std::string& input) -> Json {
-    std::packaged_task<Json()> task([this, &input] {
-      if (failure_) std::rethrow_exception(failure_);
-      return Json::parse(Call(input));
-    });
-    auto result = task.get_future();
-    {
-      // ABI callers are serial, so a single request slot is enough.
-      const std::lock_guard lock(mutex_);
-      pending_ = std::move(task);
-    }
-    ready_.notify_one();
-    return result.get();
+    struct CallContext {
+      CardModule& card;
+      const std::string& input;
+      std::string reply;
+    } context{*this, input, {}};
+    tsugumi_julia_on_owner(
+        [](void* opaque) {
+          auto& call = *static_cast<CallContext*>(opaque);
+          call.reply = call.card.Call(call.input);
+        },
+        &context);
+    return Json::parse(context.reply);
   }
 
  private:
-  auto Serve() -> void {
-    // Cache init failures because Julia cannot be initialized again.
-    try {
-      Prepare();
-    } catch (...) {
-      failure_ = std::current_exception();
-    }
-    for (;;) {
-      std::packaged_task<Json()> task;
-      {
-        std::unique_lock lock(mutex_);
-        ready_.wait(lock, [this] { return pending_.valid(); });
-        task = std::move(pending_);
+  auto Call(const std::string& input) -> std::string {
+    std::call_once(load_once_, [this] {
+      try {
+        Prepare();
+      } catch (...) {
+        load_error_ = std::current_exception();
       }
-      task();
-    }
-  }
-
-  auto Call(const std::string& input) const -> std::string {
-    const JuliaScope scope;
+    });
+    if (load_error_) std::rethrow_exception(load_error_);
     jl_value_t* argument = nullptr;
     jl_value_t* value = nullptr;
     JL_GC_PUSH2(&argument, &value);
@@ -300,21 +265,17 @@ class Interpreter {
   }
 
   auto Prepare() -> void {
-    if (!dlopen(TSUGUMI_LIBJULIA, RTLD_NOW | RTLD_GLOBAL))
-      throw std::runtime_error(dlerror());
-    const char* home = std::getenv("HOME");
-    if (!home || !*home)
-      throw std::runtime_error("Julia needs a writable HOME");
-    const auto depot = std::string(home) + "/.julia:" TSUGUMI_JULIA_DEPOT ":";
-    SetEnv("JULIA_DEPOT_PATH", depot.c_str());
-    SetEnv("JULIA_PROJECT", TSUGUMI_JULIA_PROJECT);
-    SetEnv("JULIA_LOAD_PATH", "@:@stdlib");
-    jl_options.startupfile = JL_OPTIONS_STARTUPFILE_OFF;
-    if (!std::getenv("JULIA_NUM_THREADS")) SetEnv("JULIA_NUM_THREADS", "2");
-    jl_init();
-    jl_gc_safe_enter(static_cast<jl_ptls_t>(jl_get_ptls_states()));
-    const JuliaScope scope;
-    CheckJulia("Initializing Julia");
+    char name[64];
+    std::snprintf(name, sizeof(name), "TsugumiCard_%p",
+                  static_cast<void*>(this));
+    const std::string module = name;
+    jl_eval_string(("module " + module + " end").c_str());
+    CheckJulia("Creating the Julia Card namespace");
+
+    const auto eval = [&](std::string code, const char* action) {
+      jl_eval_string(("Core.eval(" + module + ", :(" + code + "))").c_str());
+      CheckJulia(action);
+    };
 
     // Use addresses for ccall so the bridge remains private to main.so.
     char bridge[768];
@@ -336,17 +297,18 @@ class Interpreter {
         reinterpret_cast<void*>(UnregisterRoute));
     if (length < 0 || static_cast<size_t>(length) >= sizeof(bridge))
       throw std::runtime_error("Could not initialize the Julia bridge");
-    jl_eval_string(bridge);
-    CheckJulia("Installing the Julia bridge");
-    jl_eval_string("const TSUGUMI_JULIA_CARD_API = \"" TSUGUMI_JULIA_CARD_API
-                   "\"");
-    CheckJulia("Locating the Julia Card API");
-    jl_eval_string("const TSUGUMI_JULIA_PARAMS = \"" TSUGUMI_JULIA_PARAMS "\"");
-    CheckJulia("Locating the Julia parameters");
-    jl_eval_string("Base.include(Main, \"" TSUGUMI_JULIA_SDK "\")");
+    eval(bridge, "Installing the Julia bridge");
+    eval("const TSUGUMI_JULIA_CARD_API = \"" TSUGUMI_JULIA_CARD_API "\"",
+         "Locating the Julia Card API");
+    eval("const TSUGUMI_JULIA_PARAMS = \"" TSUGUMI_JULIA_PARAMS "\"",
+         "Locating the Julia parameters");
+    jl_eval_string(
+        ("Base.include(" + module + ", \"" TSUGUMI_JULIA_SDK "\")").c_str());
     CheckJulia("Loading the Julia SDK");
+    auto* card = reinterpret_cast<jl_module_t*>(
+        jl_get_global(jl_main_module, jl_symbol(name)));
     auto* sdk = reinterpret_cast<jl_module_t*>(
-        jl_get_global(jl_main_module, jl_symbol("Tsugumi")));
+        jl_get_global(card, jl_symbol("Tsugumi")));
     auto* load = jl_get_function(sdk, "load");
     run_ = jl_get_function(sdk, "run");
 
@@ -362,18 +324,16 @@ class Interpreter {
     CheckJulia("Loading the Julia Card");
   }
 
-  std::mutex mutex_;
-  std::condition_variable ready_;
-  std::packaged_task<Json()> pending_;
+  std::once_flag load_once_;
   jl_value_t* run_ = nullptr;
-  std::exception_ptr failure_;
+  std::exception_ptr load_error_;
 };
 
 }  // namespace
 
 auto RunJulia(const std::string& input) -> Json {
-  static auto* const interpreter = new Interpreter;
-  return interpreter->Run(input);
+  static auto* const card = new CardModule;
+  return card->Run(input);
 }
 
 auto ReadFailure(const Json& failure) -> Tsugumi::Card::CardResultT {

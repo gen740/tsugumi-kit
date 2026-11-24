@@ -17,13 +17,14 @@ CardFailure(kind::Symbol, message::AbstractString; cell::AbstractString="") =
     CardFailure(kind, String(message), String(cell))
 Base.showerror(io::IO, failure::CardFailure) = print(io, failure.message)
 
-include(Main.TSUGUMI_JULIA_CARD_API)
+const CARD = parentmodule(@__MODULE__)
+include(CARD.TSUGUMI_JULIA_CARD_API)
 
-const HOST = Main.TSUGUMI_JULIA_HOST
+const HOST = CARD.TSUGUMI_JULIA_HOST
 cancelled() = (@ccall gc_safe=true $(HOST.cancelled)()::Cint) != 0
 remaining_ms() = @ccall gc_safe=true $(HOST.remaining_ms)()::Int64
 
-include(Main.TSUGUMI_JULIA_PARAMS)
+include(CARD.TSUGUMI_JULIA_PARAMS)
 
 struct Artifact
     id::NTuple{16,UInt8}

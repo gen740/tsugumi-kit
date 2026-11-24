@@ -73,6 +73,21 @@ let
           --rootDir generated --outDir "$out/js" generated/bindings.ts generated/tsugumi/card.ts generated/tsugumi/artifact.ts
         cp ${sdk}/{package.json,bootstrap.cjs,index.js,index.d.ts,effects.js,display.js,failure.js,runtime.js,artifact.js} "$out/js/"
       '';
+  inherit (stdenv.hostPlatform) isDarwin;
+  libnodePattern =
+    if isDarwin then "${libnode}/lib/libnode.*.dylib" else "${libnode}/lib/libnode.so.*";
+  processLibrary = "libtsugumi-node${stdenv.hostPlatform.extensions.sharedLibrary}";
+  process = runCommandCC "tsugumi-node-process" { } ''
+    mkdir -p "$out/lib"
+    libraries=(${libnodePattern})
+    test "''${#libraries[@]}" = 1 && test -f "''${libraries[0]}"
+    $CXX -std=c++20 -O2 -fPIC -fvisibility=hidden -shared -pthread \
+      -isystem "${libnode}/include/node" \
+      "-DTSUGUMI_NODE=\"${libnode}/bin/node\"" "-DTSUGUMI_LIBNODE=\"''${libraries[0]}\"" \
+      "${sdk}/process.cc" "''${libraries[0]}" -Wl,-rpath,"${libnode}/lib" \
+      ${if isDarwin then "-Wl,-install_name,$out/lib/${processLibrary}" else "-ldl"} \
+      -o "$out/lib/${processLibrary}"
+  '';
   jsCard =
     {
       src,
@@ -84,7 +99,6 @@ let
       nativeBuildInputs ? [ ],
     }:
     let
-      inherit (stdenv.hostPlatform) isDarwin;
       npmModules =
         if builtins.pathExists (src + "/package.json") then
           importNpmLock.buildNodeModules {
@@ -144,10 +158,10 @@ let
           -Wall -Wextra -Werror -Wformat=2 -Wimplicit-fallthrough \
           -shared "''${toolPathObject[@]}" "''${link[@]}" -I"${bindings}/native/include" -I"${runtime}/include" \
           -I"${sdk}" -I"${../sdk/cpp/src}" -isystem "${libnode}/include/node" \
-          "-DTSUGUMI_NODE=\"${libnode}/bin/node\"" "-DTSUGUMI_LIBNODE=\"''${libraries[0]}\"" \
           "-DTSUGUMI_JS_BOOTSTRAP=\"$app/node_modules/@tsugumi/card/bootstrap.cjs\"" "-DTSUGUMI_JS_ENTRY=\"$app/main.mjs\"" \
           "${sdk}/node_card.cc" "${bindings}/native/card_adapter.cc" \
           "${runtime}/lib/libtsugumi_abi.a" "''${libraries[0]}" -Wl,-rpath,"${libnode}/lib" -luv \
+          "${process}/lib/${processLibrary}" -Wl,-rpath,"${process}/lib" \
           -pthread ${lib.optionalString (!isDarwin) "-ldl"} -o "$out/lib/main.so"
       '';
   jsApi =

@@ -17,7 +17,7 @@ main <- function(input) {
   stopifnot(length(input$batch$items) == 1L,
             envelope$schema == strrep("4", 64), read_i32(table + field) == 4L,
             inherits(params$offset, "tsugumi_int64"),
-            identical(unclass(params$offset), "100"), params$flag, identical(params$ratio, 1.0), params$labels[[1L]] == "日本語",
+            unclass(params$offset) %in% c("100", "200"), params$flag, identical(params$ratio, 1.0), params$labels[[1L]] == "日本語",
             !cancelled(), remaining_ms() == 500)
   number <- if (is.numeric(item$value)) item$value else 20
   if (number < 0) return(list())

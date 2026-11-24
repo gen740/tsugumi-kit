@@ -1,3 +1,4 @@
+import sys
 from threading import Thread
 
 import tsugumi
@@ -25,6 +26,13 @@ def run(input: Input) -> Output:
     assert not tsugumi.cancelled() and tsugumi.remaining_ms() == 500
     if isinstance(item, NumberT) and item.value < 0:
         return Output()
+    # The private main modules see one shared CPython sys module.
+    if params.offset == 100:
+        assert not hasattr(sys, "_tsugumi_shared_test")
+        sys._tsugumi_shared_test = __name__
+    else:
+        assert sys._tsugumi_shared_test != __name__
+        del sys._tsugumi_shared_test
     artifact, directory = Artifact.dir()
     file = directory / "value.txt"
     file.write_text("test")

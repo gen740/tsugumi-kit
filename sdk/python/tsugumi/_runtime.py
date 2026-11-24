@@ -13,7 +13,8 @@ from Tsugumi.Data.FailureKind import FailureKind
 
 from . import Failure
 
-_SOURCE_ROOT = Path(sys.path[1])
+_CARD_PACKAGE = __package__.rsplit(".", 1)[0]
+_SOURCE_ROOT = Path(sys.modules[_CARD_PACKAGE].__source_root__)
 
 
 def _pack(value):
@@ -71,7 +72,7 @@ def _load_card():
         os.environ["MPLCONFIGDIR"] = str(Path.home() / ".matplotlib")
         from card import Input, Output, _inputs, _outputs, _union_checks
 
-        run = importlib.import_module("main").run
+        run = importlib.import_module(".main", _CARD_PACKAGE).run
         if not callable(run):
             raise TypeError("main.run must be callable")
         return (run, Input, Output, _inputs, _outputs, _union_checks), None

@@ -17,6 +17,8 @@
 #include <utility>
 #include <vector>
 
+#include "process.hh"
+
 namespace tsugumi::abi {
 namespace {
 
@@ -256,7 +258,7 @@ class Runtime {
   Runtime(const Runtime&) = delete;
   auto operator=(const Runtime&) -> Runtime& = delete;
 
-  auto Call(tsugumi_bytes bytes) -> std::vector<uint8_t> {
+  auto Call(tsugumi_bytes bytes) -> ResultBuffer {
     Request request{.input = bytes};
     std::unique_lock lock(mutex_);
     changed_.wait(lock, [&] { return ready_ || stopped_; });
@@ -273,27 +275,26 @@ class Runtime {
   }
 
  private:
-  // Process exit runs libnode's static destructors. Until then, Node
-  // worker_threads and V8 platform threads can still be running, for
-  // example while a Worker disposes its isolate after its script ends.
-  // Stop the environment and wait for its teardown first.
-  static auto StopAtExit() -> void {
-    auto& self = *instance_;
-    // A host that exits from a send on the Node thread cannot join it.
-    if (std::this_thread::get_id() == self.thread_.get_id()) return;
-    {
-      const std::lock_guard lock(self.mutex_);
-      if (!self.stopped_) node::Stop(self.setup_->env());
-    }
+  static auto Stop(void* runtime) -> void {
+    auto& self = *static_cast<Runtime*>(runtime);
+    const std::lock_guard lock(self.mutex_);
+    if (!self.stopped_) node::Stop(self.setup_->env());
+  }
+
+  static auto Join(void* runtime) -> bool {
+    auto& self = *static_cast<Runtime*>(runtime);
+    // A host effect may exit the process while on this thread.
+    if (std::this_thread::get_id() == self.thread_.get_id()) return false;
     self.thread_.join();
+    return true;
   }
 
   struct Request {
     tsugumi_bytes input;
-    std::vector<uint8_t> result = {};
+    ResultBuffer result{};
   };
 
-  auto Complete(std::vector<uint8_t> bytes) -> void {
+  auto Complete(ResultBuffer bytes) -> void {
     const std::lock_guard lock(mutex_);
     request_->result = std::move(bytes);
     request_ = nullptr;
@@ -318,8 +319,9 @@ class Runtime {
         throw std::runtime_error("Node.js SDK returned a non-byte result");
       }
       const auto array = args[0].As<v8::Uint8Array>();
-      std::vector<uint8_t> bytes(array->ByteLength());
-      if (!bytes.empty()) array->CopyContents(bytes.data(), bytes.size());
+      const auto size = array->ByteLength();
+      ResultBuffer bytes(size);
+      if (size) array->CopyContents(bytes.data(), size);
       self.Complete(std::move(bytes));
     } catch (...) {
       self.Fail(std::current_exception());
@@ -386,10 +388,12 @@ class Runtime {
     std::vector<std::string> errors;
     using namespace node::EnvironmentFlags;
     constexpr auto flags = static_cast<Flags>(
-        kDefaultFlags | kNoGlobalSearchPaths | kNoStartDebugSignalHandler);
+        kNoCreateInspector | kNoGlobalSearchPaths | kNoStartDebugSignalHandler);
+    auto args = initialization.args();
+    args.emplace_back(TSUGUMI_JS_BOOTSTRAP);
     setup_ = node::CommonEnvironmentSetup::Create(
-        initialization.platform(), &errors, initialization.args(),
-        initialization.exec_args(), flags);
+        initialization.platform(), &errors, args, initialization.exec_args(),
+        flags);
     if (!setup_) {
       throw std::runtime_error(errors.empty()
                                    ? "Cannot create Node.js environment"
@@ -425,13 +429,7 @@ class Runtime {
           "Cannot create the Node.js event loop wake handle");
     }
     wake_.data = this;
-    // Register after InitializeOncePerProcess, so this handler runs before
-    // the exit handlers that Node's dependencies installed while starting.
-    instance_ = this;
-    if (std::atexit(StopAtExit) != 0) {
-      uv_close(reinterpret_cast<uv_handle_t*>(&wake_), nullptr);
-      throw std::runtime_error("Cannot register the Node.js exit handler");
-    }
+    RegisterNodeEnvironment(this, Stop, Join);
     {
       const std::lock_guard lock(mutex_);
       ready_ = true;
@@ -443,25 +441,8 @@ class Runtime {
 
   auto RunLoop() -> void {
     std::exception_ptr error;
-    std::shared_ptr<node::InitializationResult> initialization;
     try {
-      // The worker opens the Card with RTLD_LOCAL. Native npm addons can
-      // resolve Node-API symbols against this process-lifetime reference.
-      if (!dlopen(TSUGUMI_LIBNODE, RTLD_NOW | RTLD_GLOBAL)) {
-        throw std::runtime_error(dlerror());
-      }
-      using namespace node::ProcessInitializationFlags;
-      initialization = node::InitializeOncePerProcess(
-          {TSUGUMI_NODE, "--unhandled-rejections=warn", TSUGUMI_JS_BOOTSTRAP},
-          {kDisableNodeOptionsEnv, kNoStdioInitialization,
-           kNoDefaultSignalHandling, kNoParseGlobalDebugVariables,
-           kNoAdjustResourceLimits, kNoUseLargePages});
-      if (initialization->early_return()) {
-        const auto& errors = initialization->errors();
-        throw std::runtime_error(errors.empty() ? "Cannot initialize Node.js"
-                                                : errors.front());
-      }
-      RunEnvironment(*initialization);
+      RunEnvironment(NodeProcess());
       if (execution_error_) std::rethrow_exception(execution_error_);
       throw std::runtime_error("The Node.js event loop stopped");
     } catch (...) {
@@ -481,9 +462,6 @@ class Runtime {
       entry_.Reset();
     }
     setup_.reset();
-    if (initialization && !initialization->early_return()) {
-      node::TearDownOncePerProcess();
-    }
   }
 
   std::mutex mutex_;
@@ -498,7 +476,6 @@ class Runtime {
   v8::Global<v8::Function> invoke_, resolve_, reject_;
   v8::Global<v8::String> entry_;
   std::thread thread_;
-  static inline Runtime* instance_ = nullptr;
 };
 
 // The libuv loop can dispatch a host effect even between calls. Keep the
@@ -515,16 +492,9 @@ auto StartRuntime() -> Runtime* {
 
 }  // namespace
 
-auto RunNodeCard(tsugumi_bytes input) -> Tsugumi::Card::CardResultT {
+auto RunNodeCard(tsugumi_bytes input) -> ResultBuffer {
   static auto* runtime = StartRuntime();
-  const auto bytes = runtime->Call(input);
-  const Buffer buffer({bytes.data(), bytes.size()});
-  const auto* result = buffer.Verify<Tsugumi::Card::CardResult>();
-  if (!result)
-    Reject(FailureKind::output_invalid, "Invalid Node.js CardResult");
-  Tsugumi::Card::CardResultT value;
-  result->UnPackTo(&value);
-  return value;
+  return runtime->Call(input);
 }
 
 }  // namespace tsugumi::abi

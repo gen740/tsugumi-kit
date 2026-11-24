@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -42,8 +43,8 @@ auto ParseNumber(std::string_view field, std::size_t line_number)
 }  // namespace
 
 auto run(const Card::Inputs& input) -> Card::Output {
-  const auto original = input.get<card::Artifact>("counts");
-  const auto directory = original.open();
+  const std::unique_ptr<card::Artifact> original(input.counts->UnPack());
+  const auto directory = original->open();
   auto file = std::filesystem::directory_iterator(directory);
   if (file == std::filesystem::directory_iterator() ||
       !file->is_regular_file()) {
@@ -64,7 +65,8 @@ auto run(const Card::Inputs& input) -> Card::Output {
                            "Expected the header channel,counts");
   }
 
-  auto [filtered_artifact, output_directory] = card::Artifact::dir(Card::params.keep_output);
+  auto [filtered_artifact, output_directory] =
+      card::Artifact::dir(Card::params.keep_output);
   const auto path = output_directory / "filtered.csv";
   std::ofstream filtered(path);
   filtered << line << '\n';

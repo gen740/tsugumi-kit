@@ -66,6 +66,18 @@ let
       )
     }
   '';
+  processLibrary = "libtsugumi-julia${stdenv.hostPlatform.extensions.sharedLibrary}";
+  process = pkgs.runCommandCC "tsugumi-julia-process" { } ''
+    mkdir -p "$out/lib"
+    $CXX -std=c++20 -O2 -fPIC -fvisibility=hidden -shared -pthread \
+      -isystem ${julia}/include/julia \
+      -DTSUGUMI_LIBJULIA='"${juliaLib}"' \
+      -DTSUGUMI_JULIA_PROJECT='"${project}"' \
+      -DTSUGUMI_JULIA_DEPOT='"${depot}"' \
+      ${./process.cc} "${juliaLib}" -Wl,-rpath,${julia}/lib \
+      ${if isDarwin then "-Wl,-install_name,$out/lib/${processLibrary}" else "-ldl"} \
+      -o "$out/lib/${processLibrary}"
+  '';
   generate =
     {
       inputs,
@@ -139,9 +151,6 @@ let
           -shared "''${toolPathObject[@]}" "''${exports[@]}" \
           -isystem ${generated}/include -I${./.} -I${runtime}/include -I${../cpp/src} -I${legacyHeaders} \
           -isystem ${julia}/include/julia \
-          -DTSUGUMI_LIBJULIA='"${juliaLib}"' \
-          -DTSUGUMI_JULIA_PROJECT='"${project}"' \
-          -DTSUGUMI_JULIA_DEPOT='"${depot}"' \
           -DTSUGUMI_JULIA_PARAMS="\"$out/share/tsugumi/params.jl\"" \
           -DTSUGUMI_JULIA_SDK='"${./tsugumi.jl}"' \
           -DTSUGUMI_JULIA_CARD_API="\"${generated}/api/card.jl\"" \
@@ -149,7 +158,8 @@ let
           -DTSUGUMI_JULIA_ENTRY=${lib.escapeShellArg (builtins.toJSON entry)} \
           -DTSUGUMI_JULIA_SOURCE_PREFIX=${lib.escapeShellArg (builtins.toJSON sourcePrefix)} \
           ${generated}/src/card_adapter.cc ${./bridge.cc} ${runtime}/lib/libtsugumi_abi.a \
-          -L${julia}/lib -Wl,-rpath,${julia}/lib -ljulia -pthread -o "$out/lib/main.so"
+          -L${julia}/lib -Wl,-rpath,${julia}/lib -ljulia -pthread \
+          "${process}/lib/${processLibrary}" -Wl,-rpath,"${process}/lib" -o "$out/lib/main.so"
       '';
   juliaApi =
     args:

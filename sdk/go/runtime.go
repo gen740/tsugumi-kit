@@ -119,8 +119,8 @@ func invoke(data []byte, result unsafe.Pointer, run func(Inputs) (Output, error)
 
 // InvokeRun is called only by the generated adapter. No Go pointer is retained by C.
 func InvokeRun(data unsafe.Pointer, size uintptr, result unsafe.Pointer, run func(Inputs) (Output, error)) int {
-	// The shared ABI verifier has already bounded size below the C.int limit.
-	stage, err := invoke(C.GoBytes(data, C.int(size)), result, run)
+	// The verified envelope is borrowed only while reading the ports.
+	stage, err := invoke(unsafe.Slice((*byte)(data), size), result, run)
 	if err != nil {
 		return writeFailure(result, byKind(err, stage))
 	}

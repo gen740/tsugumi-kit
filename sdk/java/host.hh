@@ -34,7 +34,6 @@ struct JavaOutput {
 };
 
 auto RunJava(tsugumi_bytes bytes, std::span<const JavaInput> inputs,
-             std::span<const JavaOutput> outputs)
-    -> Tsugumi::Card::CardResultT;
+             std::span<const JavaOutput> outputs) -> ResultBuffer;
 
 }  // namespace tsugumi::abi
