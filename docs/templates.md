@@ -18,7 +18,7 @@ filter-counts/
     src/card.cc
 ```
 
-Every Card definition includes a `README.md` with a non-empty `title` for the display name and a one-line `description`, which may be empty. Both fields belong to the front matter. Write a space after the colon for an empty description. The `_card.json` writes all the fields required for its type, including its `symbol`. The Code and Input templates specify `aarch64-linux` in `system` and declare `workerCapabilities` explicitly. See [Project files](https://github.com/gen740/Tsugumi/blob/main/docs/Reference.md) for the field sets.
+Every Card definition includes a `README.md` with a non-empty `title` for the display name and a one-line `description`, which may be empty. Both fields belong to the front matter. Write a space after the colon for an empty description. The `_card.json` writes all the fields required for its type, including its `symbol`. The executable templates list every Nix system they work on in `systems` (`aarch64-linux`, `x86_64-linux` and `aarch64-darwin`, the systems this kit checks) and declare `workerCapabilities` explicitly. See [Project files](https://github.com/gen740/Tsugumi/blob/main/docs/Reference.md) for the field sets.
 
 `params.nix` holds the Card's params. A Card without params has no
 `params.nix`; Tsugumi treats a missing file as `{ }`.
@@ -50,7 +50,7 @@ A template may include a `layout.bin` fragment (the FlatBuffers layout a project
 
 On copy, the core allocates fresh Card IDs and remaps references in the copied graph and layout. Copying the temperature pair twice should produce two independent pairs, each with its own internal wire. Connect ports at the boundary of each copy to the rest of your project.
 
-Project templates carry `tsugumi.json` and `tsugumi.lock`. The manifest writes all required project fields explicitly, including `tsugumiVersion`. Use templates whose version matches the Tsugumi release that reads them. The declaration
+Project templates carry `tsugumi.json` and `tsugumi.lock`. The manifest writes all required project fields explicitly, including `formatVersion`, the project file format. Use templates whose format matches the format the Tsugumi release reads; the format changes only when the project files change, not with each release. The declaration
 names nixpkgs and tsugumi-kit. The lock's `entries` list records each name,
 its declared URL, the resolved revision and the `narHash`. Project templates
 keep their Card definitions under `definitions/<id>/`. A project created
