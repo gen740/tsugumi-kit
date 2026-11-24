@@ -13,5 +13,6 @@ pkgs.callPackage ./card.nix {
 }
 // (import ../input { inherit pkgs; })
 // {
+  inherit (deps.views) dawnView;
   views = deps.views.plotlyViews;
 }

@@ -14,5 +14,6 @@ pkgs.callPackage ../../nix/js-card.nix {
 }
 // (import ../input { inherit pkgs; })
 // {
+  inherit (deps.views) dawnView;
   views = deps.views.common;
 }

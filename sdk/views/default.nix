@@ -3,6 +3,7 @@
   runCommand,
   fetchurl,
   esbuild,
+  callPackage,
 }:
 let
   commonmark = fetchurl {
@@ -73,4 +74,5 @@ let
 in
 {
   inherit charts common plotlyViews;
+  dawnView = callPackage ./dawn.nix { };
 }
