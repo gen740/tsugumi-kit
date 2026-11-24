@@ -1,4 +1,5 @@
 ---
+title: settings
 description: Supply text to the write Card.
 ---
 

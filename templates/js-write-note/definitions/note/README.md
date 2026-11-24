@@ -1,4 +1,5 @@
 ---
+title: note
 description: Write the configured note text to an Artifact.
 ---
 

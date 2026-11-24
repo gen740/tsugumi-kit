@@ -1,4 +1,5 @@
 ---
+title: write
 description: Write the connected text to an Artifact.
 ---
 

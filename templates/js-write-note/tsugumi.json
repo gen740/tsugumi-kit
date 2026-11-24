@@ -1,12 +1,6 @@
 {
-  "canvas": {
-    "cards": [
-      {
-        "id": "note"
-      }
-    ],
-    "connections": []
-  },
+  "tsugumiVersion": "0.9.4",
+  "name": "Write a note with JavaScript",
   "nixPath": [
     {
       "name": "nixpkgs",
@@ -16,5 +10,23 @@
       "name": "tsugumi-kit",
       "url": "github:gen740/tsugumi-kit/main"
     }
-  ]
+  ],
+  "trackedPaths": [],
+  "agentExclude": [
+    ".git",
+    ".DS_Store"
+  ],
+  "recordLogs": true,
+  "recordIO": false,
+  "logLimitBytes": 134217728,
+  "outputLimitBytes": 68719476736,
+  "outputLimitEntries": 1000,
+  "canvas": {
+    "cards": [
+      {
+        "id": "note"
+      }
+    ],
+    "connections": []
+  }
 }

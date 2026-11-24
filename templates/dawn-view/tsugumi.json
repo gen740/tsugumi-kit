@@ -1,11 +1,6 @@
 {
-  "canvas": {
-    "cards": [
-      {
-        "id": "color"
-      }
-    ]
-  },
+  "tsugumiVersion": "0.9.4",
+  "name": "Clear a Dawn view",
   "nixPath": [
     {
       "name": "nixpkgs",
@@ -15,5 +10,23 @@
       "name": "tsugumi-kit",
       "url": "github:gen740/tsugumi-kit/main"
     }
-  ]
+  ],
+  "trackedPaths": [],
+  "agentExclude": [
+    ".git",
+    ".DS_Store"
+  ],
+  "recordLogs": true,
+  "recordIO": false,
+  "logLimitBytes": 134217728,
+  "outputLimitBytes": 68719476736,
+  "outputLimitEntries": 1000,
+  "canvas": {
+    "cards": [
+      {
+        "id": "color"
+      }
+    ],
+    "connections": []
+  }
 }
