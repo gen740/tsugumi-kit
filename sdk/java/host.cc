@@ -5,10 +5,10 @@
 
 #include <algorithm>
 #include <array>
-#include <cstdlib>
 #include <exception>
 #include <limits>
 #include <string>
+#include <string_view>
 #include <unordered_set>
 #include <vector>
 
@@ -17,7 +17,6 @@ namespace {
 
 using Tsugumi::Card::CardInput;
 using Tsugumi::Card::CardResult;
-using Tsugumi::Card::CardResultT;
 
 auto ThrowEffectError(JNIEnv* env, const char* message) -> void {
   if (env->ExceptionCheck()) return;
@@ -157,7 +156,8 @@ auto ArtifactDir(JNIEnv* env, jclass, jbyteArray id, jboolean keep) noexcept
   try {
     const auto [artifact, path] = card::Artifact::dir(keep == JNI_TRUE);
     env->SetByteArrayRegion(
-        id, 0, 16, reinterpret_cast<const jbyte*>(artifact.id->bytes()->Data()));
+        id, 0, 16,
+        reinterpret_cast<const jbyte*>(artifact.id->bytes()->Data()));
     if (env->ExceptionCheck()) return nullptr;
     const auto& native = path.native();
     return CopyBytes(env, native.data(), native.size());
@@ -264,6 +264,66 @@ class LocalFrame {
   Reject(FailureKind::worker_failed, message);
 }
 
+extern "C" auto tsugumi_java_vm() -> JavaVM*;
+
+auto NewCardLoader(JNIEnv* env) -> jobject {
+  const auto file = env->FindClass("java/io/File");
+  const auto uri = env->FindClass("java/net/URI");
+  const auto url = env->FindClass("java/net/URL");
+  const auto loader = env->FindClass("java/net/URLClassLoader");
+  const auto base = env->FindClass("java/lang/ClassLoader");
+  if (!file || !uri || !url || !loader || !base) return nullptr;
+
+  const auto init = env->GetMethodID(file, "<init>", "(Ljava/lang/String;)V");
+  const auto to_uri = env->GetMethodID(file, "toURI", "()Ljava/net/URI;");
+  const auto to_url = env->GetMethodID(uri, "toURL", "()Ljava/net/URL;");
+  const auto parent = env->GetStaticMethodID(base, "getPlatformClassLoader",
+                                             "()Ljava/lang/ClassLoader;");
+  const auto make = env->GetStaticMethodID(
+      loader, "newInstance",
+      "([Ljava/net/URL;Ljava/lang/ClassLoader;)Ljava/net/URLClassLoader;");
+  if (!init || !to_uri || !to_url || !parent || !make) return nullptr;
+
+  std::vector<std::string> paths;
+  std::string_view classpath(TSUGUMI_JAVA_CLASSPATH);
+  while (!classpath.empty()) {
+    const auto separator = classpath.find(':');
+    paths.emplace_back(classpath.substr(0, separator));
+    if (separator == std::string_view::npos) break;
+    classpath.remove_prefix(separator + 1);
+  }
+  const auto urls =
+      env->NewObjectArray(static_cast<jsize>(paths.size()), url, nullptr);
+  if (!urls) return nullptr;
+  for (size_t i = 0; i < paths.size(); ++i) {
+    const LocalFrame frame(env);
+    if (!frame) return nullptr;
+    const auto path = env->NewStringUTF(paths[i].c_str());
+    if (!path) return nullptr;
+    const auto location = env->NewObject(file, init, path);
+    if (!location) return nullptr;
+    const auto address = env->CallObjectMethod(location, to_uri);
+    if (!address || env->ExceptionCheck()) return nullptr;
+    const auto entry = env->CallObjectMethod(address, to_url);
+    if (!entry || env->ExceptionCheck()) return nullptr;
+    env->SetObjectArrayElement(urls, static_cast<jsize>(i), entry);
+    if (env->ExceptionCheck()) return nullptr;
+  }
+  const auto platform = env->CallStaticObjectMethod(base, parent);
+  if (!platform || env->ExceptionCheck()) return nullptr;
+  return env->CallStaticObjectMethod(loader, make, urls, platform);
+}
+
+auto LoadClass(JNIEnv* env, jobject loader, const char* name) -> jclass {
+  const auto type = env->FindClass("java/lang/ClassLoader");
+  if (!type) return nullptr;
+  const auto load = env->GetMethodID(type, "loadClass",
+                                     "(Ljava/lang/String;)Ljava/lang/Class;");
+  const auto class_name = env->NewStringUTF(name);
+  if (!load || !class_name) return nullptr;
+  return static_cast<jclass>(env->CallObjectMethod(loader, load, class_name));
+}
+
 class Jvm {
  public:
   Jvm() {
@@ -277,39 +337,26 @@ class Jvm {
       return;
     }
 
-    const char* scratch = std::getenv("TMPDIR");
-    const std::string temporary = std::string("-Djava.io.tmpdir=") +
-                                  (scratch && *scratch ? scratch : ".");
-    const char* home_path = std::getenv("HOME");
-    const std::string home = std::string("-Duser.home=") +
-                             (home_path && *home_path ? home_path : ".");
-    JavaVMOption options[] = {
-        {const_cast<char*>("-Djava.class.path=" TSUGUMI_JAVA_CLASSPATH),
-         nullptr},
-        {const_cast<char*>("-Djava.awt.headless=true"), nullptr},
-        {const_cast<char*>("-Xrs"), nullptr},
-        {const_cast<char*>("-XX:-UsePerfData"), nullptr},
-        {const_cast<char*>(temporary.c_str()), nullptr},
-        {const_cast<char*>(home.c_str()), nullptr},
-    };
-    JavaVMInitArgs args{JNI_VERSION_1_8, std::size(options), options,
-                        JNI_FALSE};
-    void* env = nullptr;
-    if (JNI_CreateJavaVM(&vm_, &env, &args) != JNI_OK) {
+    vm_ = tsugumi_java_vm();
+    if (!vm_) {
       error_ = "Cannot start the embedded Java VM";
       return;
     }
 
-    auto* jni = static_cast<JNIEnv*>(env);
-    if (!Load(jni)) {
-      if (jni->ExceptionCheck()) jni->ExceptionClear();
+    const Attachment attachment(vm_);
+    auto* env = attachment.Env();
+    if (!env) {
+      error_ = "Cannot attach to the Java VM";
+      return;
+    }
+    const LocalFrame frame(env);
+    if (!frame || !Load(env)) {
+      if (env->ExceptionCheck()) env->ExceptionClear();
       error_ = "Cannot load the Java Card adapter";
     }
-    // The native worker thread may change between serial calls.
-    vm_->DetachCurrentThread();
   }
 
-  auto Invoke(tsugumi_bytes bytes) const -> std::vector<uint8_t> {
+  auto Invoke(tsugumi_bytes bytes) const -> ResultBuffer {
     if (error_) Reject(FailureKind::worker_failed, error_);
     const Attachment attachment(vm_);
     auto* env = attachment.Env();
@@ -321,19 +368,16 @@ class Jvm {
       Reject(FailureKind::resource_limit,
              "CardInput exceeds the Java array limit");
     }
-    const auto size = static_cast<jsize>(bytes.size);
-    auto input = env->NewByteArray(size);
-    if (!input) Failed(env, "Cannot allocate Java CardInput");
-    env->SetByteArrayRegion(input, 0, size,
-                            reinterpret_cast<const jbyte*>(bytes.data));
-    if (env->ExceptionCheck()) Failed(env, "Cannot copy Java CardInput");
+    auto input = env->NewDirectByteBuffer(const_cast<uint8_t*>(bytes.data),
+                                          static_cast<jlong>(bytes.size));
+    if (!input) Failed(env, "Cannot borrow Java CardInput");
 
     auto output = static_cast<jbyteArray>(
         env->CallStaticObjectMethod(entry_, invoke_, input));
     if (!output || env->ExceptionCheck())
       Failed(env, "Cannot run the Java Card adapter");
     const auto length = env->GetArrayLength(output);
-    std::vector<uint8_t> result(length);
+    ResultBuffer result(length);
     if (length)
       env->GetByteArrayRegion(output, 0, length,
                               reinterpret_cast<jbyte*>(result.data()));
@@ -343,7 +387,9 @@ class Jvm {
 
  private:
   auto Load(JNIEnv* env) -> bool {
-    jclass effects = env->FindClass("tsugumi/Effects");
+    const auto loader = NewCardLoader(env);
+    if (!loader || env->ExceptionCheck()) return false;
+    jclass effects = LoadClass(env, loader, "tsugumi.Effects");
     if (!effects) return false;
     const JNINativeMethod methods[] = {
         {const_cast<char*>("viewOpen"), const_cast<char*>("([BIJJ[B[B)V"),
@@ -369,9 +415,10 @@ class Jvm {
     };
     if (env->RegisterNatives(effects, methods, std::size(methods)) != JNI_OK)
       return false;
-    jclass entry = env->FindClass("tsugumi/Entry");
+    jclass entry = LoadClass(env, loader, "tsugumi.Entry");
     if (!entry) return false;
-    invoke_ = env->GetStaticMethodID(entry, "invoke", "([B)[B");
+    invoke_ =
+        env->GetStaticMethodID(entry, "invoke", "(Ljava/nio/ByteBuffer;)[B");
     if (!invoke_) return false;
     entry_ = static_cast<jclass>(env->NewGlobalRef(entry));
     return entry_ != nullptr;
@@ -404,16 +451,20 @@ auto CheckInputs(tsugumi_bytes bytes, std::span<const JavaInput> catalog)
   input.CheckConsumed();
 }
 
-auto CheckOutputs(CardResultT& result, std::span<const JavaOutput> catalog)
+auto CheckOutputs(const CardResult& result, std::span<const JavaOutput> catalog)
     -> void {
   std::unordered_set<std::string_view> seen;
-  for (auto& port : result.outputs) {
-    const auto expected = std::ranges::find(catalog, port->name, &JavaOutput::name);
-    if (expected == catalog.end() || !seen.insert(port->name).second) {
-      Reject(FailureKind::output_invalid, "Unexpected output " + port->name);
-    }
-    if (!expected->valid(Buffer({port->bytes.data(), port->bytes.size()}))) {
-      Reject(FailureKind::output_invalid, "Invalid output " + port->name);
+  if (const auto* ports = result.outputs()) {
+    for (const auto* port : *ports) {
+      const auto name = port->name()->string_view();
+      const auto expected = std::ranges::find(catalog, name, &JavaOutput::name);
+      if (expected == catalog.end() || !seen.insert(name).second)
+        Reject(FailureKind::output_invalid,
+               "Unexpected output " + std::string(name));
+      const auto* bytes = port->bytes();
+      if (!bytes || !expected->valid(Buffer({bytes->data(), bytes->size()})))
+        Reject(FailureKind::output_invalid,
+               "Invalid output " + std::string(name));
     }
   }
   for (const auto& port : catalog) {
@@ -427,18 +478,16 @@ auto CheckOutputs(CardResultT& result, std::span<const JavaOutput> catalog)
 }  // namespace
 
 auto RunJava(tsugumi_bytes bytes, std::span<const JavaInput> inputs,
-             std::span<const JavaOutput> outputs) -> CardResultT {
+             std::span<const JavaOutput> outputs) -> ResultBuffer {
   CheckInputs(bytes, inputs);
   // JNI supports one JVM per process. Keep its classes and state warm.
   static const Jvm jvm;
-  const auto result_bytes = jvm.Invoke(bytes);
-  const Buffer result_buffer({result_bytes.data(), result_bytes.size()});
+  auto result_bytes = jvm.Invoke(bytes);
+  const Buffer result_buffer(result_bytes.bytes());
   const auto* result = result_buffer.Verify<CardResult>();
   if (!result) Reject(FailureKind::worker_failed, "Invalid Java CardResult");
-  CardResultT value;
-  result->UnPackTo(&value);
-  if (!value.failure) CheckOutputs(value, outputs);
-  return value;
+  if (!result->failure()) CheckOutputs(*result, outputs);
+  return result_bytes;
 }
 
 }  // namespace tsugumi::abi

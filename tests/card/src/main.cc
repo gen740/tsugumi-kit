@@ -7,19 +7,19 @@
 #include "card.hh"
 
 auto run(const Card::Inputs& input) -> Card::Output {
-  const auto& arrival = input.arrival.value();
-  const auto& known = std::visit(
-      [](const auto& item) -> const card::Artifact& { return *item.file; },
-      arrival);
-  const auto opened = known.open();
-  const auto& batch = input.batch.value();
-  if (batch.items.size() != 1 ||
-      batch.items.front()->schema != std::string(64, '4') ||
-      input.direct->open() != opened) {
+  const auto& arrival = input.arrival;
+  const std::unique_ptr<card::Artifact> known(std::visit(
+      [](const auto* item) { return item->file()->UnPack(); }, arrival));
+  const auto opened = known->open();
+  const std::unique_ptr<card::Artifact> direct(input.direct->UnPack());
+  const auto* items = input.batch->items();
+  if (items->size() != 1 ||
+      items->Get(0)->schema()->string_view() != std::string(64, '4') ||
+      direct->open() != opened) {
     throw std::runtime_error("Unexpected Collect or Artifact input");
   }
   const auto* element = flatbuffers::GetRoot<inputs::batch::Element>(
-      batch.items.front()->bytes.data());
+      items->Get(0)->bytes()->data());
   if (element->value() != 4)
     throw std::runtime_error("Unexpected Collect item");
   if (!std::filesystem::is_directory(opened) || !Card::params.flag ||
@@ -27,8 +27,11 @@ auto run(const Card::Inputs& input) -> Card::Output {
       card::cancelled() || card::remaining_ms() != 500) {
     throw std::runtime_error("Unexpected contract fixture values");
   }
-  const auto* number = std::get_if<inputs::arrival::NumberT>(&arrival);
-  if (number && number->value < 0) return {};
+  const auto* number =
+      std::holds_alternative<const inputs::arrival::Number*>(arrival)
+          ? std::get<const inputs::arrival::Number*>(arrival)
+          : nullptr;
+  if (number && number->value() < 0) return {};
 
   auto [artifact, directory] = card::Artifact::dir();
   const auto file = directory / "value.txt";
@@ -72,11 +75,11 @@ auto run(const Card::Inputs& input) -> Card::Output {
 
   Card::Output output;
   auto& listing = output.listing.emplace();
-  listing.value = Card::params.offset + (number ? number->value : 20);
+  listing.value = Card::params.offset + (number ? number->value() : 20);
   listing.nested = std::make_unique<outputs::ChildT>();
   listing.nested->file = std::make_unique<card::Artifact>(std::move(artifact));
   listing.files.push_back(std::make_unique<card::Artifact>(std::move(upload)));
-  listing.files.push_back(std::make_unique<card::Artifact>(known));
+  listing.files.push_back(std::make_unique<card::Artifact>(*known));
   auto [choice, unused] = card::Artifact::dir(false);
   listing.choice.Set(std::move(choice));
   return output;

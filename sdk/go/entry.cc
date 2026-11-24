@@ -8,10 +8,11 @@ auto RunCard(tsugumi_bytes input) -> Tsugumi::Card::CardResultT {
   const tsugumi::abi::Buffer buffer(input);
   if (!buffer.Verify<Tsugumi::Card::CardInput>()) {
     tsugumi::abi::Reject(tsugumi::abi::FailureKind::input_invalid,
-                          "Invalid CardInput");
+                         "Invalid CardInput");
   }
   Tsugumi::Card::CardResultT result;
-  // Go immediately makes an owned copy and never writes to these bytes.
+  // Go borrows the envelope while decoding and owns any bytes exposed to Card
+  // code.
   if (tsugumi_go_run(const_cast<uint8_t*>(input.data), input.size, &result)) {
     throw std::bad_alloc();
   }

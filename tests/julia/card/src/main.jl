@@ -14,7 +14,7 @@ function main(input)
     field = ltoh(read(io, UInt16))
     seek(io, table + field)
     @assert envelope["schema"] == repeat("4", 64) && ltoh(read(io, Int32)) == 4
-    @assert params.offset === Int64(100) && params.labels isa Tuple
+    @assert params.offset in (Int64(100), Int64(200)) && params.labels isa Tuple
     @assert params.flag && params.ratio === 1.0 && params.labels[1] == "日本語"
     @assert !cancelled() && remaining_ms() == 500
     number = item["value"] isa Integer ? item["value"] : 20

@@ -20,29 +20,29 @@ VIEW_WINDOW <- 1L
 VIEW_FULLSCREEN <- 2L
 
 view_open <- function(view, mode = VIEW_PANEL, width = 0L, height = 0L) {
-  result <- .Call("tsugumi_r_view_open", view, mode, width, height)
+  result <- .Call(tsugumi_r_view_open, view, mode, width, height)
   setNames(result, c("route", "session"))
 }
 
 route_register <- function(session) {
-  .Call("tsugumi_r_route_register", session)
+  .Call(tsugumi_r_route_register, session)
 }
 
 route_unregister <- function(route) {
-  .Call("tsugumi_r_route_unregister", route)
+  .Call(tsugumi_r_route_unregister, route)
   invisible(NULL)
 }
 
 send <- function(value, bytes) {
   if (!missing(bytes)) {
-    .Call("tsugumi_r_send", value, bytes)
+    .Call(tsugumi_r_send, value, bytes)
     return(invisible(NULL))
   }
   UseMethod("send")
 }
 
 .tsugumi_display <- function(kind, value) {
-  .Call("tsugumi_r_emit", .tsugumi_json(list(kind = kind, value = value)))
+  .Call(tsugumi_r_emit, .tsugumi_json(list(kind = kind, value = value)))
   invisible(NULL)
 }
 
@@ -94,11 +94,11 @@ line_chart <- function(series) {
 }
 plotly <- function(spec) .tsugumi_view("plotly", spec)
 vega_lite <- function(spec) .tsugumi_view("vega-lite", spec)
-cancelled <- function() .Call("tsugumi_r_cancelled")
-remaining_ms <- function() .Call("tsugumi_r_remaining_ms")
+cancelled <- function() .Call(tsugumi_r_cancelled)
+remaining_ms <- function() .Call(tsugumi_r_remaining_ms)
 
 recv <- function(timeout_ms = -1) {
-  result <- .Call("tsugumi_r_recv", timeout_ms)
+  result <- .Call(tsugumi_r_recv, timeout_ms)
   setNames(result, c("kind", "route", "session", "data"))
 }
 
@@ -109,19 +109,19 @@ recv <- function(timeout_ms = -1) {
 # keep = FALSE makes an Artifact that exists only while its run runs.
 artifact_dir <- function(keep = TRUE) {
   stopifnot(is.logical(keep), length(keep) == 1L, !is.na(keep))
-  created <- .Call("tsugumi_r_artifact_dir", keep)
+  created <- .Call(tsugumi_r_artifact_dir, keep)
   list(artifact = .artifact(created[[1L]]), path = created[[2L]])
 }
 
 artifact_upload <- function(path, keep = TRUE) {
   stopifnot(is.character(path), length(path) == 1L, !is.na(path))
   stopifnot(is.logical(keep), length(keep) == 1L, !is.na(keep))
-  .artifact(.Call("tsugumi_r_artifact_upload", path, keep))
+  .artifact(.Call(tsugumi_r_artifact_upload, path, keep))
 }
 
 artifact_open <- function(artifact) {
   stopifnot(inherits(artifact, "tsugumi_artifact"))
-  .Call("tsugumi_r_artifact_open", jsonlite::base64_dec(artifact[["$artifact"]]))
+  .Call(tsugumi_r_artifact_open, jsonlite::base64_dec(artifact[["$artifact"]]))
 }
 
 .tsugumi_state <- new.env(parent = emptyenv())

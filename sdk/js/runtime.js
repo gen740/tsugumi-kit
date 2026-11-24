@@ -3,7 +3,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { Builder, ByteBuffer } from "flatbuffers";
 import { CardInput } from "./tsugumi/card/card-input.js";
 import { CardPort } from "./tsugumi/card/card-port.js";
-import { CardResult, CardResultT } from "./tsugumi/card/card-result.js";
+import { CardResult } from "./tsugumi/card/card-result.js";
 import { CardFailureT } from "./tsugumi/card/card-failure.js";
 import { FailureKind } from "./tsugumi/data/failure-kind.js";
 import { inputPorts, outputChecks, outputPorts } from "./bindings.js";
@@ -154,7 +154,12 @@ export function bind(entry) {
       const run = await load;
       return encode(await run(decode(bytes), ctx));
     } catch (error) {
-      return pack(new CardResultT([], failure(error, entry)));
+      const builder = new Builder();
+      const report = failure(error, entry).pack(builder);
+      CardResult.startCardResult(builder);
+      CardResult.addFailure(builder, report);
+      builder.finish(CardResult.endCardResult(builder));
+      return builder.asUint8Array();
     }
   };
 }

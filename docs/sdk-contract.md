@@ -38,6 +38,34 @@ the `api.drvPath` stable and changes `run.drvPath`. The library lives at
 A definition can return Nix exports and can build variants by returning
 `run = [ { label = "…"; run = …; } ];`.
 
+## Native calls and shared processes
+
+The ABI lends the `CardInput` envelope for the duration of the call. A
+returned result is a fresh libc `malloc` allocation. The host frees the
+base pointer after its last reader, including when the native entry returns
+a nonzero status. The host keeps loaded Card images alive while background
+effects or managed code can reference them. Calls into a given Card image
+are serial.
+
+| SDK | Input access and process limits |
+| --- | --- |
+| C | Use generated FlatBuffers readers on the borrowed input and payloads. Allocate the serialized result with libc `malloc`. |
+| C++ | Generated inputs borrow verified tables. The worker supplies aligned envelopes and payloads. For unaligned buffers from other hosts the SDK uses aligned scratch storage. `UnPack()` explicitly materializes an owned table. |
+| Rust | Generated inputs borrow verified slices and tables. The FFI copies the finished builder bytes to a libc allocation for transfer. |
+| Go | The adapter borrows the envelope. It copies each selected payload before unpacking because generated Go values can retain slices into it. Each process can load one Go c-shared Card library. |
+| Python | C++ verifies borrowed payloads. The Python object API needs owned bytes because arrays may outlive the call. Cards share CPython, while SDK modules, generated bindings, parameters and Card source modules have private names. Ordinary imports of Card-local modules resolve within that Card. Use relative names for dynamic imports of local code. Third-party packages and extension state are shared, so Cards need compatible packages and the same libpython. |
+| JavaScript | Each Card has a Node environment and V8 isolate on a shared Node platform. V8 gets an owned copy because JavaScript typed arrays are mutable and can outlive the call. The host receives the serialized SDK result without rebuilding the envelope. |
+| JVM | Cards share one JVM and each gets a class loader with its own application classes, SDK, dependencies, parameters and JNI bindings. JNI supplies a read-only direct buffer to the FlatBuffers decoder, which materializes Java port objects. The final Java byte array is copied to the host allocation. |
+| .NET | hostfxr shares one CoreCLR runtime and loads each Card assembly in its own load context. The managed FlatBuffers package uses managed byte arrays, including when unpacking port payloads. The host receives the serialized managed result without rebuilding the envelope. |
+| Ruby | MRI starts once on its owner thread. Each Card gets a private SDK module and entry class with its own parameters and native effects. The input is converted from verified FlatBuffers to JSON for Ruby. RubyGems, loaded libraries and globals are shared and dependencies must be compatible. |
+| Julia | One Julia runtime owns calls on a dedicated thread. Each Card has a private module, bindings and effects. The input is converted from verified FlatBuffers to JSON for Julia. The Julia project, depot and loaded packages are process-wide. |
+| R | One R runtime owns calls on a dedicated thread and each Card has a private environment with local `.Call` bindings. The input is converted from verified FlatBuffers to JSON for R. Cards must agree on the library paths and font configuration. An extension with a process-global cache of `R_GetCCallable("tsugumi", …)` pointers must resolve them per Card or use one Card per process. |
+
+The shared-runtime SDKs target Cards built against the same runtime closure.
+A pack must group compatible closures before sharing a process. Card module
+namespaces do not isolate process state such as working directories or
+environment variables.
+
 ## Shared Nix and codegen
 
 Import `nix/sdk-dependencies.nix { inherit pkgs; }` in each SDK.

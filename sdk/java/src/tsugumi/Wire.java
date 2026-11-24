@@ -22,8 +22,8 @@ final class Wire {
     static final class Inputs {
         private final HashMap<String, CardPort> ports = new HashMap<>();
 
-        Inputs(byte[] bytes) {
-            var input = CardInput.getRootAsCardInput(ByteBuffer.wrap(bytes));
+        Inputs(ByteBuffer bytes) {
+            var input = CardInput.getRootAsCardInput(bytes);
             for (int index = 0; index < input.inputsLength(); index++) {
                 var port = input.inputs(index);
                 ports.put(port.name(), port);

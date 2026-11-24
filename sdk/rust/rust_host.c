@@ -1,7 +1,17 @@
 /* Keep the public entry and its version check tied to the vendored C ABI. */
+#include <stdlib.h>
 #include <string.h>
 
 #include "card_abi.h"
+
+int tsugumi_rust_result(tsugumi_bytes* result, const uint8_t* data,
+                        size_t size) {
+  uint8_t* owned = malloc(size);
+  if (!owned) return 1;
+  memcpy(owned, data, size);
+  *result = (tsugumi_bytes){owned, size};
+  return 0;
+}
 
 extern int tsugumi_rust_invoke(tsugumi_bytes input, void* host,
                                const tsugumi_effects* effects,

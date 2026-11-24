@@ -313,7 +313,9 @@ unsafe impl Send for EffectTarget {}
 
 static ACTIVE: Mutex<Option<EffectTarget>> = Mutex::new(None);
 static DISPLAY: Mutex<Option<EffectTarget>> = Mutex::new(None);
-static RESULT: Mutex<Vec<u8>> = Mutex::new(Vec::new());
+unsafe extern "C" {
+    fn tsugumi_rust_result(result: *mut Bytes, data: *const u8, size: usize) -> c_int;
+}
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|error| error.into_inner())
@@ -701,8 +703,6 @@ pub unsafe fn invoke<O: PackOutput>(
     run: impl FnOnce(&[u8]) -> Result<O>,
 ) -> c_int {
     let invoked = catch_unwind(AssertUnwindSafe(|| {
-        let mut result = lock(&RESULT);
-        result.clear();
         let mut builder = FlatBufferBuilder::new();
         let _scope = CallScope::enter(host, unsafe { effects.as_ref().copied() });
         let input = if input.size == 0 || input.data.is_null() || input.size > isize::MAX as usize {
@@ -735,15 +735,17 @@ pub unsafe fn invoke<O: PackOutput>(
                 }
             }
         };
-        result.extend_from_slice(builder.finished_data());
-        unsafe { out.write(Bytes::from_slice(&result)) };
+        let bytes = builder.finished_data();
+        unsafe { tsugumi_rust_result(out, bytes.as_ptr(), bytes.len()) }
     }));
-    if let Err(payload) = invoked {
-        // A user-supplied panic payload could itself panic on drop.
-        std::mem::forget(payload);
-        return 1;
+    match invoked {
+        Ok(status) => status,
+        Err(payload) => {
+            // A user-supplied panic payload could itself panic on drop.
+            std::mem::forget(payload);
+            1
+        }
     }
-    0
 }
 
 #[doc(hidden)]

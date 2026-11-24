@@ -49,6 +49,16 @@ let
       inherit (stdenv.hostPlatform) isDarwin;
       pythonEnv = python.withPackages (ps: [ ps.flatbuffers ] ++ packages ps);
       libpython = "${python}/lib/libpython${python.pythonVersion}${stdenv.hostPlatform.extensions.sharedLibrary}";
+      interpreter = runCommandCC "tsugumi-python-interpreter" { } ''
+        mkdir -p "$out/lib"
+        $CXX -std=c++20 -O2 -fPIC -fvisibility=hidden -shared \
+          -I"${python}/include/python${python.pythonVersion}" \
+          "-DTSUGUMI_PY_HOME=\"${python}\"" "-DTSUGUMI_LIBPYTHON=\"${libpython}\"" \
+          "-DTSUGUMI_PY_BOOTSTRAP=\"${./bootstrap.py}\"" \
+          ${./interpreter.cc} "${libpython}" \
+          ${if isDarwin then "-Wl,-install_name,$out/lib/interpreter.dylib" else "-ldl"} \
+          -o "$out/lib/interpreter${stdenv.hostPlatform.extensions.sharedLibrary}"
+      '';
       bindings = generate { inherit inputs outputs params; };
     in
     runCommandCC "tsugumi-python-card"
@@ -89,12 +99,13 @@ let
           -Wall -Wextra -Werror -Wformat=2 -Wimplicit-fallthrough \
           -shared "''${toolPathObject[@]}" "''${link[@]}" -I"${bindings}/include" -I"${runtime}/include" \
           -I"${./.}" -I"${../cpp/src}" -I"${python}/include/python${python.pythonVersion}" \
-          "-DTSUGUMI_PY_HOME=\"${python}\"" "-DTSUGUMI_LIBPYTHON=\"${libpython}\"" \
           "-DTSUGUMI_PY_SDK=\"$out/lib/python\"" "-DTSUGUMI_PY_SOURCE=\"$src\"" \
           "-DTSUGUMI_PY_WIRE=\"$out/lib/python-wire\"" \
           "-DTSUGUMI_PY_PACKAGES=\"${pythonEnv}/${python.sitePackages}\"" \
           "${./.}/python_card.cc" "${bindings}/card_adapter.cc" \
           "${runtime}/lib/libtsugumi_abi.a" "${libpython}" \
+          -Wl,-rpath,"${interpreter}/lib" \
+          "${interpreter}/lib/interpreter${stdenv.hostPlatform.extensions.sharedLibrary}" \
           -pthread ${lib.optionalString (!isDarwin) "-ldl"} -o "$out/lib/main.so"
       '';
   pythonApi =

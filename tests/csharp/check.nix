@@ -19,7 +19,7 @@ let
     );
   api = params: kit.csharp.csharpApi (common // { inherit params; });
   changed = common.params // {
-    offset = 101;
+    offset = 200;
   };
 in
 assert (card common.params).drvPath != (card changed).drvPath;
@@ -27,6 +27,7 @@ assert (api common.params).drvPath == (api changed).drvPath;
 (import ../../nix/contract-check.nix { inherit pkgs; }) {
   name = "csharp";
   card = card common.params;
+  secondCard = card changed;
   api = api common.params;
   runtime = kit.cppRuntime;
 }

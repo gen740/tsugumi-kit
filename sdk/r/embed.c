@@ -5,7 +5,6 @@
 #define _DARWIN_C_SOURCE
 #endif
 #define R_NO_REMAP
-#define CSTACK_DEFNS
 #include <R_ext/Rdynload.h>
 #include <R_ext/Utils.h>
 #include <Rconfig.h>
@@ -13,7 +12,6 @@
 #include <Rinterface.h>
 #include <Rinternals.h>
 #include <dlfcn.h>
-#include <pthread.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
@@ -46,13 +44,8 @@ struct call {
   char* reply;
 };
 
-static pthread_once_t startup = PTHREAD_ONCE_INIT;
-static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t request = PTHREAD_COND_INITIALIZER;
-static pthread_cond_t response = PTHREAD_COND_INITIALIZER;
-static struct call* pending;
-static bool started;
-static bool boot_failed;
+extern bool tsugumi_r_on_owner(const char* libraries, const char* fonts,
+                               void (*work)(void*), void* context);
 
 static SEXP cancelled(void) { return Rf_ScalarLogical(tsugumi_r_cancelled()); }
 
@@ -270,71 +263,32 @@ static void source_sdk(SEXP environment, const char* file) {
   UNPROTECT(2);
 }
 
-static void load_sdk(void* unused) {
-  (void)unused;
-  R_registerRoutines(R_getEmbeddingDllInfo(), NULL, methods, NULL, NULL);
-  register_effects();
+static void load_sdk(void) {
   SEXP environment = PROTECT(R_NewEnv(R_GlobalEnv, TRUE, 29));
+  SEXP type = PROTECT(Rf_mkString("NativeSymbol"));
+  for (const R_CallMethodDef* method = methods; method->name; ++method) {
+    SEXP target = PROTECT(R_MakeExternalPtrFn(
+        method->fun, Rf_install("native symbol"), R_NilValue));
+    Rf_setAttrib(target, R_ClassSymbol, type);
+    Rf_defineVar(Rf_install(method->name), target, environment);
+    R_LockBinding(Rf_install(method->name), environment);
+    UNPROTECT(1);
+  }
   source_sdk(environment, TSUGUMI_R_SDK);
   source_sdk(environment, TSUGUMI_R_CARD_API);
   source_sdk(environment, TSUGUMI_R_PARAMS);
   R_LockBinding(Rf_install("params"), environment);
   R_PreserveObject(environment);
   sdk = environment;
-  UNPROTECT(1);
-}
-
-static bool stack_bounds(uintptr_t* top, size_t* size) {
-#ifdef __APPLE__
-  *top = (uintptr_t)pthread_get_stackaddr_np(pthread_self());
-  *size = pthread_get_stacksize_np(pthread_self());
-  return *top && *size;
-#else
-  pthread_attr_t attr;
-  if (pthread_getattr_np(pthread_self(), &attr) != 0) return false;
-  void* base;
-  const int status = pthread_attr_getstack(&attr, &base, size);
-  pthread_attr_destroy(&attr);
-  if (status != 0) return false;
-  *top = (uintptr_t)base + *size;
-  return true;
-#endif
-}
-
-static bool initialize(void) {
-  const char* temporary = getenv("TMPDIR");
-  struct stat info;
-  if (!temporary || temporary[0] != '/' || strpbrk(temporary, " \t\n\r\f\v") ||
-      stat(temporary, &info) != 0 || !S_ISDIR(info.st_mode) ||
-      access(temporary, W_OK | X_OK) != 0)
-    return false;
-  uintptr_t stack_top;
-  size_t stack_size;
-  if (!stack_bounds(&stack_top, &stack_size)) return false;
-
-  /* Packages loaded by embedded R may resolve R symbols globally. */
-  if (!dlopen(TSUGUMI_LIBR, RTLD_NOW | RTLD_GLOBAL)) return false;
-  if (setenv("R_HOME", TSUGUMI_R_HOME, 1) ||
-      setenv("R_LIBS_SITE", TSUGUMI_R_LIBS, 1) ||
-      setenv("FONTCONFIG_FILE", TSUGUMI_R_FONTS, 1))
-    return false;
-
-  R_SignalHandlers = 0;
-  char* args[] = {"tsugumi",      "--silent",       "--no-save",
-                  "--no-restore", "--no-site-file", "--no-init-file",
-                  "--no-environ", "--gui=none"};
-  if (Rf_initialize_R(sizeof(args) / sizeof(args[0]), args) < 0) return false;
-  /* R initially measures the process's main stack. Install the actual owner
-   * thread's stack bounds before the interpreter starts evaluating code. */
-  R_CStackStart = stack_top;
-  R_CStackLimit = stack_size;
-  R_Interactive = TRUE;
-  setup_Rmainloop();
-  return R_ToplevelExec(load_sdk, NULL);
+  UNPROTECT(2);
 }
 
 static void invoke(void* payload) {
   struct call* call = payload;
+  // Extensions resolving process-wide C-callables during this call receive
+  // this Card's addresses. Saved pointers are tied to this Card.
+  register_effects();
+  if (!sdk) load_sdk();
   SEXP input = PROTECT(utf8(call->input));
   SEXP path = PROTECT(utf8(TSUGUMI_R_SOURCE));
   SEXP root = PROTECT(utf8(TSUGUMI_R_SOURCE_ROOT));
@@ -345,58 +299,19 @@ static void invoke(void* payload) {
   UNPROTECT(5);
 }
 
-static void* serve(void* unused) {
-  (void)unused;
-  const bool initialized = initialize();
-  pthread_mutex_lock(&mutex);
-  if (!initialized) {
-    boot_failed = true;
-    pending = NULL;
-    pthread_cond_signal(&response);
-    pthread_mutex_unlock(&mutex);
+char* tsugumi_r_run(const char* input) {
+  struct call call = {input, NULL};
+  static bool retained;
+  if (!retained) {
+    Dl_info image;
+    if (!dladdr((const void*)tsugumi_r_run, &image) ||
+        !dlopen(image.dli_fname, RTLD_NOW | RTLD_LOCAL))
+      return NULL;
+    retained = true;
+  }
+  if (!tsugumi_r_on_owner(TSUGUMI_R_LIBS, TSUGUMI_R_FONTS, invoke, &call)) {
+    free(call.reply);
     return NULL;
   }
-  for (;;) {
-    while (!pending) pthread_cond_wait(&request, &mutex);
-    struct call* call = pending;
-    pthread_mutex_unlock(&mutex);
-
-    if (!R_ToplevelExec(invoke, call)) {
-      free(call->reply);
-      call->reply = NULL;
-    }
-
-    pthread_mutex_lock(&mutex);
-    pending = NULL;
-    pthread_cond_signal(&response);
-  }
-}
-
-static void start(void) {
-  pthread_attr_t attr;
-  if (pthread_attr_init(&attr) != 0) return;
-  pthread_t owner;
-  /* R Extensions recommends at least 10 MiB for an embedding thread. */
-  if (pthread_attr_setstacksize(&attr, 16 * 1024 * 1024) == 0 &&
-      pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED) == 0)
-    started = pthread_create(&owner, &attr, serve, NULL) == 0;
-  pthread_attr_destroy(&attr);
-}
-
-char* tsugumi_r_run(const char* input) {
-  pthread_once(&startup, start);
-  if (!started) return NULL;
-
-  /* The Card ABI serializes the callers. libR and its owner live until process
-   * exit.
-   */
-  struct call call = {input, NULL};
-  pthread_mutex_lock(&mutex);
-  if (!boot_failed) {
-    pending = &call;
-    pthread_cond_signal(&request);
-    while (pending) pthread_cond_wait(&response, &mutex);
-  }
-  pthread_mutex_unlock(&mutex);
   return call.reply;
 }

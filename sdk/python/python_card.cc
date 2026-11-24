@@ -256,70 +256,21 @@ PyModuleDef module = {PyModuleDef_HEAD_INIT,
                       nullptr,
                       nullptr};
 
-auto InitHost() -> PyObject* { return PyModule_Create(&module); }
-
-auto ConfigurePython() -> std::string {
-  // The worker loads main.so with RTLD_LOCAL. CPython extensions need to
-  // resolve interpreter symbols globally for the lifetime of the process.
-  if (!dlopen(TSUGUMI_LIBPYTHON, RTLD_NOW | RTLD_GLOBAL)) return dlerror();
-  if (PyImport_AppendInittab("_tsugumi_host", InitHost) != 0)
-    return "Cannot register the Python host module";
-
-  PyPreConfig pre;
-  PyPreConfig_InitIsolatedConfig(&pre);
-  pre.utf8_mode = 1;
-  auto status = Py_PreInitialize(&pre);
-  if (PyStatus_Exception(status))
-    return status.err_msg ? status.err_msg : "Cannot pre-initialize Python";
-
-  PyConfig config;
-  PyConfig_InitIsolatedConfig(&config);
-  config.write_bytecode = 0;
-  config.install_signal_handlers = 0;
-  config.buffered_stdio = 0;
-  status = PyConfig_SetBytesString(&config, &config.home, TSUGUMI_PY_HOME);
-  if (!PyStatus_Exception(status)) status = Py_InitializeFromConfig(&config);
-  PyConfig_Clear(&config);
-  if (PyStatus_Exception(status))
-    return status.err_msg ? status.err_msg : "Cannot initialize Python";
-
-  // Process .pth files in the Nix environment at their usual site boundary.
-  const Object site(PyImport_ImportModule("site"));
-  const Object packages(PyUnicode_DecodeFSDefault(TSUGUMI_PY_PACKAGES));
-  const Object configured(
-      site && packages
-          ? PyObject_CallMethod(site.get(), "addsitedir", "O", packages.get())
-          : nullptr);
-  if (!configured) {
-    PyErr_WriteUnraisable(nullptr);
-    return "Cannot initialize the Python package environment";
-  }
-  // Keep the generated modules and Card source ahead of any .pth additions.
-  auto* path = PySys_GetObject("path");
-  const char* paths[] = {TSUGUMI_PY_SDK, TSUGUMI_PY_SOURCE, TSUGUMI_PY_WIRE};
-  for (Py_ssize_t i = 0; i < static_cast<Py_ssize_t>(std::size(paths)); ++i) {
-    const Object item(PyUnicode_DecodeFSDefault(paths[i]));
-    if (!item || PyList_Insert(path, i, item.get()) < 0) {
-      PyErr_WriteUnraisable(nullptr);
-      return "Cannot configure the Python import path";
-    }
-  }
-  return {};
-}
-
-auto InitializePython() -> std::string {
-  auto error = ConfigurePython();
-  // During and between calls, Python threads may take the GIL and display.
-  if (Py_IsInitialized()) PyEval_SaveThread();
-  return error;
-}
+extern "C" auto tsugumi_python_initialize() -> const char*;
 
 auto LoadDispatch() -> PyObject* {
-  Object runtime(PyImport_ImportModule("tsugumi._runtime"));
-  auto* dispatch =
-      runtime ? PyObject_GetAttrString(runtime.get(), "invoke") : nullptr;
-  if (!dispatch) PyErr_WriteUnraisable(nullptr);
-  return dispatch;
+  // Python background threads may outlive the call and retain these methods.
+  Dl_info image{};
+  if (!dladdr(reinterpret_cast<const void*>(&LoadDispatch), &image) ||
+      !dlopen(image.dli_fname, RTLD_NOW | RTLD_LOCAL))
+    return nullptr;
+  const Object loader(PyImport_ImportModule("_tsugumi_host"));
+  const Object host(PyModule_Create(&module));
+  return loader && host
+             ? PyObject_CallMethod(loader.get(), "load", "Ossss", host.get(),
+                                   TSUGUMI_PY_SDK, TSUGUMI_PY_SOURCE,
+                                   TSUGUMI_PY_WIRE, TSUGUMI_PY_PACKAGES)
+             : nullptr;
 }
 
 auto ToPythonBytes(tsugumi_bytes bytes) -> PyObject* {
@@ -383,15 +334,16 @@ auto ReadResult(PyObject* value) -> Tsugumi::Card::CardResultT {
 }  // namespace
 
 auto RunPython(const PythonInput& input) -> Tsugumi::Card::CardResultT {
-  static const auto initialization_error = InitializePython();
-  if (!initialization_error.empty())
-    Reject(FailureKind::worker_failed, initialization_error);
+  const auto* error = tsugumi_python_initialize();
+  if (*error) Reject(FailureKind::worker_failed, error);
 
   const Gil gil;
-  // The interpreter and its dispatch function belong to the worker process.
+  // Dispatch is local to this Card image. The interpreter is shared.
   static auto* const dispatch = LoadDispatch();
-  if (!dispatch)
+  if (!dispatch) {
+    PyErr_WriteUnraisable(nullptr);
     Reject(FailureKind::worker_failed, "Cannot load the Python Card SDK");
+  }
 
   const Object value(CallDispatch(dispatch, input));
   if (!value) {

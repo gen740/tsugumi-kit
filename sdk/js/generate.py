@@ -220,7 +220,7 @@ def cpp_adapter(card, names, output_schema):
     from card_cpp import cpp_type, validators
 
     body = [
-        "auto RunCard(tsugumi_bytes bytes) -> Tsugumi::Card::CardResultT {",
+        "auto RunCard(tsugumi_bytes bytes) -> ResultBuffer {",
         "  {",
         "    Input input(bytes);",
     ]
@@ -245,35 +245,43 @@ def cpp_adapter(card, names, output_schema):
     body += [
         "    input.CheckConsumed();",
         "  }",
-        "  auto result = RunNodeCard(bytes);",
+        "  auto bytes_out = RunNodeCard(bytes);",
+        "  const Buffer envelope(bytes_out.bytes());",
+        "  const auto* result = envelope.Verify<Tsugumi::Card::CardResult>();",
+        '  if (!result) Reject(FailureKind::output_invalid, "Invalid Node.js CardResult");',
+        "  if (result->failure()) return bytes_out;",
+        "  const auto* ports = result->outputs();",
         "  std::unordered_set<std::string> seen;",
-        "  for (auto& port : result.outputs) {",
-        "    if (!seen.insert(port->name).second)",
-        '      Reject(FailureKind::output_invalid, "Duplicate output " + port->name);',
+        "  if (ports) for (const auto* port : *ports) {",
+        "    const auto name = port->name()->str();",
+        "    if (!seen.insert(name).second)",
+        '      Reject(FailureKind::output_invalid, "Duplicate output " + name);',
     ]
     for port in card.outputs:
         table = cpp_type(port.type, names)
         body += [
-            f"    if (port->name == {json.dumps(port.name)}) {{",
-            "      const Buffer buffer({port->bytes.data(), port->bytes.size()});",
+            f"    if (name == {json.dumps(port.name)}) {{",
+            "      const auto* bytes = port->bytes();",
+            "      const Buffer buffer(bytes ? tsugumi_bytes{bytes->data(), bytes->size()}",
+            "                                : tsugumi_bytes{});",
             f"      const auto* value = buffer.Verify<{table}>();",
             f"      {table}::NativeTableType native;",
             "      if (value) value->UnPackTo(&native);",
             "      if (!value || !ValidOutput(native))",
-            '        Reject(FailureKind::output_invalid, "Invalid output " + port->name);',
+            '        Reject(FailureKind::output_invalid, "Invalid output " + name);',
             "      continue;",
             "    }",
         ]
     body += [
-        '    Reject(FailureKind::output_invalid, "Unknown output " + port->name);',
+        '    Reject(FailureKind::output_invalid, "Unknown output " + name);',
         "  }",
     ]
     for port in card.outputs:
         if port.required:
             name = json.dumps(port.name)
-            body += [f"  if (!result.failure && !seen.contains({name}))",
+            body += [f"  if (!seen.contains({name}))",
                      f'    Reject(FailureKind::output_invalid, "Missing output " + std::string({name}));']
-    body += ["  return result;", "}"]
+    body += ["  return bytes_out;", "}"]
     return "\n".join([
         '#include <string>',
         '#include <unordered_set>',

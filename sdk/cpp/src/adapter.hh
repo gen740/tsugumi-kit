@@ -3,6 +3,7 @@
 #include <flatbuffers/flatbuffers.h>
 
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -24,6 +25,30 @@ using CardBody = auto (*)(tsugumi_bytes) -> Tsugumi::Card::CardResultT;
 auto Invoke(const tsugumi_call* call, tsugumi_bytes* result,
             CardBody body) noexcept -> int;
 
+using WireBody = auto (*)(tsugumi_bytes, flatbuffers::FlatBufferBuilder&)
+    -> void;
+auto Invoke(const tsugumi_call* call, tsugumi_bytes* result,
+            WireBody body) noexcept -> int;
+
+class ResultBuffer {
+ public:
+  ResultBuffer() = default;
+  explicit ResultBuffer(size_t size);
+  explicit ResultBuffer(tsugumi_bytes bytes);
+
+  auto data() const -> uint8_t* { return data_.get(); }
+  auto bytes() const -> tsugumi_bytes { return {data(), size_}; }
+  auto release() -> tsugumi_bytes { return {data_.release(), size_}; }
+
+ private:
+  std::unique_ptr<uint8_t, decltype(&std::free)> data_{nullptr, std::free};
+  size_t size_ = 0;
+};
+
+using SerializedBody = auto (*)(tsugumi_bytes) -> ResultBuffer;
+auto Invoke(const tsugumi_call* call, tsugumi_bytes* result,
+            SerializedBody body) noexcept -> int;
+
 auto SendDisplay(const tsugumi_view_session& session, tsugumi_bytes bytes)
     -> int;
 
@@ -31,7 +56,10 @@ auto SendDisplay(const tsugumi_view_session& session, tsugumi_bytes bytes)
 // that cannot hold the alignment of the types in the FlatBuffer.
 class Buffer {
  public:
-  explicit Buffer(tsugumi_bytes bytes);
+  explicit Buffer(tsugumi_bytes bytes, bool align = true);
+  auto needs_alignment() const -> bool {
+    return reinterpret_cast<uintptr_t>(data_) % alignof(Block) != 0;
+  }
   Buffer(const Buffer&) = delete;
   auto operator=(const Buffer&) -> Buffer& = delete;
 
@@ -85,8 +113,21 @@ class Input {
   auto ReadPort(std::string_view name) -> std::optional<Port>;
   auto CheckConsumed() const -> void;
 
+  template <class Table>
+  auto ReadTable(tsugumi_bytes bytes, std::string_view name) -> const Table* {
+    const Buffer direct(bytes, false);
+    const auto& buffer =
+        direct.needs_alignment()
+            ? *aligned_.emplace_back(std::make_unique<Buffer>(bytes))
+            : direct;
+    if (const auto* value = buffer.Verify<Table>()) return value;
+    Reject(FailureKind::input_invalid,
+           "Invalid FlatBuffer for " + std::string(name));
+  }
+
  private:
   Buffer buffer_;
+  std::vector<std::unique_ptr<Buffer>> aligned_;
   const Tsugumi::Card::CardInput* input_;
   std::unordered_map<std::string_view, const Tsugumi::Card::CardPort*> ports_;
 };
@@ -120,6 +161,33 @@ auto WritePort(Tsugumi::Card::CardResultT& result, std::string_view name,
   port->bytes.assign(builder.GetBufferPointer(),
                      builder.GetBufferPointer() + builder.GetSize());
   result.outputs.push_back(std::move(port));
+}
+
+template <class Table>
+auto WriteWirePort(flatbuffers::FlatBufferBuilder& result,
+                   std::string_view name,
+                   const std::optional<typename Table::NativeTableType>& value,
+                   bool required,
+                   bool (*valid)(const typename Table::NativeTableType&))
+    -> flatbuffers::Offset<Tsugumi::Card::CardPort> {
+  if (!value) {
+    if (required)
+      Reject(FailureKind::output_invalid,
+             "Missing output " + std::string(name));
+    return {};
+  }
+  if (!valid(*value))
+    Reject(FailureKind::output_invalid, "Invalid output " + std::string(name));
+
+  flatbuffers::FlatBufferBuilder payload;
+  payload.Finish(Table::Pack(payload, &*value));
+  flatbuffers::Verifier verifier(payload.GetBufferPointer(), payload.GetSize());
+  if (!verifier.VerifyBuffer<Table>())
+    Reject(FailureKind::output_invalid, "Invalid output " + std::string(name));
+
+  return Tsugumi::Card::CreateCardPort(
+      result, result.CreateString(name), {},
+      result.CreateVector(payload.GetBufferPointer(), payload.GetSize()));
 }
 
 // The open failure message for an Artifact ID of 16 bytes.

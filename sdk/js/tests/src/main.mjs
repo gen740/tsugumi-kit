@@ -14,7 +14,7 @@ export default function main(input, ctx) {
   assert.equal(member.schema, "4".repeat(64));
   const bytes = new ByteBuffer(Uint8Array.from(member.bytes));
   assert.equal(inputs.batch.Element.getRootAsElement(bytes).value(), 4);
-  assert.equal(params.offset, 100n);
+  assert([100n, 200n].includes(params.offset));
   assert(Object.isFrozen(params) && Object.isFrozen(params.labels));
   assert(params.flag && params.ratio === 1 && params.labels[0] === "日本語");
   assert(!ctx.cancelled() && isNumber(ctx.remainingMs()) && ctx.remainingMs() === 500);

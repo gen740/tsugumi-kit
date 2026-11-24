@@ -349,9 +349,12 @@ package tsugumi;
 import java.util.HashMap;
 
 final class Entry {{
-    static byte[] invoke(byte[] bytes) {{
+    static byte[] invoke(java.nio.ByteBuffer bytes) {{
+        var thread = Thread.currentThread();
+        var previous = thread.getContextClassLoader();
         try {{
-            var ports = new Wire.Inputs(bytes);
+            thread.setContextClassLoader(Entry.class.getClassLoader());
+            var ports = new Wire.Inputs(bytes.asReadOnlyBuffer());
             var values = new HashMap<String, Object>();
             {read_code}
             Card.Output value = CardEntry.run(new Card.Input(values));
@@ -363,6 +366,8 @@ final class Entry {{
             return result.finish();
         }} catch (Throwable error) {{
             return Wire.failure(error, CardEntry.SOURCES);
+        }} finally {{
+            thread.setContextClassLoader(previous);
         }}
     }}
 }}
@@ -436,7 +441,7 @@ constexpr std::array<JavaOutput, {len(output_rows)}> outputs{{{{
 {chr(10).join(output_rows)}
 }}}};
 
-auto Run(tsugumi_bytes bytes) -> Tsugumi::Card::CardResultT {{
+auto Run(tsugumi_bytes bytes) -> ResultBuffer {{
   return RunJava(bytes, inputs, outputs);
 }}
 }}  // namespace

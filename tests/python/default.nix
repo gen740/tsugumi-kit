@@ -18,6 +18,7 @@ assert (build common).drvPath != (build variant).drvPath;
 import ../../nix/contract-check.nix { inherit pkgs; } {
   name = "python";
   card = build common;
+  secondCard = build variant;
   runtime = kit.cppRuntime;
   api = sdk.pythonApi common;
 }

@@ -52,6 +52,28 @@ let
       || lib.all (part: part != "" && part != "." && part != "..") (lib.splitString "/" sourcePrefix)
     ) "rubyCard: sourcePrefix must be a relative directory inside the Card definition";
     let
+      inherit (pkgs.stdenv.hostPlatform) isDarwin;
+      processLibrary = "libtsugumi-ruby${pkgs.stdenv.hostPlatform.extensions.sharedLibrary}";
+      process =
+        pkgs.runCommandCC "tsugumi-ruby-process"
+          {
+            nativeBuildInputs = [
+              pkgs.pkg-config
+              ruby
+            ];
+            buildInputs = [ ruby ];
+          }
+          ''
+            mkdir -p "$out/lib"
+            libruby=$(ruby -rrbconfig -e 'print File.join(RbConfig::CONFIG.fetch("libdir"), RbConfig::CONFIG.fetch("LIBRUBY_SO"))')
+            read -r -a rubyIncludes <<< "$(pkg-config --cflags ruby-${ruby.version.majMin})"
+            read -r -a rubyLibs <<< "$(pkg-config --libs ruby-${ruby.version.majMin})"
+            $CC -std=c11 -D_GNU_SOURCE -O2 -fPIC -fvisibility=hidden -shared -pthread \
+              -Wall -Wextra -Werror -Wno-unused-parameter "''${rubyIncludes[@]}" \
+              "-DTSUGUMI_LIBRUBY=\"$libruby\"" ${sdk}/process.c "''${rubyLibs[@]}" \
+              ${if isDarwin then "-Wl,-install_name,$out/lib/${processLibrary}" else "-ldl"} \
+              -o "$out/lib/${processLibrary}"
+          '';
       bundleEnvironment = ''
         export HOME="$TMPDIR" BUNDLE_APP_CONFIG="$TMPDIR/bundle-config"
         export BUNDLE_FROZEN=true BUNDLE_FORCE_RUBY_PLATFORM=true BUNDLE_DISABLE_VERSION_CHECK=true
@@ -132,13 +154,11 @@ let
         mkdir -p "$out/share/tsugumi"
         python3 ${sdk}/card_ruby.py --params ${paramValues params} "$out/share/tsugumi/params.rb"
 
-        libruby=$(ruby -rrbconfig -e 'print File.join(RbConfig::CONFIG.fetch("libdir"), RbConfig::CONFIG.fetch("LIBRUBY_SO"))')
         read -r -a rubyIncludes <<< "$(pkg-config --cflags ruby-${ruby.version.majMin})"
         read -r -a rubyLibs <<< "$(pkg-config --libs ruby-${ruby.version.majMin})"
         # Ruby's headers contain inline API shims with unused parameters.
         $CC -std=c11 -D_GNU_SOURCE -O2 -fPIC -fvisibility=hidden \
           -Wall -Wextra -Werror -Wno-unused-parameter "''${rubyIncludes[@]}" \
-          "-DTSUGUMI_LIBRUBY=\"$libruby\"" \
           ${define "RUBY_CARD" "${src}"} \
           "-DTSUGUMI_RUBY_PARAMS=\"$out/share/tsugumi/params.rb\"" \
           ${define "RUBY_SDK" "${sdk}/tsugumi.rb"} \
@@ -164,7 +184,8 @@ let
           -Wall -Wextra -Werror -Wformat=2 -Wimplicit-fallthrough \
           -shared "''${toolPathObject[@]}" "''${link[@]}" -I${generated}/include -I${runtime}/include \
           -I${cpp}/src -I${sdk} ${generated}/src/card_glue.cc ${sdk}/adapter.cc ${sdk}/json_codec.cc embed.o \
-          ${runtime}/lib/libtsugumi_abi.a "''${rubyLibs[@]}" -pthread -o "$out/lib/main.so"
+          ${runtime}/lib/libtsugumi_abi.a "''${rubyLibs[@]}" -pthread \
+          "${process}/lib/${processLibrary}" -Wl,-rpath,"${process}/lib" -o "$out/lib/main.so"
       '';
   rubyApi =
     args:

@@ -88,7 +88,7 @@ def generate_go(card, inputs, outputs, global_package):
         used = set()
         for candidate in port.candidates:
             package, root = types.table(candidate.type)
-            expression = f"{package}.GetRootAs{root}(bytes, 0).UnPack()"
+            expression = f"{package}.GetRootAs{root}(append([]byte(nil), bytes...), 0).UnPack()"
             if len(port.candidates) == 1:
                 variants.append(f"type {input_type} = {package}.{root}T")
             else:
