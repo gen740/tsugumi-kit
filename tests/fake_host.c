@@ -17,14 +17,14 @@ struct fake_host {
   int in_call;
   int background_received;
   int background_sent;
-  int granted;
   unsigned next_id;
   unsigned created;
   unsigned messages;
   unsigned events;
   int live_route;
+  uint32_t flags[max_created];
   tsugumi_artifact_id ids[1 + max_created];
-  char granted_path[1024];
+  char sealed_path[1024];
   char paths[max_created][1024];
 };
 
@@ -129,11 +129,14 @@ static int64_t remaining_ms(void* context) {
   return 500;
 }
 
-static int artifact_create(void* context, tsugumi_artifact_id* id,
-                           tsugumi_bytes* path) {
+static int artifact_create(void* context, uint32_t flags,
+                           tsugumi_artifact_id* id, tsugumi_bytes* path) {
   struct fake_host* host = context;
-  CHECK(host->in_call && host->created < max_created);
+  CHECK(host->in_call);
+  if (flags & ~TSUGUMI_ARTIFACT_KEEP) return -1;
+  CHECK(host->created < max_created);
   const unsigned index = host->created++;
+  host->flags[index] = flags;
   *id = (tsugumi_artifact_id){{(uint8_t)host->next_id++}};
   host->ids[index + 1] = *id;
   char* buffer = host->paths[index];
@@ -146,13 +149,15 @@ static int artifact_create(void* context, tsugumi_artifact_id* id,
   return 0;
 }
 
+/* Only ids[0] is a sealed artifact of this project. The ids created during
+   the call are not sealed yet, and any other id is unknown. */
 static int artifact_open(void* context, const tsugumi_artifact_id* id,
                          tsugumi_bytes* path) {
   struct fake_host* host = context;
   CHECK(host->in_call);
-  if (!host->granted || memcmp(id, host->ids, sizeof(*id))) return -1;
-  *path = (tsugumi_bytes){(const uint8_t*)host->granted_path,
-                          strlen(host->granted_path)};
+  if (memcmp(id, host->ids, sizeof(*id))) return -1;
+  *path = (tsugumi_bytes){(const uint8_t*)host->sealed_path,
+                          strlen(host->sealed_path)};
   return 0;
 }
 
@@ -184,12 +189,11 @@ int main(int argc, char** argv) {
       .next_id = 2,
       .ids = {{{1}}},
   };
-  CHECK(getcwd(host.granted_path, sizeof(host.granted_path)));
-  strcat(host.granted_path, "/granted");
-  CHECK(mkdir(host.granted_path, 0500) == 0);
-  for (enum input_case scenario = VALID_NUMBER; scenario <= UNGRANTED_ARTIFACT;
+  CHECK(getcwd(host.sealed_path, sizeof(host.sealed_path)));
+  strcat(host.sealed_path, "/sealed");
+  CHECK(mkdir(host.sealed_path, 0500) == 0);
+  for (enum input_case scenario = VALID_NUMBER; scenario <= UNKNOWN_ARTIFACT;
        ++scenario) {
-    host.granted = scenario != UNGRANTED_ARTIFACT;
     host.background_received = 0;
     host.background_sent = 0;
     host.created = 0;
@@ -216,11 +220,22 @@ int main(int argc, char** argv) {
         pthread_cond_wait(&host.changed, &host.mutex);
       CHECK(host.messages == 2 && host.events == 3 &&
             host.created == max_created);
+      /* Artifact.dir and Artifact.upload keep by default; the fixture creates
+         its third Artifact with keep set to false. */
+      CHECK(host.flags[0] == TSUGUMI_ARTIFACT_KEEP &&
+            host.flags[1] == TSUGUMI_ARTIFACT_KEEP && host.flags[2] == 0);
     }
     pthread_mutex_unlock(&host.mutex);
   }
+  host.in_call = 1;
+  tsugumi_artifact_id unknown_flags_id;
+  tsugumi_bytes unknown_flags_path;
+  CHECK(artifact_create(&host, TSUGUMI_ARTIFACT_KEEP << 1, &unknown_flags_id,
+                        &unknown_flags_path) < 0);
+  host.in_call = 0;
   puts(
       "Card ABI checked: Merge, required and optional outputs, artifacts, "
-      "sessions, routes, messages, close and process-lifetime effects");
+      "keep flags, sessions, routes, messages, close and process-lifetime "
+      "effects");
   return 0;
 }

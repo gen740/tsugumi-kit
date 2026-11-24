@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <iterator>
+#include <string_view>
 #include <vector>
 
 #include "_inputs_generated.h"
@@ -25,9 +27,14 @@ auto Build(Builder build) -> flatbuffers::DetachedBuffer {
   return builder.Release();
 }
 
-auto Grant() -> tsugumi::ArtifactId {
+// ids[0] of the fake host, or an id it does not know.
+auto InputArtifact(bool known) -> tsugumi::ArtifactId {
   std::array<uint8_t, 16> bytes{};
-  bytes[0] = 1;
+  if (known) {
+    bytes[0] = 1;
+  } else {
+    bytes.fill(0xee);
+  }
   return tsugumi::ArtifactId(flatbuffers::span<const uint8_t, 16>(bytes));
 }
 
@@ -36,7 +43,7 @@ auto Grant() -> tsugumi::ArtifactId {
 auto make_input(input_case scenario) -> tsugumi_bytes {
   if (scenario == MALFORMED_ENVELOPE) return {};
   const bool text = scenario == VALID_TEXT;
-  const auto id = Grant();
+  const auto id = InputArtifact(scenario != UNKNOWN_ARTIFACT);
   auto payload = Build([&](auto& builder) -> flatbuffers::Offset<void> {
     const auto file = tsugumi::CreateArtifact(builder, &id);
     if (text)
@@ -66,16 +73,11 @@ auto make_input(input_case scenario) -> tsugumi_bytes {
       const auto bytes = builder.CreateVector(
           payload.data(),
           scenario == MALFORMED_PORT ? size_t{1} : payload.size());
-      const auto grants =
-          scenario == UNGRANTED_ARTIFACT
-              ? flatbuffers::Offset<
-                    flatbuffers::Vector<const tsugumi::ArtifactId*>>{}
-              : builder.CreateVectorOfStructs(&id, 1);
       const auto port = Tsugumi::Card::CreateCardPort(
           builder,
           builder.CreateString(scenario == UNKNOWN_PORT ? "unknown"
                                                         : "arrival"),
-          builder.CreateString(schema), bytes, grants);
+          builder.CreateString(schema), bytes);
       ports.push_back(port);
       if (scenario == DUPLICATE_PORT) ports.push_back(port);
     }
@@ -105,8 +107,15 @@ auto check_result(tsugumi_bytes result, input_case scenario,
   if (scenario != VALID_NUMBER && scenario != VALID_TEXT) {
     CHECK(wire->failure() && !wire->outputs());
     const auto kind = wire->failure()->kind();
-    if (scenario == UNGRANTED_ARTIFACT) {
-      CHECK(kind != FailureKind::unspecified);
+    if (scenario == UNKNOWN_ARTIFACT) {
+      CHECK(kind != FailureKind::unspecified && wire->failure()->message());
+      const auto message = wire->failure()->message()->string_view();
+      if (message.find("artifact eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee is not "
+                       "available") == std::string_view::npos) {
+        fprintf(stderr, "Unexpected unknown Artifact message: %s\n",
+                wire->failure()->message()->c_str());
+        CHECK(false);
+      }
     } else if (scenario == MISSING_OUTPUT) {
       CHECK(kind == FailureKind::output_invalid);
     } else if (scenario == MISSING_INPUT || scenario == UNKNOWN_PORT) {
@@ -124,7 +133,6 @@ auto check_result(tsugumi_bytes result, input_case scenario,
   CHECK(!wire->failure() && wire->outputs() && wire->outputs()->size() == 1);
   const auto* port = wire->outputs()->Get(0);
   CHECK(port->name()->string_view() == "listing");
-  CHECK(port->artifacts() && port->artifacts()->size() == count);
   const auto* bytes = port->bytes();
   alignas(FLATBUFFERS_MAX_ALIGNMENT) std::array<uint8_t, 4096> payload{};
   CHECK(bytes->size() <= payload.size());
@@ -140,12 +148,12 @@ auto check_result(tsugumi_bytes result, input_case scenario,
       listing->files()->Get(1)->id(),
       listing->choice_as_File()->id(),
   };
+  // The listing holds the three created Artifacts and the forwarded input.
+  CHECK(count == std::size(nested));
   const auto has_id = [&](const uint8_t* id) {
-    for (const auto* item : *port->artifacts()) {
-      if (std::memcmp(id, item->bytes()->Data(), 16) == 0) return true;
-    }
-    return false;
+    return std::ranges::any_of(nested, [&](const auto* item) {
+      return std::memcmp(id, item->bytes()->Data(), 16) == 0;
+    });
   };
-  for (const auto* id : nested) CHECK(has_id(id->bytes()->Data()));
   for (size_t i = 0; i < count; ++i) CHECK(has_id(expected[i].bytes));
 }

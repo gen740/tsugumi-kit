@@ -27,8 +27,9 @@ runCommand "tsugumi-abi-headers"
     marker = "  typedef Artifact TableType;"
     assert text.count(marker) == 1
     path.write_text(text.replace(marker, marker + """
-      static auto dir() -> std::pair<ArtifactT, std::filesystem::path>;
-      static auto upload(const std::filesystem::path& source) -> ArtifactT;
+      // keep = false: the Artifact exists only while its run runs.
+      static auto dir(bool keep = true) -> std::pair<ArtifactT, std::filesystem::path>;
+      static auto upload(const std::filesystem::path& source, bool keep = true) -> ArtifactT;
       auto open() const -> std::filesystem::path;""")
         .replace('#include "flatbuffers/flatbuffers.h"', '#include <filesystem>\n#include "flatbuffers/flatbuffers.h"'))
     PYTHON

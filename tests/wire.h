@@ -23,7 +23,7 @@ enum input_case {
   UNKNOWN_SCHEMA,
   UNKNOWN_PORT,
   DUPLICATE_PORT,
-  UNGRANTED_ARTIFACT
+  UNKNOWN_ARTIFACT
 };
 
 #ifdef __cplusplus

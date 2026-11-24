@@ -2,7 +2,7 @@
 include "tsugumi/artifact.fbs";
 attribute "tsugumi_schema";
 namespace tsugumi.builtin;
-table Envelope { schema:string; bytes:[ubyte]; artifacts:[tsugumi.ArtifactId]; }
+table Envelope { schema:string; bytes:[ubyte]; }
 table Collected { items:[Envelope] (id: 0); }
 namespace inputs.batch;
 table Element (tsugumi_schema: "4444444444444444444444444444444444444444444444444444444444444444") { value:int; }
