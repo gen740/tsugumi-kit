@@ -104,9 +104,9 @@ auto tsugumi_go_recv(int64_t timeout_ms, uint32_t* kind, uint8_t* route,
   }
 }
 
-auto tsugumi_go_artifact_dir(uint8_t* id, char** path) -> int {
+auto tsugumi_go_artifact_dir(int keep, uint8_t* id, char** path) -> int {
   try {
-    const auto [artifact, directory] = card::Artifact::dir();
+    const auto [artifact, directory] = card::Artifact::dir(keep != 0);
     *path = strdup(directory.c_str());
     if (!*path) return -1;
     std::memcpy(id, artifact.id->bytes()->Data(), 16);
@@ -116,9 +116,10 @@ auto tsugumi_go_artifact_dir(uint8_t* id, char** path) -> int {
   }
 }
 
-auto tsugumi_go_artifact_upload(const char* path, uint8_t* id) -> int {
+auto tsugumi_go_artifact_upload(const char* path, int keep, uint8_t* id)
+    -> int {
   try {
-    const auto artifact = card::Artifact::upload(path);
+    const auto artifact = card::Artifact::upload(path, keep != 0);
     std::memcpy(id, artifact.id->bytes()->Data(), 16);
     return 0;
   } catch (...) {

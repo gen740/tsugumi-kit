@@ -2,8 +2,8 @@ import Base64
 
 function main(input)
     item = input.arrival["value"]
-    granted = item["file"]
-    @assert isdir(open(granted)) && open(input.direct) == open(granted)
+    known = item["file"]
+    @assert isdir(open(known)) && open(input.direct) == open(known)
     envelope = only(input.batch["items"])
     bytes = Base64.base64decode(envelope["bytes"])
     io = IOBuffer(bytes)
@@ -24,7 +24,7 @@ function main(input)
     file = joinpath(directory, "value.txt")
     write(file, "test")
     uploaded = upload(Artifact, file)
-    choice, _ = dir(Artifact)
+    choice, _ = dir(Artifact; keep=false)
     view = view_open("listing", VIEW_WINDOW, 640, 480)
     route = route_register(view.session)
     id(first) = ntuple(i -> i == 1 ? first : 0x00, 16)
@@ -49,6 +49,6 @@ function main(input)
             send(background.session, event.data)
         end
     end
-    return (; listing=(; nested=(; file=artifact), files=[uploaded, granted],
+    return (; listing=(; nested=(; file=artifact), files=[uploaded, known],
                         choice=(; type="File", value=choice), value=params.offset+number))
 end

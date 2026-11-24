@@ -9,7 +9,8 @@ static fields stay live for the worker's lifetime.
 
 Implement a public static `run(Card.Input)` method that returns `Card.Output`.
 The default entry class is `card.Main`. This example needs a `text` input
-wired from a Text table with a string field `value`. It returns an Artifact on `file`.
+wired from a Text table with a string field `value`. It returns an Artifact on `file`
+and reads the params `value` and `keep_output` (a bool) from `params.nix`.
 
 ```java
 package card;
@@ -22,8 +23,9 @@ import tsugumi.Display;
 
 public final class Main {
     public static Card.Output run(Card.Input input) throws IOException {
-        String text = Card.params().value();
-        var created = Artifacts.dir();
+        var params = Card.params();
+        String text = params.value();
+        var created = Artifacts.dir(params.keep_output());
         Files.writeString(created.path().resolve("message.txt"), text);
         Display.send(new Display.Text(text));
         return new Card.Output(created.artifact());
@@ -84,9 +86,17 @@ unchanged.
 
 `Artifacts.dir()` returns a writable directory and its `ArtifactT`.
 `Artifacts.upload(path)` copies a file or directory into a new Artifact.
-Call `artifact.open()` for the granted read-only directory. Return the
-same object to forward an Artifact. The SDK lists IDs from nested tables,
-vectors and unions in each output.
+Both keep the Artifact after its run. `Artifacts.dir(false)` and
+`Artifacts.upload(path, false)` create one that exists only while its run
+runs: later Cards of the same run can open it, and it is removed with its
+record when the run ends. Choose keep from a param so the person running
+can switch it per run, for example `keep_scratch = false;` in `params.nix`
+and `Artifacts.dir(Card.params().keep_scratch())`.
+
+Call `artifact.open()` for the read-only directory of any sealed Artifact
+of the project whose ID the Card knows. It throws when the Artifact was not
+kept after its run, was deleted or is not in this project. Return the same
+object to forward an Artifact.
 
 ## Display a value
 

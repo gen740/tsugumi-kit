@@ -66,6 +66,7 @@ export function recv(timeoutMs = -1) {
   return host().recv(timeoutMs);
 }
 
-export function artifactEffect(operation, value) {
-  return host().artifact(operation, value);
+export function artifactEffect(operation, value, keep = true) {
+  if (typeof keep !== "boolean") throw new TypeError("Expected keep to be a boolean");
+  return host().artifact(operation, value, keep);
 }

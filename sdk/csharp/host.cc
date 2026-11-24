@@ -90,9 +90,9 @@ auto ArtifactPath(const std::filesystem::path& path, tsugumi_bytes* out)
   *out = {reinterpret_cast<const uint8_t*>(storage.data()), storage.size()};
 }
 
-auto ArtifactDir(uint8_t* id, tsugumi_bytes* out) noexcept -> int {
+auto ArtifactDir(int keep, uint8_t* id, tsugumi_bytes* out) noexcept -> int {
   try {
-    const auto [artifact, path] = card::Artifact::dir();
+    const auto [artifact, path] = card::Artifact::dir(keep != 0);
     ArtifactPath(path, out);
     std::memcpy(id, artifact.id->bytes()->Data(), 16);
     return 0;
@@ -101,9 +101,9 @@ auto ArtifactDir(uint8_t* id, tsugumi_bytes* out) noexcept -> int {
   }
 }
 
-auto ArtifactUpload(const char* path, uint8_t* id) noexcept -> int {
+auto ArtifactUpload(const char* path, int keep, uint8_t* id) noexcept -> int {
   try {
-    const auto artifact = card::Artifact::upload(path);
+    const auto artifact = card::Artifact::upload(path, keep != 0);
     std::memcpy(id, artifact.id->bytes()->Data(), 16);
     return 0;
   } catch (...) {

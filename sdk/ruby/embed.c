@@ -206,10 +206,10 @@ static VALUE receive_bytes(VALUE self, VALUE timeout) {
                    (VALUE)&request);
 }
 
-static VALUE artifact_dir(VALUE self) {
+static VALUE artifact_dir(VALUE self, VALUE keep) {
   (void)self;
   uint8_t id[16];
-  char* path = tsugumi_ruby_artifact_dir(id);
+  char* path = tsugumi_ruby_artifact_dir(RTEST(keep), id);
   if (!path) rb_raise(rb_eRuntimeError, "Artifact creation failed");
   VALUE directory = rb_utf8_str_new_cstr(path);
   free(path);
@@ -217,10 +217,10 @@ static VALUE artifact_dir(VALUE self) {
                               directory);
 }
 
-static VALUE artifact_upload(VALUE self, VALUE path) {
+static VALUE artifact_upload(VALUE self, VALUE path, VALUE keep) {
   (void)self;
   uint8_t id[16];
-  if (tsugumi_ruby_artifact_upload(StringValueCStr(path), id))
+  if (tsugumi_ruby_artifact_upload(StringValueCStr(path), RTEST(keep), id))
     rb_raise(rb_eRuntimeError, "Artifact upload failed");
   return rb_str_new((const char*)id, sizeof(id));
 }
@@ -230,8 +230,13 @@ static VALUE artifact_open(VALUE self, VALUE id) {
   Check_Type(id, T_STRING);
   if (RSTRING_LEN(id) != 16)
     rb_raise(rb_eArgError, "Expected a 16-byte Artifact ID");
-  char* path = tsugumi_ruby_artifact_open((const uint8_t*)RSTRING_PTR(id));
-  if (!path) rb_raise(rb_eRuntimeError, "Artifact open failed");
+  char* path = NULL;
+  if (tsugumi_ruby_artifact_open((const uint8_t*)RSTRING_PTR(id), &path)) {
+    if (!path) rb_raise(rb_eRuntimeError, "Artifact open failed");
+    VALUE message = rb_utf8_str_new_cstr(path);
+    free(path);
+    rb_exc_raise(rb_exc_new_str(rb_eRuntimeError, message));
+  }
   VALUE directory = rb_utf8_str_new_cstr(path);
   free(path);
   return directory;
@@ -245,8 +250,8 @@ static VALUE initialize(VALUE unused) {
   rb_define_singleton_method(host, "route_unregister", route_unregister, 1);
   rb_define_singleton_method(host, "send_bytes", send_bytes, 3);
   rb_define_singleton_method(host, "recv", receive_bytes, 1);
-  rb_define_singleton_method(host, "artifact_dir", artifact_dir, 0);
-  rb_define_singleton_method(host, "artifact_upload", artifact_upload, 1);
+  rb_define_singleton_method(host, "artifact_dir", artifact_dir, 1);
+  rb_define_singleton_method(host, "artifact_upload", artifact_upload, 2);
   rb_define_singleton_method(host, "artifact_open", artifact_open, 1);
   rb_define_const(host, "PARAMS_FILE",
                   rb_utf8_str_new_cstr(TSUGUMI_RUBY_PARAMS));

@@ -8,8 +8,9 @@ export { FailureKind };
 export const params: Params;
 
 export class Artifact extends ArtifactT {
-  static dir(): [Artifact, string];
-  static upload(path: string): Artifact;
+  /** keep defaults to true; false makes an Artifact that exists only while its run runs. */
+  static dir(options?: { keep?: boolean }): [Artifact, string];
+  static upload(path: string, options?: { keep?: boolean }): Artifact;
   open(): string;
 }
 

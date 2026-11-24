@@ -41,14 +41,13 @@ auto RunPython(const PythonInput& input) -> Tsugumi::Card::CardResultT;
 
 template <class Table>
 auto VerifyOutput(Tsugumi::Card::CardPortT& port,
-                  bool (*visit)(const typename Table::NativeTableType&,
-                                std::vector<ArtifactId>&)) -> void {
+                  bool (*valid)(const typename Table::NativeTableType&)) -> void {
   const Buffer buffer({port.bytes.data(), port.bytes.size()});
   const auto* wire = buffer.Verify<Table>();
   if (!wire) Reject(FailureKind::output_invalid, "Invalid output " + port.name);
   typename Table::NativeTableType value;
   wire->UnPackTo(&value);
-  if (!visit(value, port.artifacts))
+  if (!valid(value))
     Reject(FailureKind::output_invalid, "Invalid output " + port.name);
 }
 

@@ -106,14 +106,17 @@ recv <- function(timeout_ms = -1) {
   structure(list(`$artifact` = jsonlite::base64_enc(id)), class = "tsugumi_artifact")
 }
 
-artifact_dir <- function() {
-  created <- .Call("tsugumi_r_artifact_dir")
+# keep = FALSE makes an Artifact that exists only while its run runs.
+artifact_dir <- function(keep = TRUE) {
+  stopifnot(is.logical(keep), length(keep) == 1L, !is.na(keep))
+  created <- .Call("tsugumi_r_artifact_dir", keep)
   list(artifact = .artifact(created[[1L]]), path = created[[2L]])
 }
 
-artifact_upload <- function(path) {
+artifact_upload <- function(path, keep = TRUE) {
   stopifnot(is.character(path), length(path) == 1L, !is.na(path))
-  .artifact(.Call("tsugumi_r_artifact_upload", path))
+  stopifnot(is.logical(keep), length(keep) == 1L, !is.na(keep))
+  .artifact(.Call("tsugumi_r_artifact_upload", path, keep))
 }
 
 artifact_open <- function(artifact) {

@@ -45,15 +45,34 @@ integer params use `Int64`.
 
 A mixed Merge yields a dictionary with `"type"` and `"value"` entries.
 The SDK selects and verifies the incoming member by schema ID. Collect
-yields a table with opaque envelopes containing `"schema"`, `"bytes"`
-and `"artifacts"`. Return a named tuple or dictionary of outputs. Omit
+yields a table with opaque envelopes containing `"schema"` and
+`"bytes"`. Return a named tuple or dictionary of outputs. Omit
 optional outputs or use `nothing`. A missing required output produces
 `output_invalid`.
 
 `dir(Artifact)` returns the Artifact and a writable directory.
 `upload(Artifact, path)` copies a file or a directory. `open(artifact)`
-returns the granted read-only directory. Forward an Artifact by returning
-it in a declared Artifact field.
+returns the read-only directory of any sealed Artifact of the project
+whose ID the Card knows, such as one in an input.
+Forward an Artifact by returning it in a declared Artifact field.
+
+Both keep the Artifact after its run by default. With `keep=false` it
+exists only while its run runs: later Cards of the same run can open it,
+and it is removed with its record when the run ends. Opening it after that
+raises an error saying the Artifact is not available. Read keep from a
+parameter to let the person running choose:
+
+```nix
+# params.nix
+{
+  keep_scratch = false;
+}
+```
+
+```julia
+scratch, directory = dir(Artifact; keep=params.keep_scratch)
+```
+
 Declare Artifact fields with `include "tsugumi/artifact.fbs";`. The
 host seals created directories when the call returns.
 

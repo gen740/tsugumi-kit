@@ -3,7 +3,7 @@ from card import Artifact, Input, Output, params
 
 
 def run(input: Input) -> Output:
-    artifact, directory = Artifact.dir()
+    artifact, directory = Artifact.dir(keep=params.keep_output)
     path = directory / "message.txt"
     path.write_text(params.value + "\n", encoding="utf-8")
     tsugumi.send(path.name)

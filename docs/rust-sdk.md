@@ -92,9 +92,26 @@ relative to the Card definition when they differ. For example,
 
 Use `Artifact::dir()` for an Artifact and its writable directory or
 `Artifact::upload(source)` to copy a file or directory into a new Artifact.
-Call `artifact.open()` during the invocation to get its granted read-only
-directory. To forward a borrowed Artifact, return `artifact.unpack()`.
-The SDK lists IDs from nested tables, vectors and unions in each output.
+Both keep the Artifact after its run. `Artifact::dir_with_keep(false)` and
+`Artifact::upload_with_keep(source, false)` create one that exists only while
+its run runs: later Cards of the same run can open it, and it is removed with
+its record when the run ends. To let the person running choose per run, read
+keep from a param:
+
+```nix
+# params.nix
+{ keep_scratch = false; }
+```
+
+```rust
+let (scratch, directory) = Artifact::dir_with_keep(PARAMS.keep_scratch)?;
+```
+
+Call `artifact.open()` during the invocation to get the read-only directory
+of any sealed Artifact of the project whose ID the Card knows. Opening fails
+with a message naming the ID when it was not kept after its run, was deleted,
+or is not in this project. To forward a borrowed Artifact, return
+`artifact.unpack()`.
 The pinned FlatBuffers backend supports vectors of tables that contain a union.
 Its code generator rejects fields declared directly as a vector of unions.
 

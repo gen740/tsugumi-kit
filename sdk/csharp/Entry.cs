@@ -58,8 +58,8 @@ internal sealed class InputPorts
     internal static Failure UnknownSchema(string name) =>
         Rejected(FailureKind.input_invalid, $"Unknown schema for {name}");
 
-    internal static Wire.CardPortT FlatBufferPort(string name, byte[] bytes, List<global::tsugumi.ArtifactIdT> ids) =>
-        new() { Name = name, Bytes = new List<byte>(bytes), Artifacts = ids.Count == 0 ? null : ids };
+    internal static Wire.CardPortT FlatBufferPort(string name, byte[] bytes) =>
+        new() { Name = name, Bytes = new List<byte>(bytes) };
 
     internal static ByteBuffer Verify(byte[]? bytes, VerifyTableAction verifier, string name, FailureKind kind)
     {

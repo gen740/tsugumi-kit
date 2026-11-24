@@ -8,11 +8,11 @@ fn unexpected(message: &str) -> Failure {
 }
 
 fn run(input: Inputs<'_>) -> Result<Output> {
-    let (number, granted) = match input.arrival {
+    let (number, known) = match input.arrival {
         Arrival::Number(value) => (value.value(), value.file()),
         Arrival::Text(value) => (20, value.file()),
     };
-    let opened = granted.open()?;
+    let opened = known.open()?;
     let items = input
         .batch
         .items()
@@ -83,8 +83,8 @@ fn run(input: Inputs<'_>) -> Result<Output> {
     let mut nested = ChildT::default();
     nested.file = Box::new(artifact);
     listing.nested = Box::new(nested);
-    listing.files = vec![upload, granted.unpack()];
-    listing.choice = ChoiceT::File(Box::new(Artifact::dir()?.0));
+    listing.files = vec![upload, known.unpack()];
+    listing.choice = ChoiceT::File(Box::new(Artifact::dir_with_keep(false)?.0));
     Ok(Output {
         listing: Some(listing),
         ..Default::default()

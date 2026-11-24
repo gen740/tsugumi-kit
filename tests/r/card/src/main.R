@@ -2,9 +2,9 @@ effects <- dyn.load("@EFFECTS@")
 
 main <- function(input) {
   item <- input$arrival$value
-  granted <- item$file
-  stopifnot(dir.exists(artifact_open(granted)),
-            identical(artifact_open(granted), artifact_open(input$direct)))
+  known <- item$file
+  stopifnot(dir.exists(artifact_open(known)),
+            identical(artifact_open(known), artifact_open(input$direct)))
   envelope <- input$batch$items[[1L]]
   bytes <- jsonlite::base64_dec(envelope$bytes)
   read_i32 <- function(offset) {
@@ -26,7 +26,7 @@ main <- function(input) {
   file <- file.path(nested$path, "value.txt")
   writeLines("test", file)
   uploaded <- artifact_upload(file)
-  choice <- artifact_dir()
+  choice <- artifact_dir(keep = FALSE)
   view <- view_open("listing", VIEW_WINDOW, 640L, 480L)
   route <- route_register(view$session)
   stopifnot(identical(view, list(route = c(as.raw(0x22), raw(15L)),
@@ -49,7 +49,7 @@ main <- function(input) {
                          session = view$session, data = raw(0L))))
   .Call("start_effects", PACKAGE = effects[["name"]])
   list(listing = list(
-    nested = list(file = nested$artifact), files = list(uploaded, granted),
+    nested = list(file = nested$artifact), files = list(uploaded, known),
     choice = list(type = "File", value = choice$artifact),
     value = as.integer(params$offset) + number
   ))

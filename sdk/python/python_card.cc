@@ -9,6 +9,7 @@
 #include <dlfcn.h>
 
 #include <algorithm>
+#include <exception>
 #include <memory>
 #include <span>
 #include <string>
@@ -54,6 +55,10 @@ auto QueryHost(Query query, Convert convert, const char* error) -> PyObject* {
     return convert(value);
   } catch (const std::bad_alloc&) {
     return PyErr_NoMemory();
+  } catch (const std::exception& failure) {
+    // The C++ runtime names the failure, such as an unavailable Artifact.
+    PyErr_SetString(PyExc_RuntimeError, failure.what());
+    return nullptr;
   } catch (...) {
     PyErr_SetString(PyExc_RuntimeError, error);
     return nullptr;
@@ -179,9 +184,11 @@ auto Receive(PyObject*, PyObject* args) -> PyObject* {
       "The host rejected the view receive");
 }
 
-auto ArtifactCreate(PyObject*, PyObject*) -> PyObject* {
+auto ArtifactCreate(PyObject*, PyObject* args) -> PyObject* {
+  int keep;
+  if (!PyArg_ParseTuple(args, "p", &keep)) return nullptr;
   return QueryHost(
-      card::Artifact::dir,
+      [&] { return card::Artifact::dir(keep != 0); },
       [](const auto& result) -> PyObject* {
         const auto& [artifact, path] = result;
         const Object data(PyBytes_FromStringAndSize(
@@ -232,7 +239,7 @@ PyMethodDef methods[] = {
     {"route_unregister", UnregisterRoute, METH_VARARGS, nullptr},
     {"send", Send, METH_VARARGS, nullptr},
     {"recv", Receive, METH_VARARGS, nullptr},
-    {"artifact_create", ArtifactCreate, METH_NOARGS, nullptr},
+    {"artifact_create", ArtifactCreate, METH_VARARGS, nullptr},
     {"artifact_open", ArtifactOpen, METH_VARARGS, nullptr},
     {"cancelled", Cancelled, METH_NOARGS, nullptr},
     {"remaining_ms", RemainingMs, METH_NOARGS, nullptr},

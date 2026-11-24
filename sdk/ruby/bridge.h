@@ -31,9 +31,11 @@ int tsugumi_ruby_cancelled(int* value);
 int tsugumi_ruby_remaining_ms(int64_t* value);
 /* The caller frees any received event data with free(). */
 int tsugumi_ruby_recv(int64_t timeout_ms, ruby_view_event* event);
-char* tsugumi_ruby_artifact_dir(uint8_t* id);
-int tsugumi_ruby_artifact_upload(const char* path, uint8_t* id);
-char* tsugumi_ruby_artifact_open(const uint8_t* id);
+char* tsugumi_ruby_artifact_dir(int keep, uint8_t* id);
+int tsugumi_ruby_artifact_upload(const char* path, int keep, uint8_t* id);
+/* Sets *path to the directory, or on failure to the message or NULL; the
+   caller frees it. */
+int tsugumi_ruby_artifact_open(const uint8_t* id, char** path);
 
 #ifdef __cplusplus
 }

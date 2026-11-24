@@ -72,14 +72,38 @@ Use `include "tsugumi/artifact.fbs";` in user schemas and expose a native
 Artifact type wherever the schema names `tsugumi.Artifact`. Provide
 `dir()` returning an Artifact and its writable directory, `upload(path)`
 returning the Artifact after copying the file or directory, and `open()`
-returning the granted read-only directory. Copy a file into the writable
+returning the read-only directory. Copy a file into the writable
 directory using its basename. Call `artifact_create` and `artifact_open`
 during a Card call.
 
-For every output, visit each nested table, vector and active union member.
-List each distinct Artifact ID in `CardPort.artifacts`, including IDs
-forwarded from granted inputs. The host grants IDs from input sidecars and
-seals directories after the call.
+The host creates each Artifact under a new random 128-bit ID and seals its
+directory when the call returns. Knowing an ID is enough to open it:
+`artifact_open` works for any sealed Artifact of the project. Forwarding an
+Artifact means writing its ID in an output; the SDK does not scan payloads
+for IDs.
+
+`dir` and `upload` take a keep option, true by default, in the language's
+idiomatic form. Keep passes `TSUGUMI_ARTIFACT_KEEP` to `artifact_create`;
+without it the Artifact exists only while its run runs, later Cards of the
+same run can open it, and it is removed with its record when the run ends.
+There is no Card or project setting for keep. When `artifact_open` fails,
+raise the language's error with a message naming the ID: `artifact <uuid>
+is not available: it was not kept after its run, was deleted, or is not in
+this project`, where `<uuid>` is the lowercase 8-4-4-4-12 hex form.
+
+A Card lets the person running choose keep per run by reading it from a
+parameter:
+
+```nix
+# params.nix
+{
+  keep_scratch = false;
+}
+```
+
+```python
+scratch, directory = Artifact.dir(keep=params.keep_scratch)
+```
 
 ## Display and effects
 
@@ -146,7 +170,8 @@ fixture `card`, `api` and shared `runtime`. Implement the fixture behavior
 in that language following `tests/card/src/main.cc` or
 `tests/python/src/main.py`. It covers both Merge cases, Collect with a
 member, a direct Artifact, nested Artifact listing in a table, vector and
-union, forwarding, grant refusal, required and optional outputs, malformed
+union, forwarding, the keep flags of `dir`, `upload` and `dir` with keep
+false, an unknown Artifact ID, required and optional outputs, malformed
 inputs, opening a session, registering and unregistering a route, raw bytes
 per message, receive statuses, and close events with their session and route
 IDs. It also exercises send and receive after the entry point returns.

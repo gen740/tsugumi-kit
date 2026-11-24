@@ -5,16 +5,17 @@ namespace tsugumi;
 
 public partial class ArtifactT
 {
-    public static (ArtifactT Artifact, string Path) Dir()
+    // Without keep, the Artifact exists only while its run runs.
+    public static (ArtifactT Artifact, string Path) Dir(bool keep = true)
     {
         var artifact = new ArtifactT { Id = new ArtifactIdT() };
-        return (artifact, global::Tsugumi.Effects.ArtifactDir(artifact.Id.Bytes));
+        return (artifact, global::Tsugumi.Effects.ArtifactDir(artifact.Id.Bytes, keep));
     }
 
-    public static ArtifactT Upload(string source)
+    public static ArtifactT Upload(string source, bool keep = true)
     {
         var artifact = new ArtifactT { Id = new ArtifactIdT() };
-        global::Tsugumi.Effects.ArtifactUpload(source, artifact.Id.Bytes);
+        global::Tsugumi.Effects.ArtifactUpload(source, artifact.Id.Bytes, keep);
         return artifact;
     }
 

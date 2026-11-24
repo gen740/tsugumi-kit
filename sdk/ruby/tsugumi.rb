@@ -35,12 +35,13 @@ module Tsugumi
       freeze
     end
 
-    def self.dir
-      id, path = TsugumiHost.artifact_dir
+    # keep: false makes an Artifact that exists only while its run runs.
+    def self.dir(keep: true)
+      id, path = TsugumiHost.artifact_dir(keep)
       [new(id), path]
     end
 
-    def self.upload(path) = new(TsugumiHost.artifact_upload(File.path(path)))
+    def self.upload(path, keep: true) = new(TsugumiHost.artifact_upload(File.path(path), keep))
     def open = TsugumiHost.artifact_open(@id)
 
     def to_h = {"$artifact" => @id.bytes}

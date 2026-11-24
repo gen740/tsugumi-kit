@@ -171,10 +171,34 @@ func pack(value interface {
 // Artifact is the native object for a tsugumi.Artifact field.
 type Artifact = artifact.ArtifactT
 
+// ArtifactOption changes how Dir and Upload create an Artifact.
+type ArtifactOption func(*artifactOptions)
+
+type artifactOptions struct{ keep bool }
+
+// Keep sets whether the Artifact is kept after its run (the default). With
+// Keep(false) it exists only while its run runs: later Cards of the same run
+// can open it, and it is removed with its record when the run ends.
+func Keep(keep bool) ArtifactOption {
+	return func(options *artifactOptions) { options.keep = keep }
+}
+
+func keepOption(options []ArtifactOption) bool {
+	selected := artifactOptions{keep: true}
+	for _, option := range options {
+		option(&selected)
+	}
+	return selected.keep
+}
+
 // Dir creates an Artifact and returns its writable directory.
-func Dir() (*Artifact, string, error) { return artifact.Dir() }
+func Dir(options ...ArtifactOption) (*Artifact, string, error) {
+	return artifact.Dir(keepOption(options))
+}
 
 // Upload copies a file or directory into a new Artifact.
-func Upload(source string) (*Artifact, error) { return artifact.Upload(source) }
+func Upload(source string, options ...ArtifactOption) (*Artifact, error) {
+	return artifact.Upload(source, keepOption(options))
+}
 
 func unknownInput() error { return errors.New("unknown input port") }

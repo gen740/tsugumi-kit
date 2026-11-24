@@ -20,7 +20,7 @@ The generator uses FlatBuffers native object types for port tables. Input
 members reflect the connected ports. For a Merge with multiple candidate
 types, use `std::visit` or `std::get_if` on the generated `std::variant`.
 Collect exposes the fixed `tsugumi::builtin::CollectedT` and its envelope
-items. Each item provides `schema`, `bytes` and `artifacts`. Output members
+items. Each item provides `schema` and `bytes`. Output members
 use `std::optional`. A field declared `(required)` must be populated.
 `Card::params` is a constant `Card::Params` with scalar fields or
 `std::vector<T>` fields for list params.
@@ -38,9 +38,27 @@ output.report = std::move(artifact);
 ```
 
 Use `card::Artifact::upload(path)` to copy an existing file or directory.
-On a granted input, `artifact.open()` returns its read-only directory.
-Assign the input Artifact to an output to forward its ID. The SDK lists the
-Artifact IDs when packing the output.
+`artifact.open()` returns the read-only directory of any sealed Artifact of
+the project whose ID the Card knows, such as one in an input. Assign the
+input Artifact to an output to forward its ID.
+
+`card::Artifact::dir(keep)` and `card::Artifact::upload(path, keep)` keep
+the Artifact after its run by default. With `keep` false it exists only
+while its run runs: later Cards of the same run can open it, and it is
+removed with its record when the run ends. Opening it after that throws an
+error saying the Artifact is not available. To let the person running
+choose, read keep from a parameter:
+
+```nix
+# params.nix
+{
+  keep_scratch = false;
+}
+```
+
+```cpp
+auto [scratch, directory] = card::Artifact::dir(Card::params.keep_scratch);
+```
 
 ## Display
 

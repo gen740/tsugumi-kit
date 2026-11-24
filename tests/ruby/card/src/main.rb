@@ -3,9 +3,9 @@ require 'rake'
 def main(input)
   raise "locked gem was not activated" unless Rake::VERSION == "13.2.1"
   item = input.fetch(:arrival).fetch("value")
-  granted = item.fetch("file")
-  unless File.directory?(granted.open) && input.fetch(:direct).open == granted.open
-    raise "unexpected Artifact grant"
+  known = item.fetch("file")
+  unless File.directory?(known.open) && input.fetch(:direct).open == known.open
+    raise "unexpected Artifact input"
   end
   number = item.fetch("value")
   number = 20 unless number.is_a?(Integer)
@@ -30,7 +30,7 @@ def main(input)
   file = File.join(directory, "value.txt")
   File.write(file, "test")
   upload = Tsugumi::Artifact.upload(file)
-  choice, = Tsugumi::Artifact.dir
+  choice, = Tsugumi::Artifact.dir(keep: false)
   opener, session = Tsugumi.view_open("listing", Tsugumi::WINDOW, 640, 480)
   raise "wrong opened view" unless opener == "\x22".b.ljust(16, "\0") && session == "\x11".b.ljust(16, "\0")
   route = Tsugumi.route_register(session)
@@ -58,6 +58,6 @@ def main(input)
     end
   end
 
-  {listing: {nested: {file: artifact}, files: [upload, granted],
+  {listing: {nested: {file: artifact}, files: [upload, known],
              choice: {type: "File", value: choice}, value: params.fetch("offset") + number}}
 end

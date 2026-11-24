@@ -64,7 +64,7 @@ auto run(const Card::Inputs& input) -> Card::Output {
                            "Expected the header channel,counts");
   }
 
-  auto [filtered_artifact, output_directory] = card::Artifact::dir();
+  auto [filtered_artifact, output_directory] = card::Artifact::dir(Card::params.keep_output);
   const auto path = output_directory / "filtered.csv";
   std::ofstream filtered(path);
   filtered << line << '\n';

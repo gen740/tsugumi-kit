@@ -43,8 +43,8 @@ internal unsafe struct NativeEffects
     internal delegate* unmanaged[Cdecl]<long, byte*, byte*, NativeBytes*, int> Recv;
     internal delegate* unmanaged[Cdecl]<int> Cancelled;
     internal delegate* unmanaged[Cdecl]<long> Remaining;
-    internal delegate* unmanaged[Cdecl]<byte*, NativeBytes*, int> ArtifactDir;
-    internal delegate* unmanaged[Cdecl]<byte*, byte*, int> ArtifactUpload;
+    internal delegate* unmanaged[Cdecl]<int, byte*, NativeBytes*, int> ArtifactDir;
+    internal delegate* unmanaged[Cdecl]<byte*, int, byte*, int> ArtifactUpload;
     internal delegate* unmanaged[Cdecl]<byte*, NativeBytes*, int> ArtifactOpen;
 }
 
@@ -136,24 +136,31 @@ public static class Effects
         };
     }
 
-    internal static unsafe string ArtifactDir(byte[] id)
+    internal static unsafe string ArtifactDir(byte[] id, bool keep)
     {
         NativeBytes path = default;
         fixed (byte* pointer = id)
-            if (effects == null || effects->ArtifactDir(pointer, &path) != 0)
+            if (effects == null || effects->ArtifactDir(keep ? 1 : 0, pointer, &path) != 0)
                 throw new InvalidOperationException("The host could not create an Artifact");
         return Encoding.UTF8.GetString(path.Span);
     }
 
-    internal static unsafe void ArtifactUpload(string source, byte[] id)
+    internal static unsafe void ArtifactUpload(string source, byte[] id, bool keep)
     {
         ArgumentNullException.ThrowIfNull(source);
         if (source.Contains('\0'))
             throw new ArgumentException("Artifact source contains a NUL byte", nameof(source));
         fixed (byte* path = Encoding.UTF8.GetBytes(source + "\0"))
         fixed (byte* pointer = id)
-            if (effects == null || effects->ArtifactUpload(path, pointer) != 0)
+            if (effects == null || effects->ArtifactUpload(path, keep ? 1 : 0, pointer) != 0)
                 throw new InvalidOperationException("Could not upload the Artifact");
+    }
+
+    private static string ArtifactUnavailable(byte[] id)
+    {
+        var hex = Convert.ToHexString(id).ToLowerInvariant();
+        var uuid = $"{hex[..8]}-{hex[8..12]}-{hex[12..16]}-{hex[16..20]}-{hex[20..]}";
+        return $"artifact {uuid} is not available: it was not kept after its run, was deleted, or is not in this project";
     }
 
     internal static unsafe string ArtifactOpen(byte[] id)
@@ -161,7 +168,7 @@ public static class Effects
         NativeBytes path = default;
         fixed (byte* pointer = id)
             if (effects == null || effects->ArtifactOpen(pointer, &path) != 0)
-                throw new InvalidOperationException("The host could not open the Artifact");
+                throw new InvalidOperationException(ArtifactUnavailable(id));
         return Encoding.UTF8.GetString(path.Span);
     }
 

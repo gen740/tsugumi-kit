@@ -8,10 +8,10 @@
 
 auto run(const Card::Inputs& input) -> Card::Output {
   const auto& arrival = input.arrival.value();
-  const auto& granted = std::visit(
+  const auto& known = std::visit(
       [](const auto& item) -> const card::Artifact& { return *item.file; },
       arrival);
-  const auto opened = granted.open();
+  const auto opened = known.open();
   const auto& batch = input.batch.value();
   if (batch.items.size() != 1 ||
       batch.items.front()->schema != std::string(64, '4') ||
@@ -76,7 +76,7 @@ auto run(const Card::Inputs& input) -> Card::Output {
   listing.nested = std::make_unique<outputs::ChildT>();
   listing.nested->file = std::make_unique<card::Artifact>(std::move(artifact));
   listing.files.push_back(std::make_unique<card::Artifact>(std::move(upload)));
-  listing.files.push_back(std::make_unique<card::Artifact>(granted));
+  listing.files.push_back(std::make_unique<card::Artifact>(known));
   auto [choice, unused] = card::Artifact::dir(false);
   listing.choice.Set(std::move(choice));
   return output;

@@ -7,14 +7,14 @@ import _tsugumi_host
 from tsugumi.ArtifactId import ArtifactIdT
 
 
-def create(cls):
-    identifier, path = _tsugumi_host.artifact_create()
+def create(cls, keep=True):
+    identifier, path = _tsugumi_host.artifact_create(bool(keep))
     return cls(id=ArtifactIdT(bytes=list(identifier))), Path(path)
 
 
-def upload(cls, source):
+def upload(cls, source, keep=True):
     source = Path(source)
-    artifact, target = create(cls)
+    artifact, target = create(cls, keep)
     if source.is_dir():
         shutil.copytree(source, target, dirs_exist_ok=True)
     else:

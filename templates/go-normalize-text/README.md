@@ -2,6 +2,7 @@
 
 The Go Card collapses whitespace in its text parameter and returns
 `normalized.txt` on its Artifact output `file`. Edit `definitions/normalize/params.nix` to change the value.
+Set `keep_output = false;` there to keep the Artifact only while its run runs.
 
 Git import subdirectory `templates/go-normalize-text`.
 [Template guide](../../docs/templates.md) · [Go source](definitions/normalize/src/card.go)

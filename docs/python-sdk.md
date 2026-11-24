@@ -20,7 +20,7 @@ def run(input: Input) -> Output:
 The SDK uses FlatBuffers object types for schema tables. For a Merge with
 multiple candidates, narrow the generated union with `isinstance`.
 A Collect port decodes to a `CollectedT` whose items contain schema IDs,
-payload bytes and Artifact IDs. Output properties default to `None`.
+and payload bytes. Output properties default to `None`.
 Populate every `(required)` output. The generated `params` is a frozen
 `Params` instance with typed scalar fields and tuples for list values.
 Python uses the pinned flatc generator, which supports single union fields
@@ -38,10 +38,28 @@ result = Output(report=artifact)
 ```
 
 Use `Artifact.upload(path)` to copy a file or directory into a new
-Artifact. On a granted input, `artifact.open()` returns its read-only
-`pathlib.Path`. To forward the same ID, return the Artifact in an output.
-The SDK lists IDs from nested tables, vectors and active union members
-when packing the output.
+Artifact. `artifact.open()` returns the read-only `pathlib.Path` of any
+sealed Artifact of the project whose ID the Card knows, such as one in an
+input. To forward the same ID, return the Artifact in
+an output.
+
+`Artifact.dir(keep=True)` and `Artifact.upload(path, keep=True)` keep the
+Artifact after its run by default. With `keep=False` it exists only while
+its run runs: later Cards of the same run can open it, and it is removed
+with its record when the run ends. Opening it after that raises an error
+saying the Artifact is not available. To let the person running choose,
+read keep from a parameter:
+
+```nix
+# params.nix
+{
+  keep_scratch = false;
+}
+```
+
+```python
+scratch, directory = Artifact.dir(keep=params.keep_scratch)
+```
 
 ## Display
 

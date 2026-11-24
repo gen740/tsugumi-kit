@@ -24,8 +24,8 @@ int tsugumi_go_send(const uint8_t* session, const uint8_t* data, size_t size,
 /* On success, the caller frees the returned data or path. */
 int tsugumi_go_recv(int64_t timeout_ms, uint32_t* kind, uint8_t* route,
                     uint8_t* session, uint8_t** data, size_t* size);
-int tsugumi_go_artifact_dir(uint8_t* id, char** path);
-int tsugumi_go_artifact_upload(const char* path, uint8_t* id);
+int tsugumi_go_artifact_dir(int keep, uint8_t* id, char** path);
+int tsugumi_go_artifact_upload(const char* path, int keep, uint8_t* id);
 int tsugumi_go_artifact_open(const uint8_t* id, char** path);
 int tsugumi_go_cancelled(void);
 int64_t tsugumi_go_remaining_ms(void);

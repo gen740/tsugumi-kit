@@ -19,13 +19,13 @@ public static class Card
 
     public static Output Run(Input input)
     {
-        var (number, granted) = input.Arrival switch
+        var (number, forwarded) = input.Arrival switch
         {
             Input_arrival.Number member => (member.Value.Value, member.Value.File),
             Input_arrival.Text member => (20L, member.Value.File),
             _ => throw new InvalidOperationException("Unknown candidate"),
         };
-        var opened = granted.Open();
+        var opened = forwarded.Open();
         var items = input.Batch.Items;
         var parameters = Params.Current;
         if (input.Direct.Open() != opened || !Directory.Exists(opened) ||
@@ -83,8 +83,8 @@ public static class Card
             {
                 Value = parameters.Offset + number,
                 Nested = new ChildT { File = artifact },
-                Files = new List<Artifact> { uploaded, granted },
-                Choice = new ChoiceUnion { Type = Choice.File, Value = Artifact.Dir().Artifact },
+                Files = new List<Artifact> { uploaded, forwarded },
+                Choice = new ChoiceUnion { Type = Choice.File, Value = Artifact.Dir(keep: false).Artifact },
             },
         };
     }

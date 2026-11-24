@@ -67,9 +67,17 @@ types are unchanged.
 
 `tsugumi.ArtifactT.Dir()` creates an Artifact and returns its writable
 directory. `ArtifactT.Upload(source)` copies a file or directory into a new
-Artifact. Call `artifact.Open()` to access the granted read-only directory.
-Return the same object to forward it. The SDK lists IDs from nested tables,
-vectors and unions in each output.
+Artifact. Both keep the Artifact after its run by default. With
+`keep: false` the Artifact exists only while its run runs: later Cards of
+the same run can open it, and it is removed with its record when the run
+ends. Choose keep from a param so the person running can switch it per run,
+for example `keep_scratch = false;` in `params.nix` and
+`ArtifactT.Dir(keep: Params.Current.Keep_scratch)`.
+
+Call `artifact.Open()` for the read-only directory of any sealed Artifact of
+the project whose ID the Card knows. It throws when the Artifact was not kept
+after its run, was deleted or is not in this project. Return the same object
+to forward it.
 
 `Effects.ViewOpen(name, mode, width, height)` returns an `OpenedView` with
 `Route` and `Session`. `Effects.Send(session, bytes)` sends one raw message.

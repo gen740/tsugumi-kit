@@ -98,10 +98,18 @@ caller's file and line when they belong to the Card module. Set
 
 `tsugumi.Dir()` creates an Artifact and returns its writable directory.
 `tsugumi.Upload(path)` copies an existing file or directory into a new
-Artifact. Call `artifact.Open()` to get the granted read-only directory.
+Artifact. Both keep the Artifact after its run by default. With the option
+`tsugumi.Keep(false)` the Artifact exists only while its run runs: later
+Cards of the same run can open it, and it is removed with its record when
+the run ends. Choose keep from a param so the person running can switch it
+per run, for example `keep_scratch = false;` in `params.nix` and
+`tsugumi.Dir(tsugumi.Keep(tsugumi.Parameters().KeepScratch))`.
+
+Call `artifact.Open()` to get the read-only directory of any sealed Artifact
+of the project whose ID the Card knows. It returns an error when the
+Artifact was not kept after its run, was deleted or is not in this project.
 Use the `tsugumi.Artifact` type for generated fields and forward an input
-Artifact by returning the value. The SDK lists IDs from nested tables,
-vectors and unions in each output.
+Artifact by returning the value.
 The pinned FlatBuffers backend supports vectors of tables that contain a union.
 Its code generator rejects fields declared directly as a vector of unions.
 
