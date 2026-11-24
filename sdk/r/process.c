@@ -105,6 +105,7 @@ static void* serve(void* unused) {
     pending = NULL;
     pthread_cond_broadcast(&response);
   }
+  return NULL;
 }
 
 static void start(void) {
