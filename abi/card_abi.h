@@ -30,10 +30,12 @@ enum {
 
 typedef struct tsugumi_effects {
   /* View effects are valid from any thread for the life of the process. */
-  /* Open a declared view. WINDOW may specify both dimensions in logical pixels. */
+  /* Open a declared view. 0 ok, <0 error. Both dimensions may be nonzero
+   * only in WINDOW mode and are in logical pixels. 0,0 lets the UI choose. */
   int (*view_open)(void* host, const char* view, uint32_t mode, uint32_t width,
                    uint32_t height, tsugumi_route* route,
                    tsugumi_view_session* session);
+  /* Register a mailbox for a session, or drop a route. 0 ok, <0 error. */
   int (*route_register)(void* host, const tsugumi_view_session* session,
                         tsugumi_route* route);
   int (*route_unregister)(void* host, const tsugumi_route* route);
