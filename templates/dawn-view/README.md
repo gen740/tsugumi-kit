@@ -2,7 +2,7 @@
 
 Run the `color` Card to open its `clear` view. The C++ Card sends the three
 RGB values from `params.nix` to the view session. Click within eight seconds
-to send the position to the Card's route and record it in the run log. The
+to send the position to the `color` Card and record it in the run log. The
 view keeps showing the colour until you close it.
 
 The view uses the 48 kHz clock signatures for resize, draw, messages and

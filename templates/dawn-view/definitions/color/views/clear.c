@@ -44,7 +44,7 @@ int32_t tsugumi_view_pointer(uint32_t kind, float x, float y, uint32_t buttons,
   if (kind == TSUGUMI_DAWN_POINTER_DOWN) {
     const float click[] = {x, y};
     // The process may already have finished. Leave the colour on the canvas.
-    tsugumi_dawn_send_to_opener((const uint8_t*)click, sizeof(click));
+    tsugumi_view_send("color", (const uint8_t*)click, sizeof(click));
   }
   return 0;
 }

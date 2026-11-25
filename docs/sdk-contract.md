@@ -179,7 +179,7 @@ Routes last until `route_unregister`, process exit or window close. A view
 stays open when its last route goes away. The user or any Card that holds the
 session can close it. Closing queues one close event for each live route and
 drops later sends to the session. Closing an already closed session succeeds
-without another event. Messages to dead routes are dropped.
+without another event.
 
 | SDK | Close a window | Registering after close |
 | --- | --- | --- |
@@ -205,9 +205,11 @@ tsugumi.onmessage = bytes => {
   // bytes is a Uint8Array containing one Card ABI message.
   handleMessage(bytes)
 }
-tsugumi.send(replyBytes)         // To the opener's route.
-tsugumi.send(replyBytes, route)  // To a 16-byte Uint8Array route for this view.
+await tsugumi.send(replyBytes, "screens/settings")
+await tsugumi.send(replyBytes, "*")  // All Cards registered on this window.
 ```
+
+The Promise rejects when the address has no live recipient.
 
 The bundled HTML views expect SDK frames. The 20-byte header has the
 little-endian `uint32` magic `0x4D475354`, an 8-byte transfer ID, and a
@@ -222,8 +224,10 @@ transfer ID and keeps up to 16 incomplete transfers.
 Dawn receives each Card ABI message as sent. In C++, use
 `card::display::send_raw(session, bytes)` for one unframed message.
 Read incoming data with `tsugumi_view_read` inside `tsugumi_view_message`.
-Reply with `tsugumi_view_send(route, data, size)`. Pass 16 zero bytes for
-the opener's route or the ID of another route registered to this view.
+Reply with `tsugumi_view_send(to, data, size)`. Use a NUL-terminated
+project-root Card path or `"*"`. Each registered live process of the
+addressed Cards receives the message. An unknown or unregistered
+address returns an error. Route IDs are private to the Card ABI.
 
 Build C view sources with `sdk.dawnView { inherit name src; }` from the
 C++ kit. See the [Dawn SDK guide](dawn-sdk.md) for the clock, optional

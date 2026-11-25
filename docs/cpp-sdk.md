@@ -113,8 +113,8 @@ required callbacks, the allowed WebGPU functions and the message helpers.
 The builder supplies the pinned WebGPU header. Only the `webgpu` and
 `tsugumi` import modules are available. Implement
 `tsugumi_view_message` to receive bytes and call `tsugumi_view_read` inside
-that callback. Pass a 16-byte route to `tsugumi_view_send(route, data, size)`
-for replies. Use a zero-filled route to reach the opener. On the Card side,
+that callback. Reply with `tsugumi_view_send(to, data, size)`, using a project-root Card
+path or `"*"` for all Cards registered on the window. On the Card side,
 `card::display::send_raw(session, bytes)` sends one message directly to
 the view. It returns zero on success. Each message is limited to
 `TSUGUMI_MESSAGE_MAX` (16 MiB).

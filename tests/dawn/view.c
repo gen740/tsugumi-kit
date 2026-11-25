@@ -57,7 +57,7 @@ int32_t tsugumi_view_message(uint32_t size, tsugumi_view_time at) {
   uint8_t byte;
   if (size != 1 || at != epoch + 3 || tsugumi_view_read(&byte, size) != 0)
     return -1;
-  return tsugumi_dawn_send_to_opener(&byte, size);
+  return tsugumi_view_send("screens/test", &byte, size);
 }
 
 const float* tsugumi_view_audio(uint32_t frames, tsugumi_view_time heard) {
