@@ -71,10 +71,10 @@ let
           python
           pythonEnv
         ];
-        buildInputs = [
-          flatbuffers
-          python
-        ];
+        # The selected Python supplies headers explicitly below. Adding its
+        # library directory through the compiler wrapper can put the original
+        # interpreter on the ELF search path.
+        buildInputs = [ flatbuffers ] ++ lib.optional isDarwin python;
       }
       ''
         src=${lib.escapeShellArg "${src}"}
