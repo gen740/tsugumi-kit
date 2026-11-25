@@ -8,9 +8,9 @@
     },
     {
       "name": "tsugumi-kit",
-      "url": "github:gen740/tsugumi-kit/feat/native-pack-abi",
-      "rev": "80b9aaab340911ddf9d4852e4384764e2eac0309",
-      "narHash": "sha256-uHL7IDXhpBHW9eXolv4famXyqNHEBMPRRG8Gy5u7rUw="
+      "url": "github:gen740/tsugumi-kit/feat/native-pack-view-path",
+      "rev": "8e0e3b9e1aaec920d07a8984e9026d2aec57762a",
+      "narHash": "sha256-OccGVmgDNo1k20zR0RSvUjg32qHgm7HkhuJHycKGTak="
     }
   ]
 }
