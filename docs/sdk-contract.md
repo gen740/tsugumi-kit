@@ -169,7 +169,7 @@ Routes last until `route_unregister`, process exit or window close. A view
 stays open when its last route goes away. The user or any Card that holds the
 session can close it. Closing queues one close event for each live route and
 drops later sends to the session. Closing an already closed session succeeds
-without another event. Messages to dead routes are dropped.
+without another event.
 
 | SDK | Close a window | Registering after close |
 | --- | --- | --- |
@@ -198,6 +198,8 @@ tsugumi.onmessage = bytes => {
 await tsugumi.send(replyBytes, "screens/settings")
 await tsugumi.send(replyBytes, "*")  // All Cards registered on this window.
 ```
+
+The Promise rejects when the address has no live recipient.
 
 The bundled HTML views expect SDK frames. The 20-byte header has the
 little-endian `uint32` magic `0x4D475354`, an 8-byte transfer ID, and a
