@@ -1,19 +1,22 @@
 #include "adapter.hh"
+#include "host.h"
 
-extern "C" int tsugumi_go_run(uint8_t* data, size_t size, void* result);
+extern "C" int tsugumi_go_run(void* inputs, size_t count, void* result);
+
+auto tsugumi_go_read_input(const void* inputs, size_t index)
+    -> tsugumi_go_input {
+  const auto& input = static_cast<const tsugumi_input*>(inputs)[index];
+  return {input.name, input.schema, input.bytes.data, input.bytes.size};
+}
 
 namespace {
 
-auto RunCard(tsugumi_bytes input) -> Tsugumi::Card::CardResultT {
-  const tsugumi::abi::Buffer buffer(input);
-  if (!buffer.Verify<Tsugumi::Card::CardInput>()) {
-    tsugumi::abi::Reject(tsugumi::abi::FailureKind::input_invalid,
-                         "Invalid CardInput");
-  }
+auto RunCard(const tsugumi_call& call) -> Tsugumi::Card::CardResultT {
   Tsugumi::Card::CardResultT result;
-  // Go borrows the envelope while decoding and owns any bytes exposed to Card
-  // code.
-  if (tsugumi_go_run(const_cast<uint8_t*>(input.data), input.size, &result)) {
+  // Go borrows the input ports while decoding and owns any bytes exposed to
+  // Card code.
+  if (tsugumi_go_run(const_cast<tsugumi_input*>(call.inputs), call.input_count,
+                     &result)) {
     throw std::bad_alloc();
   }
   return result;

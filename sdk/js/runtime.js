@@ -1,7 +1,6 @@
 import { relative, dirname, isAbsolute, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Builder, ByteBuffer } from "flatbuffers";
-import { CardInput } from "./tsugumi/card/card-input.js";
 import { CardPort } from "./tsugumi/card/card-port.js";
 import { CardResult } from "./tsugumi/card/card-result.js";
 import { CardFailureT } from "./tsugumi/card/card-failure.js";
@@ -20,18 +19,15 @@ function pack(value) {
   return builder.asUint8Array();
 }
 
-function decode(bytes) {
-  const envelope = CardInput.getRootAsCardInput(new ByteBuffer(bytes));
-  const wire = new Map();
-  for (let i = 0; i < envelope.inputsLength(); i++) {
-    const port = envelope.inputs(i);
-    wire.set(port.name(), port);
-  }
+function decode(inputs) {
+  const wire = new Map(inputs.map(([name, schema, bytes]) => [name, { schema, bytes }]));
   const ports = Object.create(null);
   for (const { name, candidates } of inputPorts) {
     const port = wire.get(name);
-    const candidate = candidates.get(port.schema());
-    ports[name] = candidate.read(new ByteBuffer(port.bytesArray())).unpack();
+    const candidate = port.schema === null && candidates.size === 1
+      ? candidates.values().next().value
+      : candidates.get(port.schema);
+    ports[name] = candidate.read(new ByteBuffer(port.bytes)).unpack();
   }
   const need = name => {
     const value = ports[name];
@@ -149,10 +145,10 @@ export function bind(entry) {
     if (typeof module.default !== "function") throw new TypeError("Card must export a default function");
     return module.default;
   });
-  return async bytes => {
+  return async inputs => {
     try {
       const run = await load;
-      return encode(await run(decode(bytes), ctx));
+      return encode(await run(decode(inputs), ctx));
     } catch (error) {
       const builder = new Builder();
       const report = failure(error, entry).pack(builder);

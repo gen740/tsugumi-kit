@@ -7,6 +7,14 @@
 extern "C" {
 #endif
 
+typedef struct {
+  const char* name;
+  const char* schema;
+  const uint8_t* data;
+  size_t size;
+} tsugumi_go_input;
+
+tsugumi_go_input tsugumi_go_read_input(const void* inputs, size_t index);
 int tsugumi_go_verify_input(size_t index, const uint8_t* data, size_t size);
 int tsugumi_go_output(void* result, size_t index, const uint8_t* data,
                       size_t size);

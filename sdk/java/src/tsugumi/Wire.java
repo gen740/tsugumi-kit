@@ -6,28 +6,25 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Set;
 import java.util.function.ToIntFunction;
-import tsugumi.wire.Tsugumi.Card.CardFailure;
-import tsugumi.wire.Tsugumi.Card.CardInput;
-import tsugumi.wire.Tsugumi.Card.CardPort;
-import tsugumi.wire.Tsugumi.Card.CardResult;
+import tsugumi.wire.tsugumi.Card.CardFailure;
+import tsugumi.wire.tsugumi.Card.CardPort;
+import tsugumi.wire.tsugumi.Card.CardResult;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 final class Wire {
     private Wire() {}
 
-    // The native adapter has verified the envelope and payloads.
+    // The native adapter has validated the ports and verified their payloads.
     record Port(String schema, ByteBuffer bytes) {}
 
     static final class Inputs {
-        private final HashMap<String, CardPort> ports = new HashMap<>();
+        private final HashMap<String, Port> ports = new HashMap<>();
 
-        Inputs(ByteBuffer bytes) {
-            var input = CardInput.getRootAsCardInput(bytes);
-            for (int index = 0; index < input.inputsLength(); index++) {
-                var port = input.inputs(index);
-                ports.put(port.name(), port);
-            }
+        void add(byte[] name, byte[] schema, ByteBuffer bytes) {
+            ports.put(new String(name, UTF_8), new Port(
+                    schema == null ? null : new String(schema, UTF_8),
+                    bytes.asReadOnlyBuffer()));
         }
 
         Port take(String name) {
@@ -35,7 +32,7 @@ final class Wire {
             if (port == null) {
                 throw new Failure(FailureKind.INPUT_MISSING, "Missing input " + name);
             }
-            return new Port(port.schema(), port.bytesAsByteBuffer().slice());
+            return port;
         }
     }
 

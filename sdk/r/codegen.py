@@ -312,7 +312,8 @@ def generate(card, schemas, names, output_schema):
             if len(port.candidates) > 1:
                 value = f'Json{{{{"type", {quote(tag)}}}, {{"value", {value}}}}}'
             keyword = "if" if index == 0 else "else if"
-            read += [f'    {keyword} (entry->schema == "{member.schema}")',
+            legacy = "entry->schema.data() == nullptr || " if len(port.candidates) == 1 else ""
+            read += [f'    {keyword} ({legacy}entry->schema == "{member.schema}")',
                      f"      ports[{name}] = {value};"]
         read += [f'    else Reject(FailureKind::input_invalid, "Unknown schema for " + std::string({name}));',
                  '  } else {',
@@ -350,11 +351,11 @@ using namespace tsugumi::r;
 
 """ + codecs.emit() + "\n\n" + "\n".join(visits) + """
 
-auto RunCard(tsugumi_bytes bytes) -> Tsugumi::Card::CardResultT {
+auto RunCard(const tsugumi_call& call) -> Tsugumi::Card::CardResultT {
   Tsugumi::Card::CardResultT result;
   Json input;
   try {
-    Input buffer(bytes);
+    Input buffer(call);
     Json ports = Json::object();
 """ + "\n".join("  " + line for line in read) + """
   } catch (const std::invalid_argument& error) {

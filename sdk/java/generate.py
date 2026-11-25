@@ -349,12 +349,11 @@ package tsugumi;
 import java.util.HashMap;
 
 final class Entry {{
-    static byte[] invoke(java.nio.ByteBuffer bytes) {{
+    static byte[] invoke(Wire.Inputs ports) {{
         var thread = Thread.currentThread();
         var previous = thread.getContextClassLoader();
         try {{
             thread.setContextClassLoader(Entry.class.getClassLoader());
-            var ports = new Wire.Inputs(bytes.asReadOnlyBuffer());
             var values = new HashMap<String, Object>();
             {read_code}
             Card.Output value = CardEntry.run(new Card.Input(values));
@@ -391,7 +390,7 @@ def generate_failure_kinds(out, enum_schema):
     enum_body = re.search(r"enum FailureKind\s*:\s*ushort\s*\{(.*?)\}", enum_schema, re.S)[1]
     kinds = re.findall(r"^\s*(\w+)\s*=\s*\d+", enum_body, re.M)
     constants = ",\n".join(
-        f"    {kind.upper()}(tsugumi.wire.Tsugumi.Data.FailureKind.{kind})"
+        f"    {kind.upper()}(tsugumi.wire.tsugumi.Data.FailureKind.{kind})"
         for kind in kinds if kind != "unspecified"
     )
     (out / "FailureKind.java").write_text(f"""// Generated from the Card ABI.
@@ -441,8 +440,8 @@ constexpr std::array<JavaOutput, {len(output_rows)}> outputs{{{{
 {chr(10).join(output_rows)}
 }}}};
 
-auto Run(tsugumi_bytes bytes) -> ResultBuffer {{
-  return RunJava(bytes, inputs, outputs);
+auto Run(const tsugumi_call& call) -> ResultBuffer {{
+  return RunJava(call, inputs, outputs);
 }}
 }}  // namespace
 

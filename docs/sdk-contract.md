@@ -40,22 +40,30 @@ A definition can return Nix exports and can build variants by returning
 
 ## Native calls and shared processes
 
-The ABI lends the `CardInput` envelope for the duration of the call. A
-returned result is a fresh libc `malloc` allocation. The host frees the
-base pointer after its last reader, including when the native entry returns
-a nonzero status. The host keeps loaded Card images alive while background
-effects or managed code can reference them. Calls into a given Card image
-are serial.
+`tsugumi_call.inputs` points to an array of `input_count` named inputs.
+Each `tsugumi_input` contains a NUL-terminated name, a NUL-terminated schema
+ID or `NULL`, and a byte span containing the input FlatBuffer. The host
+lends the array, strings and payloads through the return of `tsugumi_main`.
+
+Use `call->effects->result_alloc(call->host, size)` during the call to obtain
+aligned storage for the serialized `CardResult`. The callback returns
+`NULL` on failure and allows at most one successful allocation per call.
+Return the base pointer and the actual number of initialized bytes.
+Successful `CardResult` values carry output ports as `CardPort` tables.
+The host owns the allocation even when the native entry returns a nonzero
+status. Only the host releases the buffer. Access it only during the call.
+The host keeps loaded Card images alive while background effects or managed
+code can reference them. Calls into a given Card image are serial.
 
 | SDK | Input access and process limits |
 | --- | --- |
-| C | Use generated FlatBuffers readers on the borrowed input and payloads. Allocate the serialized result with libc `malloc`. |
-| C++ | Generated inputs borrow verified tables. The worker supplies aligned envelopes and payloads. For unaligned buffers from other hosts the SDK uses aligned scratch storage. `UnPack()` explicitly materializes an owned table. |
-| Rust | Generated inputs borrow verified slices and tables. The FFI copies the finished builder bytes to a libc allocation for transfer. |
-| Go | The adapter borrows the envelope. It copies each selected payload before unpacking because generated Go values can retain slices into it. Each process can load one Go c-shared Card library. |
+| C | Use generated FlatBuffers readers on the borrowed payloads. Copy the serialized result into the buffer supplied by `result_alloc`. |
+| C++ | Generated inputs borrow verified tables. The worker supplies aligned payloads. For unaligned buffers from other hosts the SDK uses aligned scratch storage. `UnPack()` explicitly materializes an owned table. |
+| Rust | Generated inputs borrow verified slices and tables. The FFI copies the finished builder bytes into the host allocation. |
+| Go | The adapter copies each selected payload before unpacking because generated Go values can retain slices into it. Each process can load one Go c-shared Card library. |
 | Python | C++ verifies borrowed payloads. The Python object API needs owned bytes because arrays may outlive the call. Cards share CPython, while SDK modules, generated bindings, parameters and Card source modules have private names. Ordinary imports of Card-local modules resolve within that Card. Use relative names for dynamic imports of local code. Third-party packages and extension state are shared, so Cards need compatible packages and the same libpython. |
 | JavaScript | Each Card has a Node environment and V8 isolate on a shared Node platform. V8 gets an owned copy because JavaScript typed arrays are mutable and can outlive the call. The host receives the serialized SDK result without rebuilding the envelope. |
-| JVM | Cards share one JVM and each gets a class loader with its own application classes, SDK, dependencies, parameters and JNI bindings. JNI supplies a read-only direct buffer to the FlatBuffers decoder, which materializes Java port objects. The final Java byte array is copied to the host allocation. |
+| JVM | Cards share one JVM and each gets a class loader with its own application classes, SDK, dependencies, parameters and JNI bindings. JNI supplies direct buffers for the input payloads, which the SDK decodes into Java port objects. The final Java byte array is copied to the host allocation. |
 | .NET | hostfxr shares one CoreCLR runtime and loads each Card assembly in its own load context. The managed FlatBuffers package uses managed byte arrays, including when unpacking port payloads. The host receives the serialized managed result without rebuilding the envelope. |
 | Ruby | MRI starts once on its owner thread. Each Card gets a private SDK module and entry class with its own parameters and native effects. The input is converted from verified FlatBuffers to JSON for Ruby. RubyGems, loaded libraries and globals are shared and dependencies must be compatible. |
 | Julia | One Julia runtime owns calls on a dedicated thread. Each Card has a private module, bindings and effects. The input is converted from verified FlatBuffers to JSON for Julia. The Julia project, depot and loaded packages are process-wide. |
@@ -82,8 +90,10 @@ Import `nix/sdk-dependencies.nix { inherit pkgs; }` in each SDK.
 `load_card_schemas` returns ordered `inputs`, `outputs` and `params`.
 Each port has `name`, `type` and `required`. An input also has
 `candidates`, ordered `(schema, type)` records. Select a candidate using
-`CardPort.schema` before verifying and decoding the payload. An unknown
-schema produces `input_invalid`. Represent multiple candidates as a
+`tsugumi_input.schema` before verifying and decoding the payload. A legacy
+input with a null schema uses the sole candidate for its port. A missing
+schema on a port with multiple candidates or an unknown schema produces
+`input_invalid`. Represent multiple candidates as a
 language-level sum type. The bytes are the selected table's FlatBuffer.
 A Collect port decodes as `tsugumi.builtin.Collected` and carries opaque
 `Envelope` items. `collected_members` provides the reflected candidate
@@ -228,8 +238,9 @@ in that language following `tests/card/src/main.cc` or
 member, a direct Artifact, nested Artifact listing in a table, vector and
 union, forwarding, the keep flags of `dir`, `upload` and `dir` with keep
 false, an unknown Artifact ID, required and optional outputs, malformed
-inputs, opening sessions with combined flags and with zero flags,
-registering and unregistering a route, raw bytes
+inputs, null schemas, host result allocation and allocation failure,
+opening sessions with combined flags and with zero flags, registering and
+unregistering a route, raw bytes
 per message, receive statuses, and close events with their session and route
 IDs. It also exercises send and receive after the entry point returns.
 `tests/view-reassembly.mjs` exercises HTML framing independently.
@@ -238,7 +249,7 @@ Use the input and API checks alongside the
 language check and enable the language in `nix/pending-sdk-checks.nix`.
 
 ```sh
-"$SP/heavy.sh" nix build --no-link -L .#checks.aarch64-darwin.cppAbi
-"$SP/heavy.sh" nix build --no-link -L .#checks.aarch64-darwin.pythonAbi
-"$SP/heavy.sh" nix build --no-link -L .#checks.aarch64-darwin.inputCard
+nix build --no-link -L .#checks.aarch64-darwin.cppAbi
+nix build --no-link -L .#checks.aarch64-darwin.pythonAbi
+nix build --no-link -L .#checks.aarch64-darwin.inputCard
 ```

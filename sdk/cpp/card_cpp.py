@@ -362,8 +362,8 @@ def generate(card, out, names, output_schema):
 
     roots = [cpp_type(port.type, names) for port, _ in outputs]
     body = [
-        "auto RunCard(tsugumi_bytes bytes, flatbuffers::FlatBufferBuilder& builder) -> void {",
-        "  Input buffer(bytes);",
+        "auto RunCard(const tsugumi_call& call, flatbuffers::FlatBufferBuilder& builder) -> void {",
+        "  Input buffer(call);",
         "  Card::Inputs input;",
     ]
     for port, member in inputs:

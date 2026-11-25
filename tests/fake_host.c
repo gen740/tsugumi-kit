@@ -7,8 +7,6 @@
 
 #include "wire.h"
 
-void check_version(tsugumi_main_fn entry);
-
 enum { max_created = 3 };
 
 struct fake_host {
@@ -23,6 +21,10 @@ struct fake_host {
   unsigned events;
   int live_route;
   int listing_closed;
+  int deny_result;
+  unsigned result_requests;
+  uint8_t* result_buffer;
+  size_t result_capacity;
   uint32_t flags[max_created];
   tsugumi_artifact_id ids[1 + max_created];
   char sealed_path[1024];
@@ -173,6 +175,26 @@ static int artifact_open(void* context, const tsugumi_artifact_id* id,
   return 0;
 }
 
+static uint8_t* result_alloc(void* context, size_t size) {
+  struct fake_host* host = context;
+  CHECK(host->in_call);
+  ++host->result_requests;
+  if (host->deny_result || host->result_buffer || size == 0 ||
+      size > SIZE_MAX - (WIRE_ALIGNMENT - 1))
+    return NULL;
+  const size_t rounded =
+      (size + WIRE_ALIGNMENT - 1) & ~(size_t)(WIRE_ALIGNMENT - 1);
+  host->result_buffer = aligned_alloc(WIRE_ALIGNMENT, rounded);
+  if (host->result_buffer) host->result_capacity = size;
+  return host->result_buffer;
+}
+
+static void release_result(struct fake_host* host) {
+  free(host->result_buffer);
+  host->result_buffer = NULL;
+  host->result_capacity = 0;
+}
+
 static tsugumi_main_fn load(const char* path) {
   void* library = dlopen(path, RTLD_NOW | RTLD_LOCAL);
   if (!library) {
@@ -195,10 +217,29 @@ static void call_card(tsugumi_main_fn entry, struct fake_host* host,
   host->events = 0;
   host->live_route = 0;
   host->listing_closed = 0;
+  host->result_requests = 0;
+  CHECK(!host->result_buffer);
   host->in_call = 1;
-  tsugumi_call call = {TSUGUMI_ABI_VERSION, make_input(scenario), host,
-                       effects};
-  CHECK(entry(&call, result) == 0);
+  size_t input_count;
+  const tsugumi_input* inputs = make_inputs(scenario, &input_count);
+  const tsugumi_call call = {
+      .abi_version = TSUGUMI_ABI_VERSION,
+      .inputs = inputs,
+      .input_count = input_count,
+      .host = host,
+      .effects = effects,
+  };
+  const int status = entry(&call, result);
+  if (host->deny_result) {
+    CHECK(status != 0 && host->result_requests > 0);
+    CHECK(!host->result_buffer && !result->data);
+    host->in_call = 0;
+    return;
+  }
+  if (status != 0) release_result(host);
+  CHECK(status == 0);
+  CHECK(host->result_buffer && result->data == host->result_buffer);
+  CHECK(result->size > 0 && result->size <= host->result_capacity);
   check_result(*result, scenario, host->ids, 1 + host->created, offset);
   for (unsigned i = 0; i < host->created; ++i) {
     char file[1200];
@@ -209,7 +250,7 @@ static void call_card(tsugumi_main_fn entry, struct fake_host* host,
   pthread_mutex_lock(&host->mutex);
   host->in_call = 0;
   pthread_cond_broadcast(&host->changed);
-  if (scenario <= VALID_TEXT) {
+  if (scenario <= VALID_LEGACY) {
     while (!host->background_sent)
       pthread_cond_wait(&host->changed, &host->mutex);
     CHECK(host->messages == 2 && host->events == 3 &&
@@ -238,6 +279,7 @@ int main(int argc, char** argv) {
       .remaining_ms = remaining_ms,
       .artifact_create = artifact_create,
       .artifact_open = artifact_open,
+      .result_alloc = result_alloc,
   };
   struct fake_host hosts[2] = {
       {.mutex = PTHREAD_MUTEX_INITIALIZER,
@@ -268,18 +310,30 @@ int main(int argc, char** argv) {
     for (int i = 0; i < count; ++i) {
       check_result(results[i], scenario, hosts[i].ids, 1 + hosts[i].created,
                    i == 0 ? 100 : 200);
-      free((void*)results[i].data);
+      release_result(&hosts[i]);
     }
   }
+  for (int i = 0; i < count; ++i) {
+    tsugumi_bytes result = {0};
+    hosts[i].deny_result = 1;
+    call_card(entry[i], &hosts[i], &effects, MISSING_OUTPUT, i == 0 ? 100 : 200,
+              &result);
+    hosts[i].deny_result = 0;
+  }
   hosts[0].in_call = 1;
+  CHECK(!result_alloc(&hosts[0], SIZE_MAX));
+  uint8_t* buffer = result_alloc(&hosts[0], 17);
+  CHECK(buffer && (uintptr_t)buffer % WIRE_ALIGNMENT == 0);
+  CHECK(!result_alloc(&hosts[0], 32));
+  release_result(&hosts[0]);
   tsugumi_artifact_id unknown_flags_id;
   tsugumi_bytes unknown_flags_path;
   CHECK(artifact_create(&hosts[0], TSUGUMI_ARTIFACT_KEEP << 1,
                         &unknown_flags_id, &unknown_flags_path) < 0);
   hosts[0].in_call = 0;
   puts(
-      "Card ABI checked: Merge, required and optional outputs, artifacts, "
-      "keep flags, sessions, routes, messages, close and process-lifetime "
-      "effects");
+      "Card ABI checked: Merge, legacy inputs, host result allocation, "
+      "required and optional outputs, artifacts, keep flags, sessions, "
+      "routes, messages, close and process-lifetime effects");
   return 0;
 }

@@ -14,7 +14,6 @@ import (
 	"strings"
 	"unsafe"
 
-	wire "tsugumi/Tsugumi/Card"
 	"tsugumi/Tsugumi/Data"
 	"tsugumi/flatbuffers"
 	artifact "tsugumi/tsugumi"
@@ -100,11 +99,41 @@ func Guard(work func() error) (err error) {
 	return work()
 }
 
-func invoke(data []byte, result unsafe.Pointer, run func(Inputs) (Output, error)) (stage string, err error) {
+type inputFrame struct {
+	ports unsafe.Pointer
+	count uintptr
+}
+
+type inputPort struct {
+	name, schema string
+	hasSchema    bool
+	bytes        []byte
+}
+
+func (frame inputFrame) port(index uintptr) (inputPort, error) {
+	raw := C.tsugumi_go_read_input(frame.ports, C.size_t(index))
+	if raw.name == nil {
+		return inputPort{}, errors.New("missing input name")
+	}
+	port := inputPort{name: C.GoString(raw.name), hasSchema: raw.schema != nil}
+	if port.hasSchema {
+		port.schema = C.GoString(raw.schema)
+	}
+	if (raw.size != 0 && raw.data == nil) || uint64(raw.size) > uint64(^uint(0)>>1) {
+		return inputPort{}, fmt.Errorf("invalid bytes for input %q", port.name)
+	}
+	port.bytes = unsafe.Slice((*byte)(raw.data), int(raw.size))
+	return port, nil
+}
+
+func invoke(frame inputFrame, result unsafe.Pointer, run func(Inputs) (Output, error)) (stage string, err error) {
 	stage = "input_invalid"
 	defer catchPanic(&err)
 
-	input, err := readInput(wire.GetRootAsCardInput(data, 0))
+	if frame.count != 0 && frame.ports == nil {
+		return stage, errors.New("missing input array")
+	}
+	input, err := readInput(frame)
 	if err != nil {
 		return stage, err
 	}
@@ -118,9 +147,8 @@ func invoke(data []byte, result unsafe.Pointer, run func(Inputs) (Output, error)
 }
 
 // InvokeRun is called only by the generated adapter. No Go pointer is retained by C.
-func InvokeRun(data unsafe.Pointer, size uintptr, result unsafe.Pointer, run func(Inputs) (Output, error)) int {
-	// The verified envelope is borrowed only while reading the ports.
-	stage, err := invoke(unsafe.Slice((*byte)(data), size), result, run)
+func InvokeRun(inputs unsafe.Pointer, count uintptr, result unsafe.Pointer, run func(Inputs) (Output, error)) int {
+	stage, err := invoke(inputFrame{ports: inputs, count: count}, result, run)
 	if err != nil {
 		return writeFailure(result, byKind(err, stage))
 	}

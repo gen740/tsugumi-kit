@@ -10,7 +10,7 @@ use flatbuffers::{
 };
 
 use crate::wire::tsugumi::card::{
-    CardFailure, CardFailureArgs, CardInput, CardPort, CardPortArgs, CardResult, CardResultArgs,
+    CardFailure, CardFailureArgs, CardPort, CardPortArgs, CardResult, CardResultArgs,
 };
 pub use crate::wire::tsugumi::data::FailureKind;
 use crate::wire::tsugumi::{Artifact, ArtifactId, ArtifactT};
@@ -104,36 +104,63 @@ impl From<std::io::Error> for Failure {
     }
 }
 
+// Only the C entry supplies records with borrowed pointers. Consumers can
+// access them through Input while the call is active.
+#[doc(hidden)]
+#[repr(C)]
+pub struct RawInput {
+    name: *const c_char,
+    schema: *const c_char,
+    bytes: Bytes,
+}
+
+struct InputPort<'a> {
+    schema: Option<&'a str>,
+    bytes: &'a [u8],
+}
+
 pub(crate) struct Input<'a> {
-    ports: HashMap<&'a str, CardPort<'a>>,
+    ports: HashMap<&'a str, InputPort<'a>>,
 }
 
 impl<'a> Input<'a> {
-    pub(crate) fn parse(bytes: &'a [u8]) -> Result<Self> {
-        let input = read_root::<CardInput>(bytes, || {
-            Failure::without_location(FailureKind::input_invalid, "Invalid CardInput")
-        })?;
+    pub(crate) fn parse(inputs: &'a [RawInput]) -> Result<Self> {
+        let invalid = |message| Failure::without_location(FailureKind::input_invalid, message);
         let mut ports = HashMap::new();
-        for port in input.inputs().into_iter().flatten() {
-            if ports.insert(port.name(), port).is_some() {
-                return Err(Failure::without_location(
-                    FailureKind::input_invalid,
-                    format!("Duplicate input {}", port.name()),
-                ));
+        for input in inputs {
+            if input.name.is_null() {
+                return Err(invalid("Missing input name".into()));
+            }
+            // The ABI guarantees NUL termination and validity for this call.
+            let name = unsafe { CStr::from_ptr(input.name) }
+                .to_str()
+                .map_err(|_| invalid("Invalid input name".into()))?;
+            let schema = if input.schema.is_null() {
+                None
+            } else {
+                Some(
+                    unsafe { CStr::from_ptr(input.schema) }
+                        .to_str()
+                        .map_err(|_| invalid(format!("Invalid schema for {name}")))?,
+                )
+            };
+            let bytes = match input.bytes.size {
+                0 => &[],
+                size if !input.bytes.data.is_null() && size <= isize::MAX as usize => unsafe {
+                    std::slice::from_raw_parts(input.bytes.data, size)
+                },
+                _ => return Err(invalid(format!("Invalid bytes for {name}"))),
+            };
+            if ports.insert(name, InputPort { schema, bytes }).is_some() {
+                return Err(invalid(format!("Duplicate input {name}")));
             }
         }
         Ok(Self { ports })
     }
 
-    pub(crate) fn take(&mut self, name: &str) -> Result<(&'a str, &'a [u8])> {
+    pub(crate) fn take(&mut self, name: &str) -> Result<(Option<&'a str>, &'a [u8])> {
         let port = require_input(name, self.ports.remove(name))?;
-        match (port.schema(), port.bytes()) {
-            (Some(schema), Some(bytes)) => Ok((schema, bytes.bytes())),
-            _ => Err(Failure::without_location(
-                FailureKind::input_invalid,
-                format!("Missing schema or bytes for {name}"),
-            )),
-        }
+        Ok((port.schema, port.bytes))
     }
 
     pub(crate) fn read<T>(&mut self, name: &str, expected_schema: &str) -> Result<T>
@@ -141,7 +168,7 @@ impl<'a> Input<'a> {
         T: Follow<'a, Inner = T> + Verifiable + 'a,
     {
         let (schema, bytes) = self.take(name)?;
-        if schema != expected_schema {
+        if schema.is_some_and(|schema| schema != expected_schema) {
             return Err(unknown_schema(name));
         }
         read_value(bytes, name)
@@ -282,8 +309,7 @@ type SendEffect = unsafe extern "C" fn(*mut c_void, *const ViewSession, *const u
 type RecvEffect = unsafe extern "C" fn(*mut c_void, *mut ViewEvent, i64) -> c_int;
 type CancelEffect = unsafe extern "C" fn(*mut c_void) -> c_int;
 type DeadlineEffect = unsafe extern "C" fn(*mut c_void) -> i64;
-type CreateArtifact =
-    unsafe extern "C" fn(*mut c_void, u32, *mut ArtifactId, *mut Bytes) -> c_int;
+type CreateArtifact = unsafe extern "C" fn(*mut c_void, u32, *mut ArtifactId, *mut Bytes) -> c_int;
 
 /// `TSUGUMI_ARTIFACT_KEEP`: keep the Artifact after its run.
 const ARTIFACT_KEEP: u32 = 1;
@@ -303,6 +329,7 @@ pub struct Effects {
     remaining_ms: Option<DeadlineEffect>,
     artifact_create: Option<CreateArtifact>,
     artifact_open: Option<OpenArtifact>,
+    result_alloc: Option<unsafe extern "C" fn(*mut c_void, usize) -> *mut u8>,
 }
 
 #[derive(Clone, Copy)]
@@ -317,9 +344,6 @@ unsafe impl Send for EffectTarget {}
 
 static ACTIVE: Mutex<Option<EffectTarget>> = Mutex::new(None);
 static DISPLAY: Mutex<Option<EffectTarget>> = Mutex::new(None);
-unsafe extern "C" {
-    fn tsugumi_rust_result(result: *mut Bytes, data: *const u8, size: usize) -> c_int;
-}
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|error| error.into_inner())
@@ -717,24 +741,39 @@ fn failure_result(builder: &mut FlatBufferBuilder<'_>, error: Failure) {
 #[doc(hidden)]
 /// # Safety
 /// The C entry must validate the ABI version and provide a writable result,
-/// readable input and effects for this call, and invoke the Card serially.
+/// readable input records, NUL-terminated strings and readable payloads, and
+/// readable effects for this call. The Card must be invoked serially.
 pub unsafe fn invoke<O: PackOutput>(
-    input: Bytes,
+    inputs: *const RawInput,
+    input_count: usize,
     host: *mut c_void,
     effects: *const Effects,
     out: *mut Bytes,
-    run: impl FnOnce(&[u8]) -> Result<O>,
+    run: impl FnOnce(&[RawInput]) -> Result<O>,
 ) -> c_int {
     let invoked = catch_unwind(AssertUnwindSafe(|| {
         let mut builder = FlatBufferBuilder::new();
-        let _scope = CallScope::enter(host, unsafe { effects.as_ref().copied() });
-        let input = if input.size == 0 || input.data.is_null() || input.size > isize::MAX as usize {
-            &[]
-        } else {
-            unsafe { std::slice::from_raw_parts(input.data, input.size) }
+        let effects = unsafe { effects.as_ref().copied() };
+        let Some(allocate) = effects.and_then(|effects| effects.result_alloc) else {
+            return 1;
         };
-
-        let outcome = catch_unwind(AssertUnwindSafe(|| run(input)));
+        let _scope = CallScope::enter(host, effects);
+        let outcome = catch_unwind(AssertUnwindSafe(|| {
+            let inputs = match input_count {
+                0 => &[],
+                count
+                    if !inputs.is_null()
+                        && count <= isize::MAX as usize / size_of::<RawInput>() =>
+                unsafe { std::slice::from_raw_parts(inputs, count) },
+                _ => {
+                    return Err(Failure::without_location(
+                        FailureKind::input_invalid,
+                        "Invalid input array",
+                    ));
+                }
+            };
+            run(inputs)
+        }));
         match outcome {
             Ok(Ok(output)) => match output.pack(&mut builder) {
                 Ok(()) => {}
@@ -759,7 +798,19 @@ pub unsafe fn invoke<O: PackOutput>(
             }
         };
         let bytes = builder.finished_data();
-        unsafe { tsugumi_rust_result(out, bytes.as_ptr(), bytes.len()) }
+        let destination = unsafe { allocate(host, bytes.len()) };
+        if destination.is_null() {
+            return 1;
+        }
+        // This allocation belongs to the host and remains valid until return.
+        unsafe {
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), destination, bytes.len());
+            out.write(Bytes {
+                data: destination,
+                size: bytes.len(),
+            });
+        }
+        0
     }));
     match invoked {
         Ok(status) => status,

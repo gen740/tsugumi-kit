@@ -140,7 +140,7 @@ auto Cancelled() noexcept -> int { return card::cancelled(); }
 
 auto RemainingMs() noexcept -> int64_t { return card::remaining_ms(); }
 
-// No worker structs cross into managed code. The sink copies while the
+// Only input descriptors cross into managed code. The sink copies while the
 // managed result is pinned, and no callback can unwind through the CLR.
 struct ManagedEffects {
   decltype(&ViewOpen) view_open;
@@ -160,7 +160,7 @@ constexpr ManagedEffects effects{
     ViewOpen, ViewClose, RouteRegister, RouteUnregister, Send, Recv,
     Cancelled, RemainingMs, ArtifactDir, ArtifactUpload, ArtifactOpen};
 using Sink = int (*)(void*, const uint8_t*, size_t);
-using Entry = int (*)(const uint8_t*, size_t, const ManagedEffects*, void*,
+using Entry = int (*)(const tsugumi_input*, size_t, const ManagedEffects*, void*,
                       Sink);
 
 auto LoadCard() -> Entry {
@@ -210,15 +210,14 @@ auto ReceiveResult(void* context, const uint8_t* data, size_t size) noexcept
   }
 }
 
-auto Run(tsugumi_bytes bytes) -> ResultBuffer {
-  if (!Buffer(bytes).Verify<Tsugumi::Card::CardInput>())
-    Reject(FailureKind::input_invalid, "Invalid CardInput");
+auto Run(const tsugumi_call& call) -> ResultBuffer {
   static const Entry entry = LoadCard();
   if (!entry)
     Reject(FailureKind::worker_failed, "Could not load the .NET Card");
 
   ResultBuffer result;
-  if (entry(bytes.data, bytes.size, &effects, &result, ReceiveResult) != 0)
+  if (entry(call.inputs, call.input_count, &effects, &result, ReceiveResult) !=
+      0)
     Reject(FailureKind::worker_failed,
            "Could not build the managed CardResult");
   return result;

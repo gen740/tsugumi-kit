@@ -25,21 +25,40 @@ public sealed class Failure(
     };
 }
 
+[StructLayout(LayoutKind.Sequential)]
+internal unsafe struct NativeInput
+{
+    internal byte* Name;
+    internal byte* Schema;
+    internal byte* Data;
+    internal nuint Length;
+}
+
 internal sealed class InputPorts
 {
-    private readonly Dictionary<string, Wire.CardPort> ports = new(StringComparer.Ordinal);
+    internal sealed record Port(string? Schema, byte[] Bytes);
 
-    internal InputPorts(Wire.CardInput input)
+    private readonly Dictionary<string, Port> ports = new(StringComparer.Ordinal);
+
+    internal unsafe InputPorts(NativeInput* inputs, nuint count)
     {
-        for (var i = 0; i < input.InputsLength; i++)
+        if (inputs == null && count != 0)
+            throw Rejected(FailureKind.input_invalid, "Missing input array");
+
+        for (nuint i = 0; i < count; i++)
         {
-            var port = input.Inputs(i)!.Value;
-            if (!ports.TryAdd(port.Name, port))
-                throw Rejected(FailureKind.input_invalid, $"Duplicate input {port.Name}");
+            var input = inputs[i];
+            var name = Marshal.PtrToStringUTF8((nint)input.Name);
+            if (name is null || (input.Data == null && input.Length != 0))
+                throw Rejected(FailureKind.input_invalid, "Invalid input port");
+            var schema = Marshal.PtrToStringUTF8((nint)input.Schema);
+            var bytes = new ReadOnlySpan<byte>(input.Data, checked((int)input.Length));
+            if (!ports.TryAdd(name, new Port(schema, bytes.ToArray())))
+                throw Rejected(FailureKind.input_invalid, $"Duplicate input {name}");
         }
     }
 
-    internal Wire.CardPort Take(string name)
+    internal Port Take(string name)
     {
         if (!ports.Remove(name, out var port))
             throw Rejected(FailureKind.input_missing, $"Missing input {name}");
@@ -101,14 +120,14 @@ internal static class Entry
 {
     [UnmanagedCallersOnly]
     public static unsafe int Execute(
-        byte* data, nuint length,
+        NativeInput* inputs, nuint inputCount,
         NativeEffects* effects,
         void* context, delegate* unmanaged[Cdecl]<void*, byte*, nuint, int> sink)
     {
         try
         {
             Effects.Initialize(effects);
-            var result = Invoke(new ReadOnlySpan<byte>(data, checked((int)length)));
+            var result = Invoke(inputs, inputCount);
             var builder = new FlatBufferBuilder(256);
             builder.Finish(Wire.CardResult.Pack(builder, result).Value);
             var bytes = builder.SizedByteArray();
@@ -121,15 +140,14 @@ internal static class Entry
         }
     }
 
-    private static Wire.CardResultT Invoke(ReadOnlySpan<byte> bytes)
+    private static unsafe Wire.CardResultT Invoke(NativeInput* inputs, nuint inputCount)
     {
         try
         {
             Input input;
             try
             {
-                var envelope = Wire.CardInput.GetRootAsCardInput(new ByteBuffer(bytes.ToArray()));
-                var ports = new InputPorts(envelope);
+                var ports = new InputPorts(inputs, inputCount);
                 input = new Input(ports);
                 ports.CheckConsumed();
             }

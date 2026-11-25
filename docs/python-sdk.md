@@ -7,6 +7,12 @@ schema paths and params with `sdk.pythonApi` for the generated type stubs.
 Pass optional Python dependencies with `packages = ps: [ ps.numpy ];`.
 See the shared [Card SDK contract](sdk-contract.md) for the definition.
 
+Each built Card contains its source, SDK modules, generated bindings, and
+Python site-packages. The Card loads these files relative to its own library.
+The package's `share/tsugumi/runtime.json` declares the shared CPython runtime
+root for native export. Cards built with the same interpreter share that root
+in fast mode, where third-party imports share the Python process's module cache.
+
 ```python
 from card import Input, Output, params
 from results.Number import NumberT

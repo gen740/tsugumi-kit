@@ -13,8 +13,8 @@ import (
 )
 
 //export tsugumi_go_run
-func tsugumi_go_run(data *C.uint8_t, size C.size_t, result unsafe.Pointer) C.int {
-	return C.int(tsugumi.InvokeRun(unsafe.Pointer(data), uintptr(size), result, run))
+func tsugumi_go_run(inputs unsafe.Pointer, count C.size_t, result unsafe.Pointer) C.int {
+	return C.int(tsugumi.InvokeRun(inputs, uintptr(count), result, run))
 }
 
 func main() {}

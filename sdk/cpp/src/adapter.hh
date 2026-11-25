@@ -21,15 +21,16 @@ namespace tsugumi::abi {
 
 using Tsugumi::Data::FailureKind;
 
-using CardBody = auto (*)(tsugumi_bytes) -> Tsugumi::Card::CardResultT;
+using CardBody = auto (*)(const tsugumi_call&) -> Tsugumi::Card::CardResultT;
 auto Invoke(const tsugumi_call* call, tsugumi_bytes* result,
             CardBody body) noexcept -> int;
 
-using WireBody = auto (*)(tsugumi_bytes, flatbuffers::FlatBufferBuilder&)
+using WireBody = auto (*)(const tsugumi_call&, flatbuffers::FlatBufferBuilder&)
     -> void;
 auto Invoke(const tsugumi_call* call, tsugumi_bytes* result,
             WireBody body) noexcept -> int;
 
+// SDK-owned staging for serialized runtimes.
 class ResultBuffer {
  public:
   ResultBuffer() = default;
@@ -38,14 +39,13 @@ class ResultBuffer {
 
   auto data() const -> uint8_t* { return data_.get(); }
   auto bytes() const -> tsugumi_bytes { return {data(), size_}; }
-  auto release() -> tsugumi_bytes { return {data_.release(), size_}; }
 
  private:
   std::unique_ptr<uint8_t, decltype(&std::free)> data_{nullptr, std::free};
   size_t size_ = 0;
 };
 
-using SerializedBody = auto (*)(tsugumi_bytes) -> ResultBuffer;
+using SerializedBody = auto (*)(const tsugumi_call&) -> ResultBuffer;
 auto Invoke(const tsugumi_call* call, tsugumi_bytes* result,
             SerializedBody body) noexcept -> int;
 
@@ -100,13 +100,13 @@ auto ReadValue(tsugumi_bytes bytes, std::string_view name) ->
   return result;
 }
 
-// Owns any alignment copy of the envelope while its port views are used.
+// Borrows the call's input ports and owns any payload alignment copies.
 class Input {
  public:
-  explicit Input(tsugumi_bytes bytes);
+  explicit Input(const tsugumi_call& call);
 
   struct Port {
-    std::string_view schema;
+    std::string_view schema;  // Default-constructed when the ABI schema is null.
     tsugumi_bytes bytes;
   };
 
@@ -126,10 +126,8 @@ class Input {
   }
 
  private:
-  Buffer buffer_;
   std::vector<std::unique_ptr<Buffer>> aligned_;
-  const Tsugumi::Card::CardInput* input_;
-  std::unordered_map<std::string_view, const Tsugumi::Card::CardPort*> ports_;
+  std::unordered_map<std::string_view, Port> ports_;
 };
 
 auto CheckSchema(const Input::Port& port, std::string_view schema,

@@ -9,10 +9,14 @@
 #include <dlfcn.h>
 
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 #include <exception>
 #include <memory>
 #include <span>
 #include <string>
+
+#include "image_path.hh"
 
 namespace tsugumi::abi {
 namespace {
@@ -283,12 +287,29 @@ PyModuleDef module = {PyModuleDef_HEAD_INIT,
 
 extern "C" auto tsugumi_python_initialize() -> const char*;
 
+auto CardImage() -> std::filesystem::path {
+  return python::ImagePath(reinterpret_cast<const void*>(&CardImage));
+}
+
+#ifdef TSUGUMI_PY_HAS_TOOLS
+__attribute__((constructor)) auto SetToolPath() -> void {
+  const auto image = CardImage();
+  if (image.empty() ||
+      setenv("PATH", (image.parent_path().parent_path() / "bin").c_str(), 1)) {
+    std::fputs("Could not set the Python Card tool PATH\n", stderr);
+    std::abort();
+  }
+}
+#endif
+
 auto LoadDispatch() -> PyObject* {
   // Python background threads may outlive the call and retain these methods.
-  Dl_info image{};
-  if (!dladdr(reinterpret_cast<const void*>(&LoadDispatch), &image) ||
-      !dlopen(image.dli_fname, RTLD_NOW | RTLD_LOCAL))
+  const auto image = CardImage();
+  if (image.empty() || !dlopen(image.c_str(), RTLD_NOW | RTLD_LOCAL)) {
+    PyErr_SetString(PyExc_ImportError, "Cannot locate the Python Card image");
     return nullptr;
+  }
+  const auto lib = image.parent_path();
   const Object loader(PyImport_ImportModule("_tsugumi_host"));
   const Object host(PyModule_Create(&module));
   if (!loader || !host) return nullptr;
@@ -298,8 +319,10 @@ auto LoadDispatch() -> PyObject* {
       PyModule_AddObjectRef(host.get(), "WindowClosed", closed_error.get()) < 0)
     return nullptr;
   return PyObject_CallMethod(loader.get(), "load", "Ossss", host.get(),
-                             TSUGUMI_PY_SDK, TSUGUMI_PY_SOURCE,
-                             TSUGUMI_PY_WIRE, TSUGUMI_PY_PACKAGES);
+                             (lib / "python").c_str(),
+                             (lib / "python-source").c_str(),
+                             (lib / "python-wire").c_str(),
+                             (lib / "python-packages").c_str());
 }
 
 auto ToPythonBytes(tsugumi_bytes bytes) -> PyObject* {

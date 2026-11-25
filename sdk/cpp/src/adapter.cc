@@ -113,16 +113,22 @@ auto InvokeBody(const tsugumi_call* call, tsugumi_bytes* result,
   std::memcpy(&version, call, sizeof(version));
   if (version != TSUGUMI_ABI_VERSION) return 1;
   *result = {};
+  if (!call->effects || !call->effects->result_alloc) return 1;
   try {
     const CallEffects effects(*call);
-    ResultBuffer buffer;
-    const auto failure = Run([&] { buffer = body(call->input); });
+    flatbuffers::FlatBufferBuilder builder;
+    tsugumi_bytes bytes{};
+    const auto failure = Run([&] { bytes = body(*call, builder); });
     if (failure.failure) {
-      flatbuffers::FlatBufferBuilder builder;
+      builder.Clear();
       builder.Finish(CardResult::Pack(builder, &failure));
-      buffer = ResultBuffer({builder.GetBufferPointer(), builder.GetSize()});
+      bytes = {builder.GetBufferPointer(), builder.GetSize()};
     }
-    *result = buffer.release();
+    if (!bytes.data || !bytes.size) return 1;
+    auto* destination = call->effects->result_alloc(call->host, bytes.size);
+    if (!destination) return 1;
+    std::memcpy(destination, bytes.data, bytes.size);
+    *result = {destination, bytes.size};
     return 0;
   } catch (...) {
     return 1;
@@ -173,26 +179,34 @@ ResultBuffer::ResultBuffer(tsugumi_bytes bytes) : ResultBuffer(bytes.size) {
 
 auto Invoke(const tsugumi_call* call, tsugumi_bytes* result,
             CardBody body) noexcept -> int {
-  return InvokeBody(call, result, [body](tsugumi_bytes input) {
-    const auto value = body(input);
-    flatbuffers::FlatBufferBuilder builder;
+  const auto build = [body](const tsugumi_call& invocation,
+                            flatbuffers::FlatBufferBuilder& builder) {
+    const auto value = body(invocation);
     builder.Finish(CardResult::Pack(builder, &value));
-    return ResultBuffer({builder.GetBufferPointer(), builder.GetSize()});
-  });
+    return tsugumi_bytes{builder.GetBufferPointer(), builder.GetSize()};
+  };
+  return InvokeBody(call, result, build);
 }
 
 auto Invoke(const tsugumi_call* call, tsugumi_bytes* result,
             WireBody body) noexcept -> int {
-  return InvokeBody(call, result, [body](tsugumi_bytes input) {
-    flatbuffers::FlatBufferBuilder builder;
-    body(input, builder);
-    return ResultBuffer({builder.GetBufferPointer(), builder.GetSize()});
-  });
+  const auto build = [body](const tsugumi_call& invocation,
+                            flatbuffers::FlatBufferBuilder& builder) {
+    body(invocation, builder);
+    return tsugumi_bytes{builder.GetBufferPointer(), builder.GetSize()};
+  };
+  return InvokeBody(call, result, build);
 }
 
 auto Invoke(const tsugumi_call* call, tsugumi_bytes* result,
             SerializedBody body) noexcept -> int {
-  return InvokeBody(call, result, body);
+  ResultBuffer staging;
+  const auto build = [&](const tsugumi_call& invocation,
+                         flatbuffers::FlatBufferBuilder&) {
+    staging = body(invocation);
+    return staging.bytes();
+  };
+  return InvokeBody(call, result, build);
 }
 
 Buffer::Buffer(tsugumi_bytes bytes, bool align) : size_(bytes.size) {
@@ -212,15 +226,23 @@ auto Reject(FailureKind kind, const std::string& message) -> void {
   throw Failure(kind, message, {});
 }
 
-Input::Input(tsugumi_bytes bytes)
-    : buffer_(bytes), input_(buffer_.Verify<Tsugumi::Card::CardInput>()) {
-  if (!input_) Reject(FailureKind::input_invalid, "Invalid CardInput");
-  if (!input_->inputs()) return;
-  for (const auto* port : *input_->inputs()) {
-    const auto name = port->name()->string_view();
-    if (!ports_.emplace(name, port).second) {
+Input::Input(const tsugumi_call& call) {
+  if (call.input_count != 0 && !call.inputs) {
+    Reject(FailureKind::input_invalid, "Missing input array");
+  }
+  for (size_t i = 0; i < call.input_count; ++i) {
+    const auto& input = call.inputs[i];
+    if (!input.name) Reject(FailureKind::input_invalid, "Missing input name");
+    if (input.bytes.size != 0 && !input.bytes.data) {
       Reject(FailureKind::input_invalid,
-             "Duplicate input " + std::string(name));
+             "Missing bytes for " + std::string(input.name));
+    }
+    const Port port{
+        input.schema ? std::string_view(input.schema) : std::string_view{},
+        input.bytes};
+    if (!ports_.emplace(input.name, port).second) {
+      Reject(FailureKind::input_invalid,
+             "Duplicate input " + std::string(input.name));
     }
   }
 }
@@ -228,17 +250,12 @@ Input::Input(tsugumi_bytes bytes)
 auto Input::ReadPort(std::string_view name) -> std::optional<Port> {
   const auto node = ports_.extract(name);
   if (node.empty()) return std::nullopt;
-  const auto* port = node.mapped();
-  const auto* bytes = port->bytes();
-  if (!port->schema() || !bytes)
-    Reject(FailureKind::input_invalid,
-           "Missing schema or bytes for " + std::string(name));
-  return Port{port->schema()->string_view(), {bytes->data(), bytes->size()}};
+  return node.mapped();
 }
 
 auto CheckSchema(const Input::Port& port, std::string_view schema,
                  std::string_view name) -> void {
-  if (port.schema != schema) {
+  if (port.schema.data() != nullptr && port.schema != schema) {
     Reject(FailureKind::input_invalid,
            "Unknown schema for " + std::string(name));
   }

@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <exception>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
@@ -276,8 +277,8 @@ class Runtime {
   Runtime(const Runtime&) = delete;
   auto operator=(const Runtime&) -> Runtime& = delete;
 
-  auto Call(tsugumi_bytes bytes) -> ResultBuffer {
-    Request request{.input = bytes};
+  auto Call(std::span<const tsugumi_input> inputs) -> ResultBuffer {
+    Request request{.inputs = inputs};
     std::unique_lock lock(mutex_);
     changed_.wait(lock, [&] { return ready_ || stopped_; });
     if (stopped_) std::rethrow_exception(stop_error_);
@@ -308,7 +309,7 @@ class Runtime {
   }
 
   struct Request {
-    tsugumi_bytes input;
+    std::span<const tsugumi_input> inputs;
     ResultBuffer result{};
   };
 
@@ -362,16 +363,27 @@ class Runtime {
     const v8::HandleScope scope(isolate);
     const auto context = setup_->context();
     v8::TryCatch caught(isolate);
-    tsugumi_bytes input;
+    std::span<const tsugumi_input> inputs;
     {
       const std::lock_guard lock(mutex_);
-      input = request_->input;
+      inputs = request_->inputs;
     }
-    const auto array = v8::ArrayBuffer::New(isolate, input.size);
-    std::memcpy(array->GetBackingStore()->Data(), input.data, input.size);
-    std::array<Value, 4> args = {v8::Uint8Array::New(array, 0, input.size),
-                                 entry_.Get(isolate), resolve_.Get(isolate),
-                                 reject_.Get(isolate)};
+    if (inputs.size() > static_cast<size_t>(std::numeric_limits<int>::max()))
+      throw std::length_error("Too many Node.js input ports");
+    const auto ports = v8::Array::New(isolate, static_cast<int>(inputs.size()));
+    for (uint32_t i = 0; i < inputs.size(); ++i) {
+      const v8::HandleScope port_scope(isolate);
+      const auto& input = inputs[i];
+      Value schema = v8::Null(isolate);
+      if (input.schema) schema = Text(isolate, input.schema);
+      std::array<Value, 3> fields = {
+          Text(isolate, input.name), schema,
+          CopyBytes(isolate, {input.bytes.data, input.bytes.size})};
+      const auto port = v8::Array::New(isolate, fields.data(), fields.size());
+      ports->CreateDataProperty(context, i, port).Check();
+    }
+    std::array<Value, 4> args = {ports, entry_.Get(isolate),
+                                 resolve_.Get(isolate), reject_.Get(isolate)};
     if (node::MakeCallback(isolate, context->Global(), invoke_.Get(isolate),
                            args.size(), args.data(), {0, 0})
             .IsEmpty()) {
@@ -510,9 +522,9 @@ auto StartRuntime() -> Runtime* {
 
 }  // namespace
 
-auto RunNodeCard(tsugumi_bytes input) -> ResultBuffer {
+auto RunNodeCard(std::span<const tsugumi_input> inputs) -> ResultBuffer {
   static auto* runtime = StartRuntime();
-  return runtime->Call(input);
+  return runtime->Call(inputs);
 }
 
 }  // namespace tsugumi::abi

@@ -287,19 +287,25 @@ def generate_cpp(card, python_names, cpp_names, output_schema, out):
         "using namespace tsugumi::abi;",
         "",
         *validators(output_schema, [table(port.type) for port in card.outputs]),
-        "auto RunCard(tsugumi_bytes bytes) -> Tsugumi::Card::CardResultT {",
-        "  PythonInput input(bytes);",
+        "auto RunCard(const tsugumi_call& call) -> Tsugumi::Card::CardResultT {",
+        "  PythonInput input(call);",
     ]
     for port in card.inputs:
         name = json.dumps(port.name)
         lines += [f"  if (const auto entry = input.Take({name})) {{"]
-        for index, candidate in enumerate(port.candidates):
-            condition = "if" if index == 0 else "else if"
-            match = f'entry->schema == "{candidate.schema}"' if candidate.schema else "true"
-            lines += [f"    {condition} ({match})",
-                      f"      input.Read<{table(candidate.type)}>({name}, *entry, \"{candidate.schema}\");"]
-        lines += ['    else Reject(FailureKind::input_invalid, "Unknown schema for " + std::string('
-                  f"{name}));", "  }"]
+        if len(port.candidates) == 1:
+            candidate, = port.candidates
+            if candidate.schema:
+                lines += [f'    CheckSchema(*entry, "{candidate.schema}", {name});']
+            lines += [f'    input.Read<{table(candidate.type)}>({name}, *entry, "{candidate.schema}");']
+        else:
+            for index, candidate in enumerate(port.candidates):
+                condition = "if" if index == 0 else "else if"
+                lines += [f'    {condition} (entry->schema == "{candidate.schema}")',
+                          f'      input.Read<{table(candidate.type)}>({name}, *entry, "{candidate.schema}");']
+            lines += ['    else Reject(FailureKind::input_invalid, "Unknown schema for " + std::string('
+                      f"{name}));"]
+        lines.append("  }")
     lines += ["  input.CheckConsumed();", "  auto result = RunPython(input);"]
     if card.outputs:
         lines.append("  for (auto& port : result.outputs) {")

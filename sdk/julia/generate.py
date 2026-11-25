@@ -284,7 +284,8 @@ def generate(card, schemas, names, output_schema):
             if len(port.candidates) > 1:
                 value = f'Json{{{{"type", {json.dumps(tag)}}}, {{"value", {value}}}}}'
             keyword = "if" if index == 0 else "else if"
-            read += [f'      {keyword} (entry->schema == "{member.schema}")',
+            legacy = "entry->schema.data() == nullptr || " if len(port.candidates) == 1 else ""
+            read += [f'      {keyword} ({legacy}entry->schema == "{member.schema}")',
                      f"        members[{name}] = {value};"]
         read += [f'      else Reject(FailureKind::input_invalid, "Unknown schema for " + std::string({name}));',
                  '    } else {',
@@ -309,8 +310,8 @@ def generate(card, schemas, names, output_schema):
         "using namespace tsugumi::abi;",
         "",
         *validators(output_schema, roots),
-        "auto RunCard(tsugumi_bytes bytes) -> Tsugumi::Card::CardResultT {",
-        "  Input input(bytes);",
+        "auto RunCard(const tsugumi_call& call) -> Tsugumi::Card::CardResultT {",
+        "  Input input(call);",
         "  auto members = Json::object();",
         "  std::string request;",
         "  try {",

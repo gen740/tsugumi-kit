@@ -220,9 +220,9 @@ def cpp_adapter(card, names, output_schema):
     from card_cpp import cpp_type, validators
 
     body = [
-        "auto RunCard(tsugumi_bytes bytes) -> ResultBuffer {",
+        "auto RunCard(const tsugumi_call& call) -> ResultBuffer {",
         "  {",
-        "    Input input(bytes);",
+        "    Input input(call);",
     ]
     for port in card.inputs:
         name = json.dumps(port.name)
@@ -230,8 +230,9 @@ def cpp_adapter(card, names, output_schema):
                      "      const Buffer payload(entry->bytes);"])
         for index, member in enumerate(port.candidates):
             keyword = "if" if index == 0 else "else if"
+            legacy = "entry->schema.data() == nullptr || " if len(port.candidates) == 1 else ""
             body += [
-                f'      {keyword} (entry->schema == "{member.schema}") {{',
+                f'      {keyword} ({legacy}entry->schema == "{member.schema}") {{',
                 f"        if (!payload.Verify<{cpp_type(member.type, names)}>())",
                 f'          Reject(FailureKind::input_invalid, "Invalid FlatBuffer for " + std::string({name}));',
                 "      }",
@@ -245,7 +246,7 @@ def cpp_adapter(card, names, output_schema):
     body += [
         "    input.CheckConsumed();",
         "  }",
-        "  auto bytes_out = RunNodeCard(bytes);",
+        "  auto bytes_out = RunNodeCard({call.inputs, call.input_count});",
         "  const Buffer envelope(bytes_out.bytes());",
         "  const auto* result = envelope.Verify<Tsugumi::Card::CardResult>();",
         '  if (!result) Reject(FailureKind::output_invalid, "Invalid Node.js CardResult");',

@@ -4,12 +4,12 @@
 
 namespace tsugumi::abi {
 
-// Owns the verified envelope while Python copies the selected values.
+// Borrows the host ports while Python copies the selected values.
 class PythonInput {
  public:
   using Port = std::pair<std::string_view, Input::Port>;
 
-  explicit PythonInput(tsugumi_bytes bytes) : input_(bytes) {}
+  explicit PythonInput(const tsugumi_call& call) : input_(call) {}
 
   auto Take(std::string_view name) -> std::optional<Input::Port> {
     const auto port = input_.ReadPort(name);
@@ -41,7 +41,8 @@ auto RunPython(const PythonInput& input) -> Tsugumi::Card::CardResultT;
 
 template <class Table>
 auto VerifyOutput(Tsugumi::Card::CardPortT& port,
-                  bool (*valid)(const typename Table::NativeTableType&)) -> void {
+                  bool (*valid)(const typename Table::NativeTableType&))
+    -> void {
   const Buffer buffer({port.bytes.data(), port.bytes.size()});
   const auto* wire = buffer.Verify<Table>();
   if (!wire) Reject(FailureKind::output_invalid, "Invalid output " + port.name);

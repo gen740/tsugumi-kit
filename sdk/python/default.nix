@@ -10,6 +10,7 @@ pkgs.callPackage ./card.nix {
     publishApi
     ;
   inherit (deps) runtime ipaexGothic;
+  pythonRuntime = python: pkgs.callPackage ./runtime.nix { inherit python; };
 }
 // {
   inherit (deps.views) dawnView;

@@ -219,8 +219,8 @@ class Glue:
 def run_card(card, glue):
     cxx = glue.cxx
     lines = [
-        "auto RunCard(tsugumi_bytes bytes) -> CardResultT {",
-        "  abi::Input input(bytes);",
+        "auto RunCard(const tsugumi_call& call) -> CardResultT {",
+        "  abi::Input input(call);",
         "  Json values = Json::object();",
     ]
     for port in card.inputs:
@@ -231,7 +231,8 @@ def run_card(card, glue):
             if len(port.candidates) > 1:
                 value = f'Json{{{{"type", {quote(tag)}}}, {{"value", {value}}}}}'
             keyword = "if" if index == 0 else "else if"
-            lines += [f'    {keyword} (entry->schema == "{member.schema}")',
+            legacy = "entry->schema.data() == nullptr || " if len(port.candidates) == 1 else ""
+            lines += [f'    {keyword} ({legacy}entry->schema == "{member.schema}")',
                       f"      values[{name}] = {value};"]
         lines += [f'    else abi::Reject(FailureKind::input_invalid, "Unknown schema for " + std::string({name}));',
                   '  } else {',

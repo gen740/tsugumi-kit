@@ -12,7 +12,7 @@ one you write yourself.
 
 | Term | Meaning |
 | --- | --- |
-| **Card ABI** | The contract between Tsugumi's core and an SDK: `tsugumi_main` and the fixed `CardInput` / `CardResult` FlatBuffers and the host effects table. |
+| **Card ABI** | The contract between Tsugumi's core and an SDK. `tsugumi_main` receives borrowed input spans and returns a `CardResult` FlatBuffer in host-allocated storage. The host effects table provides allocation and other services. |
 | **_language_ SDK** (C++ SDK, Python SDK, …) | One swappable part for one language: the Nix builder that turns a Card's source and schemas into `lib/main.so`, the code generator for the typed entry (`card.hh` and `tsugumi_main`), the runtime library (`card::display::send`, `cancelled()`, `remaining_ms()`, an embedded interpreter where needed) and its documentation. |
 | **tsugumi-kit** | This repository: the default SDKs and the example templates. |
 

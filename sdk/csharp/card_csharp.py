@@ -239,7 +239,7 @@ class Generator:
     def unpack(self, type_, variable, name):
         table = csharp_type(type_)
         root = type_.rsplit(".", 1)[-1]
-        return (f"{table}.GetRootAs{root}(InputPorts.Verify({variable}.GetBytesArray(), "
+        return (f"{table}.GetRootAs{root}(InputPorts.Verify({variable}.Bytes, "
                 f"{table}Verify.Verify, {name}, FailureKind.input_invalid)).UnPack()")
 
     def generate(self, schema):
@@ -254,7 +254,7 @@ class Generator:
             reads.append(f"        var {variable} = ports.Take({name});")
             if len(port.candidates) == 1:
                 candidate, = port.candidates
-                reads.append(f'        if ({variable}.Schema != "{candidate.schema}") throw InputPorts.UnknownSchema({name});')
+                reads.append(f'        if ({variable}.Schema is not null && {variable}.Schema != "{candidate.schema}") throw InputPorts.UnknownSchema({name});')
                 reads.append(f"        {prop} = {self.unpack(candidate.type, variable, name)};")
             else:
                 sum_type = self.port_type(port)

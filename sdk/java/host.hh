@@ -33,7 +33,7 @@ struct JavaOutput {
   bool (*valid)(const Buffer&);
 };
 
-auto RunJava(tsugumi_bytes bytes, std::span<const JavaInput> inputs,
+auto RunJava(const tsugumi_call& call, std::span<const JavaInput> inputs,
              std::span<const JavaOutput> outputs) -> ResultBuffer;
 
 }  // namespace tsugumi::abi

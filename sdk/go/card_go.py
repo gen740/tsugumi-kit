@@ -81,27 +81,33 @@ def generate_go(card, inputs, outputs, global_package):
         reads += [
             f"case {json.dumps(port.name)}:",
             f'if {field} != nil {{ return input, fmt.Errorf("duplicate input %q", name) }}',
-            "bytes := port.BytesBytes()",
-            "switch string(port.Schema()) {",
         ]
+        multiple = len(port.candidates) > 1
+        if multiple:
+            reads += ["switch port.schema {"]
+        else:
+            schema = port.candidates[0].schema
+            reads += [f'if port.hasSchema && port.schema != "{schema}" {{ return input, fmt.Errorf("unknown schema for input %q", name) }}']
         branches = []
         used = set()
         for candidate in port.candidates:
             package, root = types.table(candidate.type)
-            expression = f"{package}.GetRootAs{root}(append([]byte(nil), bytes...), 0).UnPack()"
+            expression = f"{package}.GetRootAs{root}(append([]byte(nil), port.bytes...), 0).UnPack()"
             if len(port.candidates) == 1:
                 variants.append(f"type {input_type} = {package}.{root}T")
             else:
                 branch = unique(exported(root), used)
                 branches.append(f"{branch} *{package}.{root}T")
                 expression = f"&{input_type}{{{branch}: {expression}}}"
+            if multiple:
+                reads += [f'case "{candidate.schema}":']
             reads += [
-                f'case "{candidate.schema}":',
-                f'if !verifyInput({index}, bytes) {{ return input, fmt.Errorf("invalid FlatBuffer for input %q", name) }}',
+                f'if !verifyInput({index}, port.bytes) {{ return input, fmt.Errorf("invalid FlatBuffer for input %q", name) }}',
                 f"{field} = {expression}",
             ]
             index += 1
-        reads += ['default: return input, fmt.Errorf("unknown schema for input %q", name)', "}"]
+        if multiple:
+            reads += ['default: return input, fmt.Errorf("unknown schema for input %q", name)', "}"]
         if branches:
             variants += [f"type {input_type} struct {{", *branches, "}"]
 
@@ -118,7 +124,7 @@ def generate_go(card, inputs, outputs, global_package):
             writes += [f'}} else {{ return fmt.Errorf("missing output %q", {name})']
         writes.append("}")
 
-    imports = ['"unsafe"', 'wire "tsugumi/Tsugumi/Card"']
+    imports = ['"unsafe"']
     if inputs or outputs:
         imports.append('"fmt"')
     imports += [f'{alias} "tsugumi/{path}"' for path, alias in types.packages.items()]
@@ -149,22 +155,22 @@ def generate_go(card, inputs, outputs, global_package):
         "type Output struct {",
         *(f"{member} *Output{member}" for _, member in outputs),
         "}",
-        "func readInput(frame *wire.CardInput) (Inputs, error) {",
+        "func readInput(frame inputFrame) (Inputs, error) {",
         "var input Inputs",
     ]
     if inputs:
         lines += [
-            "for i := 0; i < frame.InputsLength(); i++ {",
-            "var port wire.CardPort",
-            "frame.Inputs(&port, i)",
-            "name := string(port.Name())",
+            "for i := uintptr(0); i < frame.count; i++ {",
+            "port, err := frame.port(i)",
+            "if err != nil { return input, err }",
+            "name := port.name",
             "switch name {",
             *reads,
             'default: return input, fmt.Errorf("unknown input %q", name)',
             "}", "}",
         ]
     else:
-        lines += ['if frame.InputsLength() != 0 { return input, unknownInput() }']
+        lines += ['if frame.count != 0 { return input, unknownInput() }']
     lines += [f'if input.input{member} == nil {{ return input, &Failure{{Kind: "input_missing", Message: "Missing input " + {json.dumps(port.name)}}} }}'
               for port, member in inputs]
     lines += [

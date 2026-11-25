@@ -6,7 +6,15 @@
 #include <memory>
 #include <string>
 
+#include "image_path.hh"
+
 namespace {
+
+auto InterpreterDirectory() -> std::filesystem::path {
+  return tsugumi::python::ImagePath(
+             reinterpret_cast<const void*>(&InterpreterDirectory))
+      .parent_path();
+}
 
 struct DropReference {
   auto operator()(PyObject* object) const -> void { Py_DECREF(object); }
@@ -14,15 +22,16 @@ struct DropReference {
 using Object = std::unique_ptr<PyObject, DropReference>;
 
 auto LoadCard(PyObject*, PyObject* args) -> PyObject* {
-  FILE* script = std::fopen(TSUGUMI_PY_BOOTSTRAP, "r");
+  const auto bootstrap = InterpreterDirectory() / "tsugumi-bootstrap.py";
+  FILE* script = std::fopen(bootstrap.c_str(), "r");
   if (!script)
-    return PyErr_SetFromErrnoWithFilename(PyExc_OSError, TSUGUMI_PY_BOOTSTRAP);
+    return PyErr_SetFromErrnoWithFilename(PyExc_OSError, bootstrap.c_str());
   const Object scope(PyDict_New());
   if (!scope) {
     std::fclose(script);
     return nullptr;
   }
-  const Object loaded(PyRun_FileEx(script, TSUGUMI_PY_BOOTSTRAP, Py_file_input,
+  const Object loaded(PyRun_FileEx(script, bootstrap.c_str(), Py_file_input,
                                    scope.get(), scope.get(), 1));
   if (!loaded) return nullptr;
   auto* dispatch = PyDict_GetItemString(scope.get(), "load");
@@ -52,11 +61,15 @@ PyModuleDef host_module = {PyModuleDef_HEAD_INIT,
 auto InitHost() -> PyObject* { return PyModule_Create(&host_module); }
 
 auto Initialize() -> std::string {
+  const auto lib = InterpreterDirectory();
+  if (lib.empty()) return "Cannot locate the Python Card runtime";
+
   // Extensions loaded by CPython must see the same libpython as the Card.
   if (const auto* python = dlsym(RTLD_DEFAULT, "Py_IsInitialized");
       python && python != reinterpret_cast<const void*>(&Py_IsInitialized))
     return "Python Cards in one process must use the same libpython";
-  if (!dlopen(TSUGUMI_LIBPYTHON, RTLD_NOW | RTLD_GLOBAL)) return dlerror();
+  if (!dlopen((lib / TSUGUMI_LIBPYTHON_NAME).c_str(), RTLD_NOW | RTLD_GLOBAL))
+    return dlerror();
   if (Py_IsInitialized()) return "Python was initialized outside the Card SDK";
   if (PyImport_AppendInittab("_tsugumi_host", InitHost) != 0)
     return "Cannot register the Python host module";
@@ -73,7 +86,13 @@ auto Initialize() -> std::string {
   config.write_bytecode = 0;
   config.install_signal_handlers = 0;
   config.buffered_stdio = 0;
-  status = PyConfig_SetBytesString(&config, &config.home, TSUGUMI_PY_HOME);
+  const auto home = lib.parent_path();
+  status = PyConfig_SetBytesString(&config, &config.home, home.c_str());
+  if (!PyStatus_Exception(status)) {
+    const auto executable = home / "bin" / TSUGUMI_PYTHON_NAME;
+    status = PyConfig_SetBytesString(&config, &config.executable,
+                                     executable.c_str());
+  }
   if (!PyStatus_Exception(status)) status = Py_InitializeFromConfig(&config);
   const std::string error =
       PyStatus_Exception(status)

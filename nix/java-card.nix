@@ -92,10 +92,15 @@ let
       }
       ''
         src=${lib.escapeShellArg "${src}"}
-        mkdir -p classes wire embedded "$out/lib"
+        mkdir -p classes wire wire-schema embedded "$out/lib"
         python3 ${../sdk/java/entry.py} "$src" "$TSUGUMI_JAVA_MAIN_CLASS" CardEntry.java
+        # Keep the private Java packages distinct on case-insensitive volumes.
+        for schema in card.fbs card_enums.fbs; do
+          sed 's/Tsugumi\./tsugumi./g' "${../abi}/$schema" > "wire-schema/$schema"
+        done
+        cp ${../abi}/artifact.fbs wire-schema/
         flatc --java --gen-all --java-package-prefix tsugumi.wire -o wire \
-          ${../abi}/card.fbs
+          wire-schema/card.fbs
         python3 ${../sdk/java/generate.py} embed "${interface}" \
           ${flatbuffers.src}/reflection/reflection.fbs "${paramValues params}" embedded/Parameters.java
         # Use a NUL-delimited list so source paths may contain whitespace.

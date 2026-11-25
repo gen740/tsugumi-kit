@@ -1,12 +1,11 @@
 #pragma once
 
-#include <string>
-#include <string_view>
+#include <span>
 
 #include "adapter.hh"
 
 namespace tsugumi::abi {
 
-auto RunNodeCard(tsugumi_bytes input) -> ResultBuffer;
+auto RunNodeCard(std::span<const tsugumi_input> inputs) -> ResultBuffer;
 
 }  // namespace tsugumi::abi

@@ -1,4 +1,4 @@
-// Enums of the Card ABI. Shared by the Card and core protocols.
+// Enums of the Card ABI.
 // Values are explicit and never reused. Value 0 is a reserved "invalid"
 // marker, so an omitted field is detected instead of silently meaning something.
 

@@ -15,7 +15,6 @@
 namespace tsugumi::abi {
 namespace {
 
-using Tsugumi::Card::CardInput;
 using Tsugumi::Card::CardResult;
 
 auto ThrowEffectError(JNIEnv* env, const char* message) -> void {
@@ -369,7 +368,7 @@ class Jvm {
     }
   }
 
-  auto Invoke(tsugumi_bytes bytes) const -> ResultBuffer {
+  auto Invoke(const tsugumi_call& call) const -> ResultBuffer {
     if (error_) Reject(FailureKind::worker_failed, error_);
     const Attachment attachment(vm_);
     auto* env = attachment.Env();
@@ -377,16 +376,35 @@ class Jvm {
       Reject(FailureKind::worker_failed, "Cannot attach to the Java VM");
     const LocalFrame frame(env);
     if (!frame) Failed(env, "Cannot allocate Java JNI references");
-    if (bytes.size > static_cast<size_t>(std::numeric_limits<jsize>::max())) {
-      Reject(FailureKind::resource_limit,
-             "CardInput exceeds the Java array limit");
+    const auto inputs = env->NewObject(inputs_, inputs_init_);
+    if (!inputs) Failed(env, "Cannot create Java inputs");
+    for (size_t i = 0; i < call.input_count; ++i) {
+      const LocalFrame port_frame(env);
+      if (!port_frame) Failed(env, "Cannot allocate Java input references");
+      const auto& port = call.inputs[i];
+      const std::string_view name(port.name);
+      const auto name_bytes = CopyBytes(env, name.data(), name.size());
+      if (!name_bytes || env->ExceptionCheck())
+        Failed(env, "Cannot copy Java input name");
+      jbyteArray schema_bytes = nullptr;
+      if (port.schema) {
+        const std::string_view schema(port.schema);
+        schema_bytes = CopyBytes(env, schema.data(), schema.size());
+        if (!schema_bytes || env->ExceptionCheck())
+          Failed(env, "Cannot copy Java input schema");
+      }
+      // The verified payload stays borrowed until the Java invocation returns.
+      const auto payload = env->NewDirectByteBuffer(
+          const_cast<uint8_t*>(port.bytes.data),
+          static_cast<jlong>(port.bytes.size));
+      if (!payload) Failed(env, "Cannot borrow Java input payload");
+      env->CallVoidMethod(inputs, inputs_add_, name_bytes, schema_bytes,
+                          payload);
+      if (env->ExceptionCheck()) Failed(env, "Cannot add Java input");
     }
-    auto input = env->NewDirectByteBuffer(const_cast<uint8_t*>(bytes.data),
-                                          static_cast<jlong>(bytes.size));
-    if (!input) Failed(env, "Cannot borrow Java CardInput");
 
     auto output = static_cast<jbyteArray>(
-        env->CallStaticObjectMethod(entry_, invoke_, input));
+        env->CallStaticObjectMethod(entry_, invoke_, inputs));
     if (!output || env->ExceptionCheck())
       Failed(env, "Cannot run the Java Card adapter");
     const auto length = env->GetArrayLength(output);
@@ -430,24 +448,36 @@ class Jvm {
     };
     if (env->RegisterNatives(effects, methods, std::size(methods)) != JNI_OK)
       return false;
+    const auto inputs = LoadClass(env, loader, "tsugumi.Wire$Inputs");
+    if (!inputs) return false;
+    inputs_init_ = env->GetMethodID(inputs, "<init>", "()V");
+    if (!inputs_init_) return false;
+    inputs_add_ =
+        env->GetMethodID(inputs, "add", "([B[BLjava/nio/ByteBuffer;)V");
+    if (!inputs_add_) return false;
+    inputs_ = static_cast<jclass>(env->NewGlobalRef(inputs));
+    if (!inputs_) return false;
     jclass entry = LoadClass(env, loader, "tsugumi.Entry");
     if (!entry) return false;
     invoke_ =
-        env->GetStaticMethodID(entry, "invoke", "(Ljava/nio/ByteBuffer;)[B");
+        env->GetStaticMethodID(entry, "invoke", "(Ltsugumi/Wire$Inputs;)[B");
     if (!invoke_) return false;
     entry_ = static_cast<jclass>(env->NewGlobalRef(entry));
     return entry_ != nullptr;
   }
 
   JavaVM* vm_ = nullptr;
+  jclass inputs_ = nullptr;
+  jmethodID inputs_init_ = nullptr;
+  jmethodID inputs_add_ = nullptr;
   jclass entry_ = nullptr;
   jmethodID invoke_ = nullptr;
   const char* error_ = nullptr;
 };
 
-auto CheckInputs(tsugumi_bytes bytes, std::span<const JavaInput> catalog)
+auto CheckInputs(const tsugumi_call& call, std::span<const JavaInput> catalog)
     -> void {
-  Input input(bytes);
+  Input input(call);
   std::unordered_set<std::string_view> seen;
   for (const auto& candidate : catalog) {
     if (!seen.insert(candidate.name).second) continue;
@@ -455,8 +485,12 @@ auto CheckInputs(tsugumi_bytes bytes, std::span<const JavaInput> catalog)
     if (!port)
       Reject(FailureKind::input_missing,
              "Missing input " + std::string(candidate.name));
+    const bool legacy_single =
+        port->schema.data() == nullptr &&
+        std::ranges::count(catalog, candidate.name, &JavaInput::name) == 1;
     const auto match = std::ranges::find_if(catalog, [&](const auto& option) {
-      return option.name == candidate.name && option.schema == port->schema;
+      return option.name == candidate.name &&
+             (legacy_single || option.schema == port->schema);
     });
     if (match == catalog.end() || !match->verify(Buffer(port->bytes))) {
       Reject(FailureKind::input_invalid,
@@ -492,12 +526,12 @@ auto CheckOutputs(const CardResult& result, std::span<const JavaOutput> catalog)
 
 }  // namespace
 
-auto RunJava(tsugumi_bytes bytes, std::span<const JavaInput> inputs,
+auto RunJava(const tsugumi_call& call, std::span<const JavaInput> inputs,
              std::span<const JavaOutput> outputs) -> ResultBuffer {
-  CheckInputs(bytes, inputs);
+  CheckInputs(call, inputs);
   // JNI supports one JVM per process. Keep its classes and state warm.
   static const Jvm jvm;
-  auto result_bytes = jvm.Invoke(bytes);
+  auto result_bytes = jvm.Invoke(call);
   const Buffer result_buffer(result_bytes.bytes());
   const auto* result = result_buffer.Verify<CardResult>();
   if (!result) Reject(FailureKind::worker_failed, "Invalid Java CardResult");

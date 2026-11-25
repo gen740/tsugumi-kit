@@ -147,7 +147,7 @@ def generate(inputs, outputs, output_schema):
                 tag = candidate.type.rsplit(".", 1)[-1]
                 variant = unique("".join(x.capitalize() for x in snake(tag).split("_")), used)
                 aliases += [f"        {variant}(super::{typ}<'a>),"]
-                reads += [f"            {rust_string(candidate.schema)} => inputs::{alias}::{variant}(runtime::read_value(bytes, {name})?),"]
+                reads += [f"            Some({rust_string(candidate.schema)}) => inputs::{alias}::{variant}(runtime::read_value(bytes, {name})?),"]
             aliases += ["    }"]
             reads += [f"            _ => return Err(runtime::unknown_schema({name})),", "        };"]
     lifetime = "<'a>" if inputs else ""
@@ -166,7 +166,7 @@ def generate(inputs, outputs, output_schema):
         "pub use params::{Params, PARAMS};",
         "pub use wire::tsugumi::ArtifactT as Artifact;",
         "pub use runtime::{Failure, FailureKind, Result, cancelled, remaining_ms, require_input};",
-        "#[doc(hidden)] pub use runtime::{Bytes as __Bytes, Effects as __Effects, invoke as __invoke};",
+        "#[doc(hidden)] pub use runtime::{Bytes as __Bytes, Effects as __Effects, RawInput as __RawInput, invoke as __invoke};",
         "",
         "pub mod inputs {", *aliases, "}",
         "pub mod outputs {",
@@ -183,8 +183,8 @@ def generate(inputs, outputs, output_schema):
         "}", "",
         f"impl{lifetime} Inputs{lifetime} {{",
         "    #[doc(hidden)]",
-        f"    pub fn __read(bytes: {borrow}[u8]) -> Result<Self> {{",
-        f"        let {'mut ' if inputs else ''}input = runtime::Input::parse(bytes)?;",
+        f"    pub fn __read(ports: {borrow}[__RawInput]) -> Result<Self> {{",
+        f"        let {'mut ' if inputs else ''}input = runtime::Input::parse(ports)?;",
         *reads,
         "        input.check_consumed()?;",
         f"        Ok(Self {{ {', '.join(field for _, field, _ in inputs)} }})",
@@ -218,14 +218,15 @@ macro_rules! export {
     ($run:path) => {
         #[unsafe(no_mangle)]
         unsafe extern "C" fn tsugumi_rust_invoke(
-            input: $crate::__Bytes,
+            inputs: *const $crate::__RawInput,
+            input_count: usize,
             host: *mut ::std::ffi::c_void,
             effects: *const $crate::__Effects,
             result: *mut $crate::__Bytes,
         ) -> ::std::ffi::c_int {
             unsafe {
-                $crate::__invoke(input, host, effects, result, |bytes| {
-                    let output: $crate::Output = $run($crate::Inputs::__read(bytes)?)?;
+                $crate::__invoke(inputs, input_count, host, effects, result, |ports| {
+                    let output: $crate::Output = $run($crate::Inputs::__read(ports)?)?;
                     Ok(output)
                 })
             }
