@@ -52,6 +52,7 @@ let
     let
       inherit (stdenv.hostPlatform) isDarwin;
       pythonEnv = python.withPackages (ps: [ ps.flatbuffers ] ++ packages ps);
+      codegenPython = python3.withPackages (_: [ portCodegen ]);
       inherit (stdenv.hostPlatform.extensions) sharedLibrary;
       interpreter = pythonRuntime python;
       library = "libpython${python.pythonVersion}${sharedLibrary}";
@@ -59,10 +60,7 @@ let
     in
     runCommandCC "tsugumi-python-card"
       {
-        nativeBuildInputs = [
-          (python3.withPackages (_: [ portCodegen ]))
-        ]
-        ++ (if isDarwin then [ darwin.sigtool ] else [ patchelf ]);
+        nativeBuildInputs = if isDarwin then [ darwin.sigtool ] else [ patchelf ];
         disallowedReferences = [
           python
           pythonEnv
@@ -93,7 +91,9 @@ let
         runtimeLibrary="${interpreter}/lib/${library}"
         pythonDarwin=${if isDarwin then "1" else "0"}
         ${lib.optionalString isDarwin "originalFfi=${libffi}/lib"}
-        python3 ${./runtime-files.py} site-packages "$out/lib/python-packages" "$originalPython"
+        # Call the build-time interpreter directly so its library directory
+        # does not become part of the compiled Card's runtime search path.
+        "${codegenPython}/bin/python3" ${./runtime-files.py} site-packages "$out/lib/python-packages" "$originalPython"
         source ${./relocate-libpython.sh}
         relink_python "$out/lib/python-packages"
 
@@ -109,7 +109,7 @@ let
         }}
         EOF
         PYTHONPATH="${../cpp}''${PYTHONPATH:+:$PYTHONPATH}" \
-          python3 ${./generate.py} --params "${cardInterface { inherit inputs outputs params; }}" \
+          "${codegenPython}/bin/python3" ${./generate.py} --params "${cardInterface { inherit inputs outputs params; }}" \
             "${paramValues params}" "$out/lib/python/card_params.py"
         if [ -d "${pythonEnv}/${python.sitePackages}/matplotlib" ]; then
           cp ${ipaexGothic}/share/fonts/truetype/ipaexg.ttf "$out/lib/python/tsugumi/"
