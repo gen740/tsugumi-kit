@@ -29,4 +29,6 @@ assert (api common.params).drvPath == (api changed).drvPath;
   secondCard = card changed;
   api = api common.params;
   runtime = kit.cppRuntime;
+  # Cold Julia initialization can take over a minute in the Darwin builder.
+  timeoutSeconds = 150;
 }

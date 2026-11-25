@@ -5,6 +5,7 @@
   secondCard ? null,
   runtime,
   api,
+  timeoutSeconds ? 45,
 }:
 let
   fixtures = import ./card-interface.nix { inherit pkgs; } {
@@ -40,7 +41,7 @@ pkgs.runCommandCC "tsugumi-${name}-contract-check"
       $CC -std=c11 -Wall -Wextra -Werror ${
         pkgs.lib.optionalString (name == "cpp") "-DTSUGUMI_TEST_RAW_DISPLAY"
       } \
-        -I"$include" -c "$tests/$file.c"
+        -DTSUGUMI_TEST_ALARM_SECONDS=${toString timeoutSeconds} -I"$include" -c "$tests/$file.c"
     done
     $CXX -std=c++2c -Wall -Wextra -Werror -I. -I"$include" \
       "$tests/wire.cc" fake_host.o legacy.o -pthread -ldl -o fake-host

@@ -7,6 +7,10 @@
 
 #include "wire.h"
 
+#ifndef TSUGUMI_TEST_ALARM_SECONDS
+#define TSUGUMI_TEST_ALARM_SECONDS 45
+#endif
+
 enum { max_created = 3 };
 
 struct fake_host {
@@ -265,7 +269,7 @@ static void call_card(tsugumi_main_fn entry, struct fake_host* host,
 
 int main(int argc, char** argv) {
   CHECK(argc == 2 || argc == 3);
-  alarm(45);
+  alarm(TSUGUMI_TEST_ALARM_SECONDS);
   const int count = argc - 1;
   tsugumi_main_fn entry[2];
   const tsugumi_effects effects = {
