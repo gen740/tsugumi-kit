@@ -17,7 +17,7 @@ views = [
 ## Callbacks and input
 
 Include `<tsugumi/dawn_helpers.h>` for the ABI declarations, named input
-constants and `tsugumi_dawn_send_to_opener`. Define the required exports
+constants. Define the required exports
 `abi`, `start`, `resize` and `draw` with the `tsugumi_view_` prefix.
 Implement the optional callbacks used by the view.
 

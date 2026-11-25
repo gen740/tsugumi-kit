@@ -195,8 +195,8 @@ tsugumi.onmessage = bytes => {
   // bytes is a Uint8Array containing one Card ABI message.
   handleMessage(bytes)
 }
-tsugumi.send(replyBytes)         // To the opener's route.
-tsugumi.send(replyBytes, route)  // To a 16-byte Uint8Array route for this view.
+await tsugumi.send(replyBytes, "screens/settings")
+await tsugumi.send(replyBytes, "*")  // All Cards registered on this window.
 ```
 
 The bundled HTML views expect SDK frames. The 20-byte header has the
@@ -212,8 +212,10 @@ transfer ID and keeps up to 16 incomplete transfers.
 Dawn receives each Card ABI message as sent. In C++, use
 `card::display::send_raw(session, bytes)` for one unframed message.
 Read incoming data with `tsugumi_view_read` inside `tsugumi_view_message`.
-Reply with `tsugumi_view_send(route, data, size)`. Pass 16 zero bytes for
-the opener's route or the ID of another route registered to this view.
+Reply with `tsugumi_view_send(to, data, size)`. Use a NUL-terminated
+project-root Card path or `"*"`. Each registered live process of the
+addressed Cards receives the message. An unknown or unregistered
+address returns an error. Route IDs are private to the Card ABI.
 
 Build C view sources with `sdk.dawnView { inherit name src; }` from the
 C++ kit. See the [Dawn SDK guide](dawn-sdk.md) for the clock, optional

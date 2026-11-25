@@ -30,12 +30,6 @@ static inline double tsugumi_dawn_seconds(tsugumi_view_time frames) {
   return (double)frames / TSUGUMI_VIEW_SAMPLE_RATE;
 }
 
-static inline int32_t tsugumi_dawn_send_to_opener(const uint8_t* data,
-                                                  uint32_t size) {
-  const uint8_t opener[16] = {0};
-  return tsugumi_view_send(opener, data, size);
-}
-
 #ifdef __cplusplus
 }
 #endif

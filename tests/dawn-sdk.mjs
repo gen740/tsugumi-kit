@@ -49,8 +49,8 @@ const { exports: view } = await WebAssembly.instantiate(module, {
       bytes(pointer, size).set(incoming);
       return 0;
     },
-    tsugumi_view_send(route, pointer, size) {
-      assert.deepEqual(bytes(route, 16), new Uint8Array(16));
+    tsugumi_view_send(to, pointer, size) {
+      assert.deepEqual(bytes(to, 13), new TextEncoder().encode("screens/test\0"));
       sent = bytes(pointer, size).slice();
       return 0;
     },
