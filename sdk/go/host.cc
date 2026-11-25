@@ -44,6 +44,17 @@ auto tsugumi_go_view_open(const char* view, uint32_t mode, uint32_t flags,
   }
 }
 
+auto tsugumi_go_view_close(const uint8_t* session) -> int {
+  try {
+    tsugumi_view_session id{};
+    std::memcpy(id.bytes, session, sizeof(id.bytes));
+    card::display::view_close(id);
+    return 0;
+  } catch (...) {
+    return -1;
+  }
+}
+
 auto tsugumi_go_route_register(const uint8_t* session, uint8_t* route) -> int {
   try {
     tsugumi_view_session id{};
@@ -51,6 +62,8 @@ auto tsugumi_go_route_register(const uint8_t* session, uint8_t* route) -> int {
     const auto registered = card::display::route_register(id);
     std::memcpy(route, registered.bytes, sizeof(registered.bytes));
     return 0;
+  } catch (const card::display::WindowClosed&) {
+    return TSUGUMI_VIEW_WINDOW_CLOSED;
   } catch (...) {
     return -1;
   }

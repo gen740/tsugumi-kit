@@ -274,6 +274,8 @@ type ViewOpenEffect = unsafe extern "C" fn(
     *mut Route,
     *mut ViewSession,
 ) -> c_int;
+type ViewCloseEffect = unsafe extern "C" fn(*mut c_void, *const ViewSession) -> c_int;
+const VIEW_WINDOW_CLOSED: c_int = -2;
 type RegisterEffect = unsafe extern "C" fn(*mut c_void, *const ViewSession, *mut Route) -> c_int;
 type UnregisterEffect = unsafe extern "C" fn(*mut c_void, *const Route) -> c_int;
 type SendEffect = unsafe extern "C" fn(*mut c_void, *const ViewSession, *const u8, usize) -> c_int;
@@ -292,6 +294,7 @@ type OpenArtifact = unsafe extern "C" fn(*mut c_void, *const ArtifactId, *mut By
 #[repr(C)]
 pub struct Effects {
     view_open: Option<ViewOpenEffect>,
+    view_close: Option<ViewCloseEffect>,
     route_register: Option<RegisterEffect>,
     route_unregister: Option<UnregisterEffect>,
     send: Option<SendEffect>,
@@ -388,6 +391,19 @@ pub(crate) fn open_view(
     }
 }
 
+pub(crate) fn close_view(session: &ViewSession) -> Result<()> {
+    let target = *lock(&DISPLAY);
+    let status = target.and_then(|t| {
+        t.effects
+            .view_close
+            .map(|close| unsafe { close(t.host, session) })
+    });
+    match status {
+        Some(0) => Ok(()),
+        _ => Err(effect_failure("close view")),
+    }
+}
+
 pub(crate) fn register_route(session: &ViewSession) -> Result<Route> {
     let mut route = Route::default();
     let target = *lock(&DISPLAY);
@@ -398,6 +414,10 @@ pub(crate) fn register_route(session: &ViewSession) -> Result<Route> {
     });
     match status {
         Some(0) => Ok(route),
+        Some(VIEW_WINDOW_CLOSED) => Err(Failure::new(
+            FailureKind::not_found,
+            "The view window is closed",
+        )),
         _ => Err(effect_failure("register view route")),
     }
 }

@@ -27,6 +27,7 @@ extern int tsugumi_r_view_open(const char* view, uint32_t mode, uint32_t flags,
                                uint32_t width, uint32_t height,
                                tsugumi_route* route,
                                tsugumi_view_session* session);
+extern int tsugumi_r_view_close(const tsugumi_view_session* session);
 extern int tsugumi_r_route_register(const tsugumi_view_session* session,
                                     tsugumi_route* route);
 extern int tsugumi_r_route_unregister(const tsugumi_route* route);
@@ -107,11 +108,20 @@ static SEXP open_view(SEXP view, SEXP mode, SEXP flags, SEXP width,
   return result;
 }
 
+static SEXP close_view(SEXP value) {
+  tsugumi_view_session session;
+  read_view_id(value, &session.bytes);
+  if (tsugumi_r_view_close(&session)) Rf_error("View close was rejected");
+  return R_NilValue;
+}
+
 static SEXP register_route(SEXP value) {
   tsugumi_view_session session;
   read_view_id(value, &session.bytes);
   tsugumi_route route;
-  if (tsugumi_r_route_register(&session, &route))
+  const int status = tsugumi_r_route_register(&session, &route);
+  if (status == TSUGUMI_VIEW_WINDOW_CLOSED) return R_NilValue;
+  if (status)
     Rf_error("Route registration was rejected");
   return view_bytes(route.bytes, sizeof(route.bytes));
 }
@@ -227,6 +237,7 @@ static const R_CallMethodDef methods[] = {
     {"tsugumi_r_remaining_ms", (DL_FUNC)&remaining_ms, 0},
     {"tsugumi_r_emit", (DL_FUNC)&emit, 1},
     {"tsugumi_r_view_open", (DL_FUNC)&open_view, 5},
+    {"tsugumi_r_view_close", (DL_FUNC)&close_view, 1},
     {"tsugumi_r_route_register", (DL_FUNC)&register_route, 1},
     {"tsugumi_r_route_unregister", (DL_FUNC)&unregister_route, 1},
     {"tsugumi_r_send", (DL_FUNC)&send_bytes, 2},
@@ -239,6 +250,7 @@ static const R_CallMethodDef methods[] = {
 
 static void register_effects(void) {
   R_RegisterCCallable("tsugumi", "view_open", (DL_FUNC)&tsugumi_r_view_open);
+  R_RegisterCCallable("tsugumi", "view_close", (DL_FUNC)&tsugumi_r_view_close);
   R_RegisterCCallable("tsugumi", "route_register",
                       (DL_FUNC)&tsugumi_r_route_register);
   R_RegisterCCallable("tsugumi", "route_unregister",

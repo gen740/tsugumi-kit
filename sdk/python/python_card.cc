@@ -45,7 +45,8 @@ class ReleaseGil {
 };
 
 template <class Query, class Convert>
-auto QueryHost(Query query, Convert convert, const char* error) -> PyObject* {
+auto QueryHost(Query query, Convert convert, const char* error,
+               PyObject* closed_error = PyExc_RuntimeError) -> PyObject* {
   try {
     decltype(query()) value;
     {
@@ -53,6 +54,9 @@ auto QueryHost(Query query, Convert convert, const char* error) -> PyObject* {
       value = query();
     }
     return convert(value);
+  } catch (const card::display::WindowClosed& failure) {
+    PyErr_SetString(closed_error, failure.what());
+    return nullptr;
   } catch (const std::bad_alloc&) {
     return PyErr_NoMemory();
   } catch (const std::exception& failure) {
@@ -94,20 +98,38 @@ auto OpenView(PyObject*, PyObject* args) -> PyObject* {
       "The host could not open the view");
 }
 
-auto RegisterRoute(PyObject*, PyObject* args) -> PyObject* {
+auto CloseView(PyObject*, PyObject* args) -> PyObject* {
   const char* bytes;
   Py_ssize_t size;
   tsugumi_view_session session{};
   if (!PyArg_ParseTuple(args, "y#", &bytes, &size) ||
       !ReadViewId(bytes, size, session))
     return nullptr;
+  return QueryHost(
+      [&] {
+        card::display::view_close(session);
+        return true;
+      },
+      [](bool) -> PyObject* { Py_RETURN_NONE; },
+      "The host could not close the view");
+}
+
+auto RegisterRoute(PyObject* host, PyObject* args) -> PyObject* {
+  const char* bytes;
+  Py_ssize_t size;
+  tsugumi_view_session session{};
+  if (!PyArg_ParseTuple(args, "y#", &bytes, &size) ||
+      !ReadViewId(bytes, size, session))
+    return nullptr;
+  const Object closed_error(PyObject_GetAttrString(host, "WindowClosed"));
+  if (!closed_error) return nullptr;
   return QueryHost([&] { return card::display::route_register(session); },
                    [](const tsugumi_route& route) {
                      return PyBytes_FromStringAndSize(
                          reinterpret_cast<const char*>(route.bytes),
                          sizeof(route.bytes));
                    },
-                   "The host could not register the route");
+                   "The host could not register the route", closed_error.get());
 }
 
 auto UnregisterRoute(PyObject*, PyObject* args) -> PyObject* {
@@ -237,6 +259,7 @@ auto RemainingMs(PyObject*, PyObject*) -> PyObject* {
 
 PyMethodDef methods[] = {
     {"view_open", OpenView, METH_VARARGS, nullptr},
+    {"view_close", CloseView, METH_VARARGS, nullptr},
     {"route_register", RegisterRoute, METH_VARARGS, nullptr},
     {"route_unregister", UnregisterRoute, METH_VARARGS, nullptr},
     {"send", Send, METH_VARARGS, nullptr},
@@ -268,11 +291,15 @@ auto LoadDispatch() -> PyObject* {
     return nullptr;
   const Object loader(PyImport_ImportModule("_tsugumi_host"));
   const Object host(PyModule_Create(&module));
-  return loader && host
-             ? PyObject_CallMethod(loader.get(), "load", "Ossss", host.get(),
-                                   TSUGUMI_PY_SDK, TSUGUMI_PY_SOURCE,
-                                   TSUGUMI_PY_WIRE, TSUGUMI_PY_PACKAGES)
-             : nullptr;
+  if (!loader || !host) return nullptr;
+  const Object closed_error(PyErr_NewException(
+      "tsugumi.WindowClosed", PyExc_RuntimeError, nullptr));
+  if (!closed_error ||
+      PyModule_AddObjectRef(host.get(), "WindowClosed", closed_error.get()) < 0)
+    return nullptr;
+  return PyObject_CallMethod(loader.get(), "load", "Ossss", host.get(),
+                             TSUGUMI_PY_SDK, TSUGUMI_PY_SOURCE,
+                             TSUGUMI_PY_WIRE, TSUGUMI_PY_PACKAGES);
 }
 
 auto ToPythonBytes(tsugumi_bytes bytes) -> PyObject* {

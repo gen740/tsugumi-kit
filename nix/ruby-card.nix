@@ -165,7 +165,7 @@ let
           ${define "RUBY_GEMS" "${ruby}/${ruby.gemPath}"} \
           ${define "RUBY_ACTIVATE" (lib.optionalString (lock != null) "${gems}/activate.rb")} \
           ${define "RUBY_SOURCE_PREFIX" (lib.optionalString (sourcePrefix != "") "${sourcePrefix}/")} \
-          -c ${sdk}/embed.c -o embed.o
+          -I${runtime}/include -c ${sdk}/embed.c -o embed.o
 
         ${
           if pkgs.stdenv.hostPlatform.isDarwin then

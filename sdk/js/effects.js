@@ -30,6 +30,11 @@ export function viewOpen(view, mode = ViewMode.PANEL, flags = ViewFlags.NONE, wi
   return host().viewOpen(view, mode, flags, width, height);
 }
 
+export function viewClose(session) {
+  requireId(session);
+  host().viewClose(session);
+}
+
 export function routeRegister(session) {
   requireId(session);
   return host().routeRegister(session);

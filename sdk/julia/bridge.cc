@@ -149,11 +149,22 @@ extern "C" auto OpenView(const char* view, uint32_t mode, uint32_t flags,
   }
 }
 
+extern "C" auto CloseView(const tsugumi_view_session* session) noexcept -> int {
+  try {
+    card::display::view_close(*session);
+    return 0;
+  } catch (...) {
+    return -1;
+  }
+}
+
 extern "C" auto RegisterRoute(const tsugumi_view_session* session,
                               tsugumi_route* route) noexcept -> int {
   try {
     *route = card::display::route_register(*session);
     return 0;
+  } catch (const card::display::WindowClosed&) {
+    return TSUGUMI_VIEW_WINDOW_CLOSED;
   } catch (...) {
     return -1;
   }
@@ -286,14 +297,14 @@ class CardModule {
         "cancelled=Ptr{Cvoid}(%p), remaining_ms=Ptr{Cvoid}(%p), "
         "recv=Ptr{Cvoid}(%p), dir=Ptr{Cvoid}(%p), upload=Ptr{Cvoid}(%p), "
         "open=Ptr{Cvoid}(%p), view_open=Ptr{Cvoid}(%p), "
-        "route_register=Ptr{Cvoid}(%p), route_unregister=Ptr{Cvoid}(%p))",
+        "view_close=Ptr{Cvoid}(%p), route_register=Ptr{Cvoid}(%p), route_unregister=Ptr{Cvoid}(%p))",
         reinterpret_cast<void*>(EmitDisplay), reinterpret_cast<void*>(Send),
         reinterpret_cast<void*>(IsCancelled),
         reinterpret_cast<void*>(RemainingMs), reinterpret_cast<void*>(Receive),
         reinterpret_cast<void*>(tsugumi_julia_artifact_dir),
         reinterpret_cast<void*>(tsugumi_julia_artifact_upload),
         reinterpret_cast<void*>(tsugumi_julia_artifact_open),
-        reinterpret_cast<void*>(OpenView),
+        reinterpret_cast<void*>(OpenView), reinterpret_cast<void*>(CloseView),
         reinterpret_cast<void*>(RegisterRoute),
         reinterpret_cast<void*>(UnregisterRoute));
     if (length < 0 || static_cast<size_t>(length) >= sizeof(bridge))

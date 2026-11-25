@@ -34,12 +34,23 @@ auto ReadViewId(const uint8_t* bytes) -> Id {
   return id;
 }
 
+auto ViewClose(const uint8_t* session) noexcept -> int {
+  try {
+    card::display::view_close(ReadViewId<tsugumi_view_session>(session));
+    return 0;
+  } catch (...) {
+    return -1;
+  }
+}
+
 auto RouteRegister(const uint8_t* session, uint8_t* out) noexcept -> int {
   try {
     const auto route = card::display::route_register(
         ReadViewId<tsugumi_view_session>(session));
     std::memcpy(out, route.bytes, sizeof(route.bytes));
     return 0;
+  } catch (const card::display::WindowClosed&) {
+    return TSUGUMI_VIEW_WINDOW_CLOSED;
   } catch (...) {
     return -1;
   }
@@ -133,6 +144,7 @@ auto RemainingMs() noexcept -> int64_t { return card::remaining_ms(); }
 // managed result is pinned, and no callback can unwind through the CLR.
 struct ManagedEffects {
   decltype(&ViewOpen) view_open;
+  decltype(&ViewClose) view_close;
   decltype(&RouteRegister) route_register;
   decltype(&RouteUnregister) route_unregister;
   decltype(&Send) send;
@@ -145,8 +157,8 @@ struct ManagedEffects {
 };
 
 constexpr ManagedEffects effects{
-    ViewOpen,  RouteRegister, RouteUnregister, Send,           Recv,
-    Cancelled, RemainingMs,   ArtifactDir,     ArtifactUpload, ArtifactOpen};
+    ViewOpen, ViewClose, RouteRegister, RouteUnregister, Send, Recv,
+    Cancelled, RemainingMs, ArtifactDir, ArtifactUpload, ArtifactOpen};
 using Sink = int (*)(void*, const uint8_t*, size_t);
 using Entry = int (*)(const uint8_t*, size_t, const ManagedEffects*, void*,
                       Sink);

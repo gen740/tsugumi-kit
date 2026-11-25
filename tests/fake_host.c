@@ -22,6 +22,7 @@ struct fake_host {
   unsigned messages;
   unsigned events;
   int live_route;
+  int listing_closed;
   uint32_t flags[max_created];
   tsugumi_artifact_id ids[1 + max_created];
   char sealed_path[1024];
@@ -55,11 +56,20 @@ static int view_open(void* context, const char* view, uint32_t mode,
   return 0;
 }
 
+static int view_close(void* context, const tsugumi_view_session* session) {
+  struct fake_host* host = context;
+  CHECK(host->in_call && memcmp(session, &listing_session, sizeof(*session)) == 0);
+  host->listing_closed = 1;
+  host->live_route = 0;
+  return 0;
+}
+
 static int route_register(void* context, const tsugumi_view_session* session,
                           tsugumi_route* route) {
   struct fake_host* host = context;
   CHECK(host->in_call && !host->live_route);
   CHECK(memcmp(session, &listing_session, sizeof(*session)) == 0);
+  if (host->listing_closed) return TSUGUMI_VIEW_WINDOW_CLOSED;
   *route = registered_route;
   host->live_route = 1;
   return 0;
@@ -108,7 +118,7 @@ static int recv_display(void* context, tsugumi_view_event* out,
           (tsugumi_view_event){0, registered_route, listing_session, message};
       return 0;
     case 1:
-      CHECK(host->in_call && !host->live_route);
+      CHECK(host->in_call && host->listing_closed && !host->live_route);
       *out = (tsugumi_view_event){1, opener_route, listing_session, {NULL, 0}};
       return 0;
     default:
@@ -184,6 +194,7 @@ static void call_card(tsugumi_main_fn entry, struct fake_host* host,
   host->messages = 0;
   host->events = 0;
   host->live_route = 0;
+  host->listing_closed = 0;
   host->in_call = 1;
   tsugumi_call call = {TSUGUMI_ABI_VERSION, make_input(scenario), host,
                        effects};
@@ -218,6 +229,7 @@ int main(int argc, char** argv) {
   tsugumi_main_fn entry[2];
   const tsugumi_effects effects = {
       .view_open = view_open,
+      .view_close = view_close,
       .route_register = route_register,
       .route_unregister = route_unregister,
       .send = send_display,

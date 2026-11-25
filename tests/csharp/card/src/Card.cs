@@ -60,6 +60,13 @@ public static class Card
         if (Effects.Send(view.Session, new byte[]{42}) != 0 || Effects.Send(view.Session, bytes) != 0 ||
             Effects.Send(view.Session, new byte[(1 << 24) + 5]) >= 0)
             throw new InvalidOperationException("Unexpected send status");
+        Effects.ViewClose(view.Session);
+        try
+        {
+            Effects.RouteRegister(view.Session);
+            throw new InvalidOperationException("Registered a route on a closed window");
+        }
+        catch (Effects.WindowClosedException) {}
         var close = Effects.Recv();
         if (close.Status != ReceiveStatus.Close || close.Bytes.Length != 0 ||
             !close.Route.AsSpan().SequenceEqual(view.Route) || !close.Session.AsSpan().SequenceEqual(view.Session))

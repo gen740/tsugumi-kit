@@ -290,13 +290,20 @@ auto view_open(std::string_view view, uint32_t mode, uint32_t flags,
   return opened;
 }
 
+auto view_close(const tsugumi_view_session& session) -> void {
+  const auto [effects, host] = tsugumi::abi::GetViewEffects();
+  if (!effects.view_close || effects.view_close(host, &session) != 0)
+    throw std::runtime_error("The host could not close the view");
+}
+
 auto route_register(const tsugumi_view_session& session) -> tsugumi_route {
   const auto [effects, host] = tsugumi::abi::GetViewEffects();
   tsugumi_route route{};
-  if (!effects.route_register ||
-      effects.route_register(host, &session, &route) != 0) {
+  const int status =
+      effects.route_register ? effects.route_register(host, &session, &route) : -1;
+  if (status == TSUGUMI_VIEW_WINDOW_CLOSED) throw WindowClosed();
+  if (status != 0)
     throw std::runtime_error("The host could not register the route");
-  }
   return route;
 }
 

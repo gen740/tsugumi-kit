@@ -105,12 +105,27 @@ auto ViewOpen(const CallbackInfo& args) -> void {
   }
 }
 
+auto ViewClose(const CallbackInfo& args) -> void {
+  try {
+    card::display::view_close(ReadViewId<tsugumi_view_session>(args[0]));
+  } catch (const std::exception& error) {
+    ThrowError(args.GetIsolate(), error.what());
+  }
+}
+
 auto RouteRegister(const CallbackInfo& args) -> void {
   auto* isolate = args.GetIsolate();
   try {
     const auto route = card::display::route_register(
         ReadViewId<tsugumi_view_session>(args[0]));
     args.GetReturnValue().Set(CopyBytes(isolate, route.bytes));
+  } catch (const card::display::WindowClosed& error) {
+    const auto failure = v8::Exception::Error(Text(isolate, error.what()));
+    failure.As<v8::Object>()
+        ->Set(isolate->GetCurrentContext(), Text(isolate, "code"),
+              Text(isolate, "window_closed"))
+        .Check();
+    isolate->ThrowException(failure);
   } catch (const std::exception& error) {
     ThrowError(isolate, error.what());
   }
@@ -244,6 +259,7 @@ auto BindEffects(v8::Local<v8::Object> exports, Value,
         .Check();
   };
   set("viewOpen", ViewOpen);
+  set("viewClose", ViewClose);
   set("routeRegister", RouteRegister);
   set("routeUnregister", RouteUnregister);
   set("send", Send);

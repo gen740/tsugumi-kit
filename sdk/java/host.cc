@@ -78,12 +78,25 @@ auto ViewOpen(JNIEnv* env, jclass, jbyteArray view, jint mode, jlong flags,
   }
 }
 
+auto ViewClose(JNIEnv* env, jclass, jbyteArray id) noexcept -> void {
+  try {
+    tsugumi_view_session session{};
+    if (ReadViewId(env, id, session)) card::display::view_close(session);
+  } catch (const std::exception& error) {
+    ThrowEffectError(env, error.what());
+  }
+}
+
 auto RouteRegister(JNIEnv* env, jclass, jbyteArray id) noexcept -> jbyteArray {
   try {
     tsugumi_view_session session{};
     if (!ReadViewId(env, id, session)) return nullptr;
     const auto route = card::display::route_register(session);
     return CopyBytes(env, route.bytes, sizeof(route.bytes));
+  } catch (const card::display::WindowClosed& error) {
+    if (jclass type = env->FindClass("tsugumi/Display$WindowClosed"))
+      env->ThrowNew(type, error.what());
+    return nullptr;
   } catch (const std::exception& error) {
     ThrowEffectError(env, error.what());
     return nullptr;
@@ -394,6 +407,8 @@ class Jvm {
     const JNINativeMethod methods[] = {
         {const_cast<char*>("viewOpen"), const_cast<char*>("([BIJJJ[B[B)V"),
          reinterpret_cast<void*>(ViewOpen)},
+        {const_cast<char*>("viewClose"), const_cast<char*>("([B)V"),
+         reinterpret_cast<void*>(ViewClose)},
         {const_cast<char*>("routeRegister"), const_cast<char*>("([B)[B"),
          reinterpret_cast<void*>(RouteRegister)},
         {const_cast<char*>("routeUnregister"), const_cast<char*>("([B)V"),

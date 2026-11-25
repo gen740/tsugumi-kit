@@ -54,6 +54,14 @@ def view_open(
     return OpenedView(*_host.view_open(view, mode, flags, width, height))
 
 
+WindowClosed = _host.WindowClosed
+
+
+def view_close(session: bytes) -> None:
+    """Close a window by its session UUID."""
+    _host.view_close(session)
+
+
 def route_register(session: bytes) -> bytes:
     """Create a route in this process for an existing session."""
     return _host.route_register(session)

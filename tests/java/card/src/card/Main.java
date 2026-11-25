@@ -90,6 +90,11 @@ public final class Main {
         } catch (IllegalStateException expected) {
             // The ABI rejects an oversized raw message.
         }
+        Display.viewClose(view.session());
+        try {
+            Display.routeRegister(view.session());
+            throw new IllegalStateException("Registered a route on a closed window");
+        } catch (Display.WindowClosed expected) {}
         var close = Display.recv(-1);
         if (close.status() != Display.ReceiveStatus.CLOSE || close.bytes().length != 0
                 || !Arrays.equals(close.route(), view.route()) || !Arrays.equals(close.session(), view.session())) {

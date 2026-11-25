@@ -101,6 +101,8 @@ host seals created directories when the call returns.
 
 `view_open(name, mode, flags, width, height)` returns a list with `route` and `session`.
 Use `route_register(session)` and `route_unregister(route)` to manage routes.
+`view_close(session)` closes the window. If the window has closed,
+`route_register` signals a `tsugumi_window_closed` condition.
 `send(session, bytes)` sends one raw vector. `send(value)` opens a panel
 and encodes text, a number, a data frame or a matrix.
 The constructors `markdown(text)`, `scalar(value, label)`,
@@ -135,7 +137,8 @@ view types.
 
 | Name | C signature |
 | --- | --- |
-| `view_open` | `int (const char* view, uint32_t mode, uint32_t width, uint32_t height, tsugumi_route* route, tsugumi_view_session* session)` |
+| `view_open` | `int (const char* view, uint32_t mode, uint32_t flags, uint32_t width, uint32_t height, tsugumi_route* route, tsugumi_view_session* session)` |
+| `view_close` | `int (const tsugumi_view_session* session)` |
 | `route_register` | `int (const tsugumi_view_session* session, tsugumi_route* route)` |
 | `route_unregister` | `int (const tsugumi_route* route)` |
 | `send` | `int (const tsugumi_view_session* session, const uint8_t* bytes, size_t size)` |

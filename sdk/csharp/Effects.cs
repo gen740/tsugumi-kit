@@ -39,6 +39,7 @@ internal unsafe struct NativeBytes
 internal unsafe struct NativeEffects
 {
     internal delegate* unmanaged[Cdecl]<byte*, uint, uint, uint, uint, byte*, byte*, int> ViewOpen;
+    internal delegate* unmanaged[Cdecl]<byte*, int> ViewClose;
     internal delegate* unmanaged[Cdecl]<byte*, byte*, int> RouteRegister;
     internal delegate* unmanaged[Cdecl]<byte*, int> RouteUnregister;
     internal delegate* unmanaged[Cdecl]<byte*, byte*, nuint, int, int> Send;
@@ -88,14 +89,31 @@ public static class Effects
             throw new ArgumentException("Expected a 16-byte view ID", nameof(id));
     }
 
+    public static unsafe void ViewClose(ReadOnlySpan<byte> session)
+    {
+        ValidateViewId(session);
+        fixed (byte* sessionPtr = session)
+            if (effects == null || effects->ViewClose(sessionPtr) != 0)
+                throw new InvalidOperationException("The host could not close the view");
+    }
+
+    public sealed class WindowClosedException() : InvalidOperationException("The view window is closed")
+    {
+    }
+
     public static unsafe byte[] RouteRegister(ReadOnlySpan<byte> session)
     {
         ValidateViewId(session);
         var route = new byte[16];
         fixed (byte* sessionPtr = session)
         fixed (byte* routePtr = route)
-            if (effects == null || effects->RouteRegister(sessionPtr, routePtr) != 0)
+        {
+            int status = effects == null ? -1 : effects->RouteRegister(sessionPtr, routePtr);
+            if (status == -2) // TSUGUMI_VIEW_WINDOW_CLOSED
+                throw new WindowClosedException();
+            if (status != 0)
                 throw new InvalidOperationException("The host could not register the route");
+        }
         return route;
     }
 

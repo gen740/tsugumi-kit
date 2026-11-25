@@ -134,11 +134,22 @@ extern "C" auto tsugumi_r_view_open(const char* view, uint32_t mode,
   }
 }
 
+extern "C" auto tsugumi_r_view_close(const tsugumi_view_session* session) noexcept -> int {
+  try {
+    card::display::view_close(*session);
+    return 0;
+  } catch (...) {
+    return -1;
+  }
+}
+
 extern "C" auto tsugumi_r_route_register(const tsugumi_view_session* session,
                                          tsugumi_route* route) noexcept -> int {
   try {
     *route = card::display::route_register(*session);
     return 0;
+  } catch (const card::display::WindowClosed&) {
+    return TSUGUMI_VIEW_WINDOW_CLOSED;
   } catch (...) {
     return -1;
   }

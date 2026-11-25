@@ -151,7 +151,7 @@ Flags form a 32-bit unsigned bitmask. Pass zero for the default, bit 0
 pointer lock. Both bits can be set together. While locked, Dawn pointer
 callbacks receive relative movement in `x` and `y`. The user can release
 pointer lock. A Card running without a UI still receives a session and
-route. Its sends are dropped and it receives no events from that session.
+route. It can close that session itself, and its sends are dropped.
 
 A session identifies one open view. `send` addresses that session and
 carries up to `TSUGUMI_MESSAGE_MAX` bytes (16 MiB) per ABI message.
@@ -165,11 +165,28 @@ them only with recipients that should be able to use them.
 event with its route and session, a timeout, or cancellation. A negative
 timeout waits without a deadline. Copy borrowed ABI bytes before the next
 receive on the same thread. The view effects are available between calls.
-Routes last until `route_unregister` or process exit. A view stays open when
-its last route goes away. Closing the view queues one close event for each
-live route, and later sends to the session are dropped. Messages to dead
-routes are dropped. View traffic is live and stays out of run history. Use
-outputs or logs to keep results.
+Routes last until `route_unregister`, process exit or window close. A view
+stays open when its last route goes away. The user or any Card that holds the
+session can close it. Closing queues one close event for each live route and
+drops later sends to the session. Closing an already closed session succeeds
+without another event. Messages to dead routes are dropped.
+
+| SDK | Close a window | Registering after close |
+| --- | --- | --- |
+| C ABI | `view_close(host, &session)` | `TSUGUMI_VIEW_WINDOW_CLOSED` (−2) |
+| C++ | `card::display::view_close(session)` | `card::display::WindowClosed` |
+| C# | `Effects.ViewClose(session)` | `Effects.WindowClosedException` |
+| Go | `ViewClose(session)` | `ErrWindowClosed` |
+| Java | `Display.viewClose(session)` | `Display.WindowClosed` |
+| JavaScript | `viewClose(session)` | Error with `code === "window_closed"` |
+| Julia | `view_close(session)` | `WindowClosed` |
+| Python | `tsugumi.view_close(session)` | `tsugumi.WindowClosed` |
+| R | `view_close(session)` | Condition of class `tsugumi_window_closed` |
+| Ruby | `Tsugumi.view_close(session)` | `Tsugumi::WindowClosed` |
+| Rust | `view_close(&session)` | `FailureKind::not_found` from `route_register` |
+
+View traffic is live and stays out of run history. Use outputs or logs to keep
+results.
 
 ### HTML view API
 

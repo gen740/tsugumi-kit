@@ -137,6 +137,12 @@ struct Received {
 auto view_open(std::string_view view, uint32_t mode = TSUGUMI_VIEW_PANEL,
                uint32_t flags = 0, uint32_t width = 0, uint32_t height = 0)
     -> OpenedView;
+class WindowClosed : public std::runtime_error {
+ public:
+  WindowClosed() : std::runtime_error("The view window is closed") {}
+};
+
+auto view_close(const tsugumi_view_session& session) -> void;
 auto route_register(const tsugumi_view_session& session) -> tsugumi_route;
 auto route_unregister(const tsugumi_route& route) -> void;
 auto recv(int64_t timeout_ms = -1) -> Received;

@@ -90,6 +90,12 @@ func run(input tsugumi.Inputs) (tsugumi.Output, error) {
 	if err := tsugumi.Send(session, bytes.Repeat([]byte{42}, (1<<24)+5)); err == nil {
 		return output, fmt.Errorf("oversize send succeeded")
 	}
+	if err := tsugumi.ViewClose(session); err != nil {
+		return output, err
+	}
+	if _, err := tsugumi.RouteRegister(session); err != tsugumi.ErrWindowClosed {
+		return output, fmt.Errorf("expected a closed window error, got %v", err)
+	}
 	event, status, err = tsugumi.Recv(-1)
 	if err != nil || status != tsugumi.Received || event.Kind != tsugumi.Close ||
 		event.Route != opener || event.Session != session || len(event.Data) != 0 {

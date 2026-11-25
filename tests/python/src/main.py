@@ -56,6 +56,13 @@ def run(input: Input) -> Output:
         pass
     else:
         raise AssertionError("Oversize message was accepted")
+    tsugumi.view_close(view.session)
+    try:
+        tsugumi.route_register(view.session)
+    except tsugumi.WindowClosed:
+        pass
+    else:
+        raise AssertionError("Registered a route on a closed window")
     assert tsugumi.recv() == tsugumi.ViewEvent("close", view.route, view.session, b"")
     Thread(target=background, daemon=True).start()
     return Output(listing=ListingT(

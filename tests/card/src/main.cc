@@ -60,6 +60,13 @@ auto run(const Card::Inputs& input) -> Card::Output {
                           std::vector<uint8_t>(TSUGUMI_MESSAGE_MAX + 5)) >= 0) {
     throw std::runtime_error("Unexpected view send status");
   }
+  card::display::view_close(view.session);
+  card::display::view_close(view.session);
+  try {
+    static_cast<void>(card::display::route_register(view.session));
+    throw std::runtime_error("Registered a route on a closed window");
+  } catch (const card::display::WindowClosed&) {
+  }
   const auto close = card::display::recv();
   if (close.status != ReceiveStatus::kClose || !close.bytes.empty() ||
       !std::ranges::equal(close.route.bytes, view.route.bytes) ||

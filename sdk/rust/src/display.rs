@@ -3,8 +3,8 @@ use std::ffi::CString;
 use serde_json::{Value, json};
 
 use crate::runtime::{
-    Failure, FailureKind, Result, open_view, recv_display, register_route, send_display, send_view,
-    unregister_route,
+    Failure, FailureKind, Result, close_view, open_view, recv_display, register_route, send_display,
+    send_view, unregister_route,
 };
 pub use crate::runtime::{Received, Route, ViewSession};
 
@@ -29,6 +29,10 @@ pub fn view_open(
     let view =
         CString::new(view).map_err(|_| invalid_display("View names cannot contain a NUL byte"))?;
     open_view(&view, mode as u32, flags, width, height)
+}
+
+pub fn view_close(session: &ViewSession) -> Result<()> {
+    close_view(session)
 }
 
 pub fn route_register(session: &ViewSession) -> Result<Route> {

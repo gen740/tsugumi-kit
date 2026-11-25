@@ -67,7 +67,11 @@ fn run(input: Inputs<'_>) -> Result<Output> {
     tsugumi::route_unregister(&route)?;
     tsugumi::send(&session, &[42])?;
     tsugumi::send(&session, &vec![42; 1 << 24])?;
-    if tsugumi::send(&session, &vec![42; (1 << 24) + 5]).is_ok()
+    if tsugumi::send(&session, &vec![42; (1 << 24) + 5]).is_ok() {
+        return Err(unexpected("Oversize message was accepted"));
+    }
+    tsugumi::view_close(&session)?;
+    if !matches!(tsugumi::route_register(&session), Err(error) if error.kind == FailureKind::not_found)
         || tsugumi::recv(-1)?
             != (Received::Close {
                 route: opener,

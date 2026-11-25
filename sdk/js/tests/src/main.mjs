@@ -3,7 +3,7 @@ import { statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Worker } from "node:worker_threads";
 import isNumber from "is-number";
-import { Artifact, ByteBuffer, inputs, outputs, params, ViewMode, ViewFlags, viewOpen, routeRegister, routeUnregister, recv, send } from "@tsugumi/card";
+import { Artifact, ByteBuffer, inputs, outputs, params, ViewMode, ViewFlags, viewOpen, viewClose, routeRegister, routeUnregister, recv, send } from "@tsugumi/card";
 
 export default function main(input, ctx) {
   const item = input.need("arrival");
@@ -38,6 +38,8 @@ export default function main(input, ctx) {
   assert.equal(send(session, Uint8Array.of(42)), 0);
   assert.equal(send(session, new Uint8Array(1 << 24).fill(42)), 0);
   assert(send(session, new Uint8Array((1 << 24) + 5)) < 0);
+  viewClose(session);
+  assert.throws(() => routeRegister(session), { code: "window_closed" });
   assert.deepEqual(recv(), { status: "close", route, session, bytes: new Uint8Array() });
   new Worker(new URL("./display-worker.mjs", import.meta.url));
   const child = new outputs.ChildT(artifact);

@@ -41,6 +41,13 @@ function main(input)
     catch err
         err isa ErrorException
     end
+    view_close(view.session)
+    @assert try
+        route_register(view.session)
+        false
+    catch err
+        err isa WindowClosed
+    end
     @assert recv() == (; kind=:close, route=view.route, session=view.session, data=UInt8[])
     Threads.@spawn begin
         event = recv()

@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "bridge.h"
+#include "tsugumi/abi/card_abi.h"
 
 extern int tsugumi_ruby_on_owner(VALUE (*callback)(VALUE), VALUE context);
 static VALUE sdk = Qnil;
@@ -77,6 +78,21 @@ struct route_request {
   int status;
 };
 
+static void* close_without_gvl(void* opaque) {
+  struct route_request* request = opaque;
+  request->status = tsugumi_ruby_view_close(request->session);
+  return NULL;
+}
+
+static VALUE view_close(VALUE self, VALUE session) {
+  (void)self;
+  struct route_request request = {.status = -1};
+  read_view_id(session, request.session);
+  rb_thread_call_without_gvl(close_without_gvl, &request, NULL, NULL);
+  if (request.status) rb_raise(rb_eRuntimeError, "view close was rejected");
+  return Qnil;
+}
+
 static void* register_without_gvl(void* opaque) {
   struct route_request* request = opaque;
   request->status =
@@ -85,10 +101,11 @@ static void* register_without_gvl(void* opaque) {
 }
 
 static VALUE route_register(VALUE self, VALUE session) {
-  (void)self;
   struct route_request request = {.status = -1};
   read_view_id(session, request.session);
   rb_thread_call_without_gvl(register_without_gvl, &request, NULL, NULL);
+  if (request.status == TSUGUMI_VIEW_WINDOW_CLOSED)
+    rb_raise(rb_const_get(self, rb_intern("WindowClosed")), "the view window is closed");
   if (request.status)
     rb_raise(rb_eRuntimeError, "view route registration was rejected");
   return rb_str_new((const char*)request.route, 16);
@@ -242,6 +259,8 @@ static VALUE initialize(VALUE unused) {
   VALUE package = rb_module_new();
   VALUE host = rb_define_module_under(package, "TsugumiHost");
   rb_define_singleton_method(host, "view_open", view_open, 5);
+  rb_define_class_under(host, "WindowClosed", rb_eRuntimeError);
+  rb_define_singleton_method(host, "view_close", view_close, 1);
   rb_define_singleton_method(host, "route_register", route_register, 1);
   rb_define_singleton_method(host, "route_unregister", route_unregister, 1);
   rb_define_singleton_method(host, "send_bytes", send_bytes, 3);

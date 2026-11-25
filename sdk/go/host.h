@@ -18,6 +18,7 @@ int tsugumi_go_failure(void* result, uint16_t kind, const char* message,
 int tsugumi_go_view_open(const char* view, uint32_t mode, uint32_t flags,
                          uint32_t width, uint32_t height, uint8_t* route,
                          uint8_t* session);
+int tsugumi_go_view_close(const uint8_t* session);
 int tsugumi_go_route_register(const uint8_t* session, uint8_t* route);
 int tsugumi_go_route_unregister(const uint8_t* route);
 int tsugumi_go_send(const uint8_t* session, const uint8_t* data, size_t size,

@@ -62,6 +62,9 @@ module Tsugumi
     TsugumiHost.view_open(view, mode, flags, width, height)
   end
 
+  WindowClosed = TsugumiHost::WindowClosed
+
+  def self.view_close(session) = TsugumiHost.view_close(session)
   def self.route_register(session) = TsugumiHost.route_register(session)
   def self.route_unregister(route) = TsugumiHost.route_unregister(route)
   def self.recv(timeout_ms = -1) = TsugumiHost.recv(timeout_ms)

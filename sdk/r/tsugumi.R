@@ -27,8 +27,17 @@ view_open <- function(view, mode = VIEW_PANEL, flags = 0L, width = 0L, height = 
   setNames(result, c("route", "session"))
 }
 
+view_close <- function(session) {
+  invisible(.Call(tsugumi_r_view_close, session))
+}
+
 route_register <- function(session) {
-  .Call(tsugumi_r_route_register, session)
+  route <- .Call(tsugumi_r_route_register, session)
+  if (is.null(route)) {
+    stop(structure(list(message = "The view window is closed", call = NULL),
+                   class = c("tsugumi_window_closed", "error", "condition")))
+  }
+  route
 }
 
 route_unregister <- function(route) {

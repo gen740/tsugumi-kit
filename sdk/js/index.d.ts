@@ -35,6 +35,7 @@ export type ViewEvent = Readonly<
 >;
 export const ViewFlags: Readonly<{ NONE: 0; HIDE_CURSOR: 1; LOCK_POINTER: 2 }>;
 export function viewOpen(view: string, mode?: ViewMode, flags?: number, width?: number, height?: number): OpenedView;
+export function viewClose(session: Uint8Array): void;
 export function routeRegister(session: Uint8Array): Uint8Array;
 export function routeUnregister(route: Uint8Array): void;
 export function send(session: Uint8Array, bytes: Uint8Array): number;
@@ -66,6 +67,7 @@ export const display: Readonly<{
 
 export interface CardContext {
   readonly viewOpen: typeof viewOpen;
+  readonly viewClose: typeof viewClose;
   readonly routeRegister: typeof routeRegister;
   readonly routeUnregister: typeof routeUnregister;
   readonly send: typeof send;

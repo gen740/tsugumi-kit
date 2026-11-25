@@ -9,6 +9,7 @@ import "C"
 import (
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"slices"
@@ -95,13 +96,28 @@ func ViewOpen(view string, mode ViewMode, flags ViewFlags, width, height uint32)
 	return route, session, nil
 }
 
+// ViewClose closes the window identified by session.
+func ViewClose(session ViewSession) error {
+	if C.tsugumi_go_view_close(bytesPointer(session[:])) != 0 {
+		return errors.New("the host rejected the view close")
+	}
+	return nil
+}
+
+// ErrWindowClosed means the session no longer has a live window.
+var ErrWindowClosed = errors.New("the view window is closed")
+
 // RouteRegister creates a route for this process on an existing window.
 func RouteRegister(session ViewSession) (Route, error) {
 	var route Route
-	if C.tsugumi_go_route_register(bytesPointer(session[:]), bytesPointer(route[:])) != 0 {
+	switch C.tsugumi_go_route_register(bytesPointer(session[:]), bytesPointer(route[:])) {
+	case 0:
+		return route, nil
+	case -2: // TSUGUMI_VIEW_WINDOW_CLOSED
+		return Route{}, ErrWindowClosed
+	default:
 		return Route{}, fmt.Errorf("the host rejected the route registration")
 	}
-	return route, nil
 }
 
 // RouteUnregister removes a route owned by this process.

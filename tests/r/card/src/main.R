@@ -44,8 +44,13 @@ main <- function(input) {
   stopifnot(isTRUE(tryCatch({
     send(view$session, rep(as.raw(42), 2^24 + 5))
     FALSE
-  }, error = function(error) TRUE)),
-  identical(recv(), list(kind = "close", route = view$route,
+  }, error = function(error) TRUE)))
+  view_close(view$session)
+  stopifnot(tryCatch({
+    route_register(view$session)
+    FALSE
+  }, tsugumi_window_closed = function(error) TRUE))
+  stopifnot(identical(recv(), list(kind = "close", route = view$route,
                          session = view$session, data = raw(0L))))
   .Call("start_effects", PACKAGE = effects[["name"]])
   list(listing = list(

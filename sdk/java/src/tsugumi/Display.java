@@ -65,6 +65,16 @@ public final class Display {
         return id;
     }
 
+    public static void viewClose(byte[] session) {
+        Effects.viewClose(requireId(session));
+    }
+
+    public static final class WindowClosed extends IllegalStateException {
+        public WindowClosed(String message) {
+            super(message);
+        }
+    }
+
     public static byte[] routeRegister(byte[] session) {
         return Effects.routeRegister(requireId(session));
     }

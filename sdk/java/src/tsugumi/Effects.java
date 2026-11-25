@@ -12,6 +12,7 @@ public final class Effects {
 
     static native void viewOpen(byte[] view, int mode, long flags, long width, long height,
                                 byte[] route, byte[] session);
+    static native void viewClose(byte[] session);
     static native byte[] routeRegister(byte[] session);
     static native void routeUnregister(byte[] route);
     static native byte[] recv(long timeoutMs, int[] status, byte[] route, byte[] session);

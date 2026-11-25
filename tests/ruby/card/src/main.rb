@@ -48,6 +48,12 @@ def main(input)
   else
     raise "oversize send succeeded"
   end
+  Tsugumi.view_close(session)
+  begin
+    Tsugumi.route_register(session)
+    raise "registered a route on a closed window"
+  rescue Tsugumi::WindowClosed
+  end
   raise "wrong close" unless Tsugumi.recv == [:close, opener, session, "".b]
   Thread.new do
     kind, _, _, bytes = Tsugumi.recv

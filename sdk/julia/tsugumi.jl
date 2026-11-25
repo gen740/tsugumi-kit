@@ -5,7 +5,7 @@ import Printf
 import Base64
 
 export Inputs, Artifact, dir, upload, params, send, recv, cancelled, remaining_ms, CardFailure
-export view_open, route_register, route_unregister, VIEW_PANEL, VIEW_WINDOW, VIEW_FULLSCREEN, VIEW_HIDE_CURSOR, VIEW_LOCK_POINTER
+export view_open, view_close, route_register, route_unregister, WindowClosed, VIEW_PANEL, VIEW_WINDOW, VIEW_FULLSCREEN, VIEW_HIDE_CURSOR, VIEW_LOCK_POINTER
 export Markdown, Scalar, Table, Image, Points, LineChart, Plotly, VegaLite
 
 struct CardFailure <: Exception
@@ -99,11 +99,22 @@ function view_open(view::AbstractString, mode::Integer=VIEW_PANEL,
     return (; route=route[], session=session[])
 end
 
+struct WindowClosed <: Exception end
+Base.showerror(io::IO, ::WindowClosed) = print(io, "The view window is closed")
+
+function view_close(session::ViewId)
+    target = Ref(session)
+    code = @ccall gc_safe=true $(HOST.view_close)(target::Ref{ViewId})::Cint
+    code == 0 || error("view close was rejected")
+    return nothing
+end
+
 function route_register(session::ViewId)
     target = Ref(session)
     route = Ref{ViewId}()
     code = @ccall gc_safe=true $(HOST.route_register)(target::Ref{ViewId},
                      route::Ref{ViewId})::Cint
+    code == -2 && throw(WindowClosed())  # TSUGUMI_VIEW_WINDOW_CLOSED
     code == 0 || error("route registration was rejected")
     return route[]
 end
@@ -215,7 +226,7 @@ end
 
 module CardCode
 using ..Tsugumi: Inputs, Artifact, dir, upload, params, send, recv, cancelled, remaining_ms, CardFailure
-using ..Tsugumi: view_open, route_register, route_unregister, VIEW_PANEL, VIEW_WINDOW, VIEW_FULLSCREEN, VIEW_HIDE_CURSOR, VIEW_LOCK_POINTER
+using ..Tsugumi: view_open, view_close, route_register, route_unregister, WindowClosed, VIEW_PANEL, VIEW_WINDOW, VIEW_FULLSCREEN, VIEW_HIDE_CURSOR, VIEW_LOCK_POINTER
 using ..Tsugumi: Markdown, Scalar, Table, Image, Points, LineChart, Plotly, VegaLite
 end
 
