@@ -18,7 +18,7 @@ filter-counts/
     src/card.cc
 ```
 
-Every Card definition includes a `README.md` with a non-empty `title` for the display name and a one-line `description`, which may be empty. Both fields belong to the front matter. Write a space after the colon for an empty description. The `_card.json` writes all the fields required for its type, including its `symbol`. The executable templates list every Nix system they work on in `systems` (`aarch64-linux`, `x86_64-linux` and `aarch64-darwin`, the systems this kit checks) and declare `workerCapabilities` explicitly. See [Project files](https://github.com/gen740/Tsugumi/blob/main/docs/Reference.md) for the field sets.
+Every Card definition includes a `README.md` with a non-empty `title` for the display name and a one-line `description`, which may be empty. Both fields belong to the front matter. Write a space after the colon for an empty description. The `_card.json` writes all the fields required for its type, including its `symbol`. The executable templates list every Nix system they work on in `systems` (`aarch64-linux`, `x86_64-linux` and `aarch64-darwin`, the systems this kit checks). See [Project files](https://github.com/gen740/Tsugumi/blob/main/docs/Reference.md) for the field sets.
 
 `params.nix` holds the Card's params. A Card without params has no
 `params.nix`; Tsugumi treats a missing file as `{ }`.
