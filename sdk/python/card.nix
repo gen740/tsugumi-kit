@@ -5,8 +5,10 @@
   runCommand,
   runCommandCC,
   flatbuffers,
+  file,
   libffi,
   patchelf,
+  removeReferencesTo,
   python3,
   pythonRuntime,
   ipaexGothic,
@@ -51,7 +53,21 @@ let
     }:
     let
       inherit (stdenv.hostPlatform) isDarwin;
-      pythonEnv = python.withPackages (ps: [ ps.flatbuffers ] ++ packages ps);
+      selectedPackages = [ python.pkgs.flatbuffers ] ++ packages python.pkgs;
+      pythonEnv = python.withPackages (_: selectedPackages);
+      # Match the outputs installed by withPackages' buildEnv.
+      packageOutputs = lib.unique (
+        lib.concatMap (
+          pkg:
+          (
+            if !(pkg.outputSpecified or false) && pkg.meta.outputsToInstall or null != null then
+              map (name: pkg.${name}) pkg.meta.outputsToInstall
+            else
+              [ pkg ]
+          )
+          ++ lib.optional (pkg ? out) pkg.out
+        ) (lib.remove python (python.pkgs.requiredPythonModules selectedPackages))
+      );
       codegenPython = python3.withPackages (_: [ portCodegen ]);
       inherit (stdenv.hostPlatform.extensions) sharedLibrary;
       interpreter = pythonRuntime python;
@@ -60,7 +76,11 @@ let
     in
     runCommandCC "tsugumi-python-card"
       {
-        nativeBuildInputs = if isDarwin then [ darwin.sigtool ] else [ patchelf ];
+        nativeBuildInputs = [
+          file
+          removeReferencesTo
+        ]
+        ++ (if isDarwin then [ darwin.sigtool ] else [ patchelf ]);
         disallowedReferences = [
           python
           pythonEnv
@@ -96,6 +116,9 @@ let
         "${codegenPython}/bin/python3" ${./runtime-files.py} site-packages "$out/lib/python-packages" "$originalPython"
         source ${./relocate-libpython.sh}
         relink_python "$out/lib/python-packages"
+        "${codegenPython}/bin/python3" ${./strip-package-references.py} \
+          "$out/lib/python-packages" ${lib.escapeShellArg python.sitePackages} \
+          ${lib.escapeShellArgs (map toString packageOutputs)}
 
         cat > "$out/share/tsugumi/runtime.json" <<'EOF'
         ${builtins.toJSON {
@@ -109,7 +132,9 @@ let
         }}
         EOF
         PYTHONPATH="${../cpp}''${PYTHONPATH:+:$PYTHONPATH}" \
-          "${codegenPython}/bin/python3" ${./generate.py} --params "${cardInterface { inherit inputs outputs params; }}" \
+          "${codegenPython}/bin/python3" ${./generate.py} --params "${
+            cardInterface { inherit inputs outputs params; }
+          }" \
             "${paramValues params}" "$out/lib/python/card_params.py"
         if [ -d "${pythonEnv}/${python.sitePackages}/matplotlib" ]; then
           cp ${ipaexGothic}/share/fonts/truetype/ipaexg.ttf "$out/lib/python/tsugumi/"

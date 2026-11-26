@@ -1,4 +1,5 @@
 import sys
+from pathlib import Path
 from threading import Thread
 
 import tsugumi
@@ -30,6 +31,13 @@ def run(input: Input) -> Output:
     if params.offset == 100:
         assert not hasattr(sys, "_tsugumi_shared_test")
         sys._tsugumi_shared_test = __name__
+        import numpy
+        from astropy.convolution import _convolve, convolve
+
+        packages = Path(__file__).resolve().parents[1] / "python-packages"
+        for module in (numpy, _convolve):
+            assert Path(module.__file__).resolve().is_relative_to(packages)
+        assert numpy.allclose(convolve([1, 2, 3], [1]), [1, 2, 3])
     else:
         assert sys._tsugumi_shared_test != __name__
         del sys._tsugumi_shared_test
